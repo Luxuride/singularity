@@ -27,13 +27,15 @@
     let unlisten = () => {};
 
     void (async () => {
-      await loadChats();
       unlisten = await subscribeToRoomUpdates({
         onRoomAdded: applyRoomUpsert,
         onRoomUpdated: applyRoomUpsert,
         onRoomRemoved: applyRoomRemoval,
         onSelectedRoomMessages: applySelectedRoomMessages,
       });
+
+      await loadChats();
+      await requestRefresh();
     })();
 
     return () => {
@@ -105,6 +107,10 @@
   }
 
   async function requestRefresh() {
+    if (refreshing) {
+      return;
+    }
+
     refreshing = true;
     errorMessage = "";
 
