@@ -1,0 +1,64 @@
+import { invoke } from "@tauri-apps/api/core";
+import type {
+  MatrixCompleteOAuthRequest,
+  MatrixCompleteOAuthResponse,
+  MatrixLogoutResponse,
+  MatrixSessionStatusResponse,
+  MatrixStartOAuthRequest,
+  MatrixStartOAuthResponse,
+} from "./types";
+
+function toMessage(error: unknown): string {
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error && typeof error === "object") {
+    const candidate = (error as Record<string, unknown>).message;
+    if (typeof candidate === "string") {
+      return candidate;
+    }
+  }
+
+  return "Unexpected error";
+}
+
+export async function matrixStartOAuth(
+  input: MatrixStartOAuthRequest,
+): Promise<MatrixStartOAuthResponse> {
+  try {
+    return await invoke<MatrixStartOAuthResponse>("matrix_start_oauth", {
+      request: input,
+    });
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixCompleteOAuth(
+  input: MatrixCompleteOAuthRequest,
+): Promise<MatrixCompleteOAuthResponse> {
+  try {
+    return await invoke<MatrixCompleteOAuthResponse>("matrix_complete_oauth", {
+      request: input,
+    });
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixSessionStatus(): Promise<MatrixSessionStatusResponse> {
+  try {
+    return await invoke<MatrixSessionStatusResponse>("matrix_session_status");
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixLogout(): Promise<MatrixLogoutResponse> {
+  try {
+    return await invoke<MatrixLogoutResponse>("matrix_logout");
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}

@@ -1,0 +1,36 @@
+import { listen } from "@tauri-apps/api/event";
+
+import type {
+  MatrixChatSummary,
+  MatrixRoomRemovedEvent,
+  MatrixSelectedRoomMessagesEvent,
+} from "./types";
+
+const EVENT_ROOM_ADDED = "matrix://rooms/added";
+const EVENT_ROOM_UPDATED = "matrix://rooms/updated";
+const EVENT_ROOM_REMOVED = "matrix://rooms/removed";
+const EVENT_SELECTED_ROOM_MESSAGES = "matrix://rooms/selected/messages";
+
+export interface RoomUpdateHandlers {
+  onRoomAdded: (room: MatrixChatSummary) => void;
+  onRoomUpdated: (room: MatrixChatSummary) => void;
+  onRoomRemoved: (payload: MatrixRoomRemovedEvent) => void;
+  onSelectedRoomMessages: (payload: MatrixSelectedRoomMessagesEvent) => void;
+}
+
+export async function subscribeToRoomUpdates(handlers: RoomUpdateHandlers): Promise<() => void> {
+  const unlisteners = await Promise.all([
+    listen<MatrixChatSummary>(EVENT_ROOM_ADDED, (event) => handlers.onRoomAdded(event.payload)),
+    listen<MatrixChatSummary>(EVENT_ROOM_UPDATED, (event) => handlers.onRoomUpdated(event.payload)),
+    listen<MatrixRoomRemovedEvent>(EVENT_ROOM_REMOVED, (event) => handlers.onRoomRemoved(event.payload)),
+    listen<MatrixSelectedRoomMessagesEvent>(EVENT_SELECTED_ROOM_MESSAGES, (event) =>
+      handlers.onSelectedRoomMessages(event.payload),
+    ),
+  ]);
+
+  return () => {
+    for (const unlisten of unlisteners) {
+      unlisten();
+    }
+  };
+}
