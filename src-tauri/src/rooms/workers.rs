@@ -266,5 +266,7 @@ async fn run_refresh_pass(
 }
 
 fn is_unknown_token_error(error: &str) -> bool {
-    error.contains("M_UNKNOWN_TOKEN") || error.contains("refresh token does not exist")
+    error.contains("M_UNKNOWN_TOKEN")
+        || error.contains("refresh token does not exist")
+        || error.contains("refresh token isn't valid anymore")
 }
