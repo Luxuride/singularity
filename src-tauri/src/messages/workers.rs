@@ -8,7 +8,6 @@ use serde_json::Value;
 
 use crate::protocol::events_schema::parse_timeline_message;
 
-use super::persistence::sort_messages_by_timestamp;
 use super::types::{
     MatrixChatMessage, MatrixGetChatMessagesResponse, MatrixMessageDecryptionStatus,
     MatrixMessageVerificationStatus,
@@ -115,7 +114,6 @@ pub(crate) async fn fetch_room_messages_from_client(
         }
     }
 
-    sort_messages_by_timestamp(&mut messages);
     debug!(
         "Fetched {} chat messages (utd_present={})",
         messages.len(),

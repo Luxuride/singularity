@@ -6,7 +6,7 @@ use crate::protocol::event_paths;
 use crate::rooms::{RoomRefreshTrigger, RoomUpdateTriggerState};
 use crate::protocol::sync::sync_once_serialized;
 
-use super::persistence::{is_cacheable_initial_request, sort_messages_by_timestamp};
+use super::persistence::is_cacheable_initial_request;
 use super::types::{
     MatrixChatMessageStreamEvent, MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse,
     MatrixMessageLoadKind, MatrixSendChatMessageRequest, MatrixSendChatMessageResponse,
@@ -89,7 +89,7 @@ pub async fn matrix_stream_chat_messages(
             .load_initial_room_messages(room_id.as_str(), from.as_deref(), limit)
             .await
         {
-            let iter = cached.messages.into_iter().rev();
+            let iter = cached.messages.into_iter();
             let mut sequence = 0_u32;
 
             for message in iter {
@@ -151,11 +151,14 @@ pub async fn matrix_stream_chat_messages(
     let mut sequence = 0_u32;
 
     while sequence < target_message_count as u32 && request_count < max_request_count {
+        let remaining = target_message_count.saturating_sub(sequence as usize);
+        let batch_limit = remaining.min(10) as u32;
+
         let response = fetch_room_messages_from_client(
             &client,
             room_id.as_str(),
             scan_from.clone(),
-            Some(1),
+            Some(batch_limit),
         )
         .await?;
 
@@ -163,7 +166,11 @@ pub async fn matrix_stream_chat_messages(
         final_next_from = response.next_from.clone();
         scan_from = response.next_from;
 
-        if let Some(message) = response.messages.into_iter().next() {
+        for message in response.messages {
+            if sequence >= target_message_count as u32 {
+                break;
+            }
+
             if cacheable_initial_request {
                 cache_messages.push(message.clone());
             }
@@ -194,7 +201,6 @@ pub async fn matrix_stream_chat_messages(
     let next_from = final_next_from.clone();
 
     if cacheable_initial_request {
-        sort_messages_by_timestamp(&mut cache_messages);
         message_cache
             .store_initial_room_messages(&MatrixGetChatMessagesResponse {
                 room_id: room_id.clone(),
