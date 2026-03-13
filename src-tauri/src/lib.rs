@@ -3,7 +3,6 @@ use tauri::Manager;
 mod auth;
 mod messages;
 mod protocol;
-mod room_updates;
 mod rooms;
 mod storage;
 
@@ -13,7 +12,7 @@ pub fn run() {
         .manage(auth::AuthState::default())
         .setup(|app| {
             auth::start_token_rotation_worker(app.handle().clone());
-            let trigger_state = room_updates::start_room_update_worker(app.handle().clone());
+            let trigger_state = rooms::start_room_update_worker(app.handle().clone());
             app.manage(trigger_state);
             Ok(())
         })
@@ -24,13 +23,13 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            auth::matrix_start_oauth,
-            auth::matrix_complete_oauth,
-            auth::matrix_session_status,
-            auth::matrix_logout,
-            rooms::matrix_get_chats,
-            messages::matrix_get_chat_messages,
-            room_updates::matrix_trigger_room_update
+            auth::commands::matrix_start_oauth,
+            auth::commands::matrix_complete_oauth,
+            auth::commands::matrix_session_status,
+            auth::commands::matrix_logout,
+            rooms::commands::matrix_get_chats,
+            rooms::commands::matrix_trigger_room_update,
+            messages::commands::matrix_get_chat_messages,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
