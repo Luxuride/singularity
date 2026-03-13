@@ -1,19 +1,29 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
 
-  import { matrixStreamChatMessages } from "../../../lib/chats/api";
+  import { matrixSendChatMessage, matrixStreamChatMessages } from "../../../lib/chats/api";
   import { subscribeToRoomUpdates } from "../../../lib/chats/realtime";
-  import { shellChats, shellSelectedRoomId } from "../../../lib/chats/shell";
+  import { shellChats, shellCurrentUserId, shellSelectedRoomId } from "../../../lib/chats/shell";
   import type {
     MatrixChatMessage,
     MatrixChatMessageStreamEvent,
+    MatrixSendChatMessageRequest,
     MatrixMessageLoadKind,
   } from "../../../lib/chats/types";
 
   let loadingMessages = $state(false);
   let errorMessage = $state("");
+  let composerErrorMessage = $state("");
+  let messageDraft = $state("");
+  let sendingMessage = $state(false);
 
-  let messages = $state<MatrixChatMessage[]>([]);
+  type MessageSendState = "sending" | "failed";
+  type TimelineMessage = MatrixChatMessage & {
+    localId?: string;
+    sendState?: MessageSendState;
+  };
+
+  let messages = $state<TimelineMessage[]>([]);
   let nextFrom = $state<string | null>(null);
   let timelineElement = $state<HTMLElement | null>(null);
   let activeStreamId = $state("");
@@ -71,6 +81,9 @@
       streamMessageCount = 0;
       seenEventIds.clear();
       loadingMessages = false;
+      messageDraft = "";
+      sendingMessage = false;
+      composerErrorMessage = "";
       messages = [];
       nextFrom = null;
       return;
@@ -88,6 +101,9 @@
     activeLoadKind = null;
     streamMessageCount = 0;
     seenEventIds.clear();
+    messageDraft = "";
+    sendingMessage = false;
+    composerErrorMessage = "";
 
     messages = [];
     nextFrom = null;
@@ -266,6 +282,39 @@
     return false;
   }
 
+  function tryReplaceOptimisticWithRemote(message: MatrixChatMessage): boolean {
+    if (message.timestamp == null) {
+      return false;
+    }
+
+    const incomingTimestamp = message.timestamp;
+
+    const optimisticIndex = messages.findIndex((candidate) => {
+      if (candidate.sendState !== "sending") {
+        return false;
+      }
+
+      if (candidate.body !== message.body || candidate.sender !== message.sender) {
+        return false;
+      }
+
+      if (!candidate.timestamp) {
+        return false;
+      }
+
+      return Math.abs(candidate.timestamp - incomingTimestamp) <= 120_000;
+    });
+
+    if (optimisticIndex < 0) {
+      return false;
+    }
+
+    const updated = [...messages];
+    updated[optimisticIndex] = message;
+    messages = updated;
+    return true;
+  }
+
   function applyChatMessageStream(payload: MatrixChatMessageStreamEvent) {
     if (payload.roomId !== $shellSelectedRoomId) {
       return;
@@ -288,6 +337,13 @@
       return;
     }
 
+    if (tryReplaceOptimisticWithRemote(payload.message)) {
+      if (payload.message.eventId) {
+        seenEventIds.add(payload.message.eventId);
+      }
+      return;
+    }
+
     streamMessageCount = payload.sequence + 1;
 
     // Backend streams newest -> older for immediate delivery; prepend keeps timeline ordered.
@@ -296,6 +352,142 @@
     if (payload.loadKind === "initial") {
       queuePinTimelineToBottom(payload.roomId);
     }
+  }
+
+  function buildOptimisticMessage(body: string): TimelineMessage {
+    const encryptedRoom = selectedRoomEncrypted();
+
+    return {
+      eventId: null,
+      sender: $shellCurrentUserId || "You",
+      timestamp: Date.now(),
+      body,
+      encrypted: encryptedRoom,
+      decryptionStatus: encryptedRoom ? "decrypted" : "plaintext",
+      verificationStatus: "unknown",
+      localId: createStreamId(),
+      sendState: "sending",
+    };
+  }
+
+  async function sendOptimisticMessage(
+    roomId: string,
+    request: MatrixSendChatMessageRequest,
+    localId: string,
+  ) {
+    sendingMessage = true;
+
+    try {
+      const response = await matrixSendChatMessage(request);
+
+      if (response.eventId) {
+        seenEventIds.add(response.eventId);
+      }
+
+      messages = messages.map((message) => {
+        if (message.localId !== localId) {
+          return message;
+        }
+
+        return {
+          ...message,
+          eventId: response.eventId,
+          sendState: undefined,
+          localId: undefined,
+        };
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to send message";
+      composerErrorMessage = message;
+
+      messages = messages.map((timelineMessage) => {
+        if (timelineMessage.localId !== localId) {
+          return timelineMessage;
+        }
+
+        return {
+          ...timelineMessage,
+          sendState: "failed",
+        };
+      });
+    } finally {
+      sendingMessage = false;
+      queuePinTimelineToBottom(roomId);
+    }
+  }
+
+  async function sendDraftMessage() {
+    const roomId = $shellSelectedRoomId;
+    if (!roomId) {
+      return;
+    }
+
+    const body = messageDraft.trim();
+    if (!body) {
+      composerErrorMessage = "Message cannot be empty";
+      return;
+    }
+
+    composerErrorMessage = "";
+    messageDraft = "";
+
+    const optimistic = buildOptimisticMessage(body);
+    const localId = optimistic.localId;
+
+    if (!localId) {
+      return;
+    }
+
+    messages = [...messages, optimistic];
+    queuePinTimelineToBottom(roomId);
+
+    await sendOptimisticMessage(
+      roomId,
+      {
+        roomId,
+        body,
+      },
+      localId,
+    );
+  }
+
+  async function retryMessage(message: TimelineMessage) {
+    const roomId = $shellSelectedRoomId;
+    if (!roomId || !message.localId || message.sendState !== "failed") {
+      return;
+    }
+
+    composerErrorMessage = "";
+
+    messages = messages.map((timelineMessage) => {
+      if (timelineMessage.localId !== message.localId) {
+        return timelineMessage;
+      }
+
+      return {
+        ...timelineMessage,
+        sendState: "sending",
+      };
+    });
+
+    await sendOptimisticMessage(
+      roomId,
+      {
+        roomId,
+        body: message.body,
+      },
+      message.localId,
+    );
+  }
+
+  function handleComposerSubmit(event: SubmitEvent) {
+    event.preventDefault();
+
+    if (sendingMessage) {
+      return;
+    }
+
+    void sendDraftMessage();
   }
 
   async function loadMessages(roomId: string) {
@@ -472,6 +664,18 @@
               <span>{toTime(message.timestamp)}</span>
             </div>
             <p class="text-sm whitespace-pre-wrap break-words">{message.body}</p>
+            {#if message.sendState}
+              <div class="mt-2 flex items-center gap-2 text-xs">
+                {#if message.sendState === "sending"}
+                  <span class="rounded px-2 py-0.5 bg-primary-200-800 text-primary-900-100">Sending...</span>
+                {:else}
+                  <span class="rounded px-2 py-0.5 bg-error-200-800 text-error-900-100">Failed to send</span>
+                  <button type="button" class="btn btn-xs preset-tonal" onclick={() => void retryMessage(message)} disabled={sendingMessage}>
+                    Retry
+                  </button>
+                {/if}
+              </div>
+            {/if}
             {#if message.encrypted}
               <div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
                 <span class="rounded px-2 py-0.5 bg-surface-200-800">{decryptionLabel(message.decryptionStatus)}</span>
@@ -491,3 +695,28 @@
     {/if}
   {/if}
 </section>
+
+<form class="card p-3 mt-3 preset-outlined-surface-200-800 bg-surface-100-900" onsubmit={handleComposerSubmit}>
+  {#if composerErrorMessage}
+    <p class="mb-2 text-sm preset-filled-error-500 card p-2">{composerErrorMessage}</p>
+  {/if}
+
+  <label class="text-xs text-surface-700-300 mb-1" for="chat-message-draft">Message</label>
+  <textarea
+    id="chat-message-draft"
+    class="input h-24"
+    placeholder={$shellSelectedRoomId ? "Write a message..." : "Select a room to compose"}
+    bind:value={messageDraft}
+    disabled={!$shellSelectedRoomId || sendingMessage}
+  ></textarea>
+
+  <div class="mt-2 flex justify-end">
+    <button
+      type="submit"
+      class="btn preset-filled"
+      disabled={!$shellSelectedRoomId || sendingMessage || messageDraft.trim().length === 0}
+    >
+      {#if sendingMessage}Sending...{:else}Send{/if}
+    </button>
+  </div>
+</form>

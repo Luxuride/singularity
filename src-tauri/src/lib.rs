@@ -35,6 +35,7 @@ pub fn run() {
             rooms::commands::matrix_trigger_room_update,
             messages::commands::matrix_get_chat_messages,
             messages::commands::matrix_stream_chat_messages,
+            messages::commands::matrix_send_chat_message,
             verification::commands::matrix_own_verification_status,
             verification::commands::matrix_get_user_devices,
             verification::commands::matrix_request_device_verification,

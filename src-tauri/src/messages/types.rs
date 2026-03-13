@@ -41,6 +41,13 @@ pub struct MatrixStreamChatMessagesRequest {
     pub load_kind: MatrixMessageLoadKind,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixSendChatMessageRequest {
+    pub room_id: String,
+    pub body: String,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixChatMessage {
@@ -66,6 +73,12 @@ pub struct MatrixGetChatMessagesResponse {
 pub struct MatrixStreamChatMessagesResponse {
     pub stream_id: String,
     pub started: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixSendChatMessageResponse {
+    pub event_id: String,
 }
 
 #[derive(Clone, Serialize)]
