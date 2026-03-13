@@ -23,7 +23,7 @@
   const seenEventIds = new Set<string>();
 
   type RoomScrollState = {
-    top: number;
+    bottomOffset: number;
     anchorEventId: string | null;
     anchorOffset: number;
   };
@@ -34,6 +34,7 @@
   let pendingRestoreToBottom = false;
   let pendingRestoreAttempts = 0;
   let restoringScroll = false;
+  let pendingPinToBottomRoomId = "";
 
   const MAX_RESTORE_ATTEMPTS = 8;
 
@@ -107,7 +108,7 @@
     }
 
     const targetScrollState = roomScrollStates.get(selectedRoomId) ?? {
-      top: 0,
+      bottomOffset: 0,
       anchorEventId: null,
       anchorOffset: 0,
     };
@@ -128,14 +129,16 @@
       }
 
       const maxScrollTop = Math.max(0, timelineElement.scrollHeight - timelineElement.clientHeight);
-      let nextScrollTop = restoreToBottom ? maxScrollTop : Math.min(targetScrollState.top, maxScrollTop);
+      let nextScrollTop = restoreToBottom
+        ? maxScrollTop
+        : Math.max(0, Math.min(maxScrollTop - targetScrollState.bottomOffset, maxScrollTop));
 
       const hasRenderableMessages =
         timelineElement.querySelector("[data-message-event-id]") !== null;
       const shouldRetryRestore =
         !restoreToBottom &&
         messages.length > 0 &&
-        targetScrollState.top > 0 &&
+        targetScrollState.bottomOffset > 0 &&
         (!hasRenderableMessages || maxScrollTop === 0) &&
         pendingRestoreAttempts < MAX_RESTORE_ATTEMPTS;
 
@@ -184,7 +187,7 @@
     }
 
     roomScrollStates.set(roomId, {
-      top: timelineElement.scrollTop,
+      bottomOffset: Math.max(0, timelineElement.scrollHeight - timelineElement.clientHeight - timelineElement.scrollTop),
       ...findTopVisibleMessageAnchor(),
     });
   }
@@ -221,6 +224,33 @@
     }
 
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function queuePinTimelineToBottom(roomId: string) {
+    if (pendingPinToBottomRoomId === roomId) {
+      return;
+    }
+
+    pendingPinToBottomRoomId = roomId;
+
+    void (async () => {
+      await tick();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+      if (!timelineElement || $shellSelectedRoomId !== roomId) {
+        pendingPinToBottomRoomId = "";
+        return;
+      }
+
+      const maxScrollTop = Math.max(0, timelineElement.scrollHeight - timelineElement.clientHeight);
+
+      restoringScroll = true;
+      timelineElement.scrollTop = maxScrollTop;
+      saveRoomScrollState(roomId);
+      restoringScroll = false;
+
+      pendingPinToBottomRoomId = "";
+    })();
   }
 
   function isDuplicateMessage(message: MatrixChatMessage): boolean {
@@ -262,6 +292,10 @@
 
     // Backend streams newest -> older for immediate delivery; prepend keeps timeline ordered.
     messages = [payload.message, ...messages];
+
+    if (payload.loadKind === "initial") {
+      queuePinTimelineToBottom(payload.roomId);
+    }
   }
 
   async function loadMessages(roomId: string) {
