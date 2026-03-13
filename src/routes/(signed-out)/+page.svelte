@@ -1,12 +1,12 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
   import { onMount } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import {
     matrixCompleteOAuth,
-    matrixLogout,
     matrixSessionStatus,
     matrixStartOAuth,
-  } from "../lib/auth/api";
+  } from "../../lib/auth/api";
 
   let homeserverUrl = $state("https://matrix.org");
   let callbackUrl = $state("");
@@ -16,15 +16,11 @@
   let loadingSession = $state(true);
   let startingOAuth = $state(false);
   let completingOAuth = $state(false);
-  let loggingOut = $state(false);
 
   let errorMessage = $state("");
   let infoMessage = $state("");
 
   let authenticated = $state(false);
-  let currentUserId = $state("");
-  let currentHomeserverUrl = $state("");
-  let currentDeviceId = $state("");
 
   onMount(async () => {
     await refreshSession();
@@ -37,9 +33,10 @@
     try {
       const status = await matrixSessionStatus();
       authenticated = status.authenticated;
-      currentUserId = status.userId ?? "";
-      currentHomeserverUrl = status.homeserverUrl ?? "";
-      currentDeviceId = status.deviceId ?? "";
+
+      if (status.authenticated) {
+        await goto("/chats");
+      }
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : "Failed to load session";
     } finally {
@@ -76,12 +73,13 @@
     try {
       const response = await matrixCompleteOAuth({ callbackUrl });
       authenticated = response.authenticated;
-      currentUserId = response.userId;
-      currentHomeserverUrl = response.homeserverUrl;
-      currentDeviceId = response.deviceId;
       callbackUrl = "";
       authorizationUrl = "";
       infoMessage = "Session created successfully.";
+
+      if (response.authenticated) {
+        await goto("/chats");
+      }
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : "Failed to complete OAuth login";
     } finally {
@@ -89,26 +87,6 @@
     }
   }
 
-  async function logout() {
-    loggingOut = true;
-    errorMessage = "";
-    infoMessage = "";
-
-    try {
-      await matrixLogout();
-      authenticated = false;
-      currentUserId = "";
-      currentHomeserverUrl = "";
-      currentDeviceId = "";
-      callbackUrl = "";
-      authorizationUrl = "";
-      infoMessage = "Logged out.";
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : "Failed to log out";
-    } finally {
-      loggingOut = false;
-    }
-  }
 </script>
 
 <main class="min-h-screen p-4 md:p-8 grid place-items-center">
@@ -122,43 +100,7 @@
     {#if loadingSession}
       <p class="card p-3 text-sm bg-surface-100-900">Loading session...</p>
     {:else if authenticated}
-      <div class="card p-4 space-y-3 preset-outlined-surface-200-800 bg-surface-100-900">
-        <h2 class="h4">Session Active</h2>
-        <dl class="space-y-2">
-          <div>
-            <dt class="text-xs uppercase tracking-wider text-surface-600-400">User</dt>
-            <dd>{currentUserId}</dd>
-          </div>
-          <div>
-            <dt class="text-xs uppercase tracking-wider text-surface-600-400">Homeserver</dt>
-            <dd>{currentHomeserverUrl}</dd>
-          </div>
-          <div>
-            <dt class="text-xs uppercase tracking-wider text-surface-600-400">Device</dt>
-            <dd>{currentDeviceId}</dd>
-          </div>
-        </dl>
-
-        <div class="flex flex-wrap gap-2">
-          <a href="/chats" class="btn preset-filled-primary-500">Open Chats</a>
-          <button
-            type="button"
-            class="btn preset-tonal"
-            onclick={refreshSession}
-            disabled={loggingOut}
-          >
-            Refresh Status
-          </button>
-          <button
-            type="button"
-            class="btn preset-filled-error-500"
-            onclick={logout}
-            disabled={loggingOut}
-          >
-            {#if loggingOut}Logging out...{:else}Logout{/if}
-          </button>
-        </div>
-      </div>
+      <p class="card p-3 text-sm bg-surface-100-900">Session active. Redirecting to chats...</p>
     {:else}
       <div class="grid gap-4 lg:grid-cols-2">
         <form class="card p-4 space-y-3 preset-outlined-surface-200-800 bg-surface-100-900" onsubmit={startOAuthLogin}>
