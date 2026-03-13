@@ -8,6 +8,7 @@ use std::time::Duration;
 use tauri::{AppHandle, State};
 
 use crate::auth::AuthState;
+use crate::protocol::{config, event_types};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,7 +46,10 @@ pub async fn matrix_get_chat_messages(
     auth_state.restore_client_from_disk_if_needed(&app_handle).await?;
     let client = auth_state.client()?;
     client
-        .sync_once(matrix_sdk::config::SyncSettings::default().timeout(Duration::from_secs(5)))
+        .sync_once(
+            matrix_sdk::config::SyncSettings::default()
+                .timeout(Duration::from_secs(config::SYNC_TIMEOUT_SECONDS)),
+        )
         .await
         .map_err(|error| format!("Failed to sync Matrix room messages: {error}"))?;
 
@@ -99,7 +103,7 @@ pub(crate) async fn fetch_room_messages_from_client(
             .map(ToOwned::to_owned);
         let timestamp = event.get("origin_server_ts").and_then(Value::as_u64);
 
-        if event_type == "m.room.message" {
+        if event_type == event_types::ROOM_MESSAGE {
             let msgtype = event
                 .get("content")
                 .and_then(|content| content.get("msgtype"))
@@ -112,7 +116,10 @@ pub(crate) async fn fetch_room_messages_from_client(
                 .unwrap_or("Unsupported message")
                 .to_owned();
 
-            let text_body = if msgtype == "m.text" || msgtype == "m.notice" || msgtype == "m.emote" {
+            let text_body = if msgtype == event_types::message_types::TEXT
+                || msgtype == event_types::message_types::NOTICE
+                || msgtype == event_types::message_types::EMOTE
+            {
                 body
             } else {
                 format!("Unsupported message type: {msgtype}")
@@ -125,7 +132,7 @@ pub(crate) async fn fetch_room_messages_from_client(
                 body: text_body,
                 encrypted: is_encrypted_event,
             });
-        } else if event_type == "m.room.encrypted" {
+        } else if event_type == event_types::ROOM_ENCRYPTED {
             messages.push(MatrixChatMessage {
                 event_id,
                 sender,

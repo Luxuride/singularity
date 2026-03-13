@@ -2,6 +2,7 @@ use tauri::Manager;
 
 mod auth;
 mod messages;
+mod protocol;
 mod room_updates;
 mod rooms;
 mod storage;

@@ -8,6 +8,7 @@ use tokio::sync::mpsc::{self, UnboundedSender};
 
 use crate::auth::AuthState;
 use crate::messages::{fetch_room_messages_from_client, MatrixChatMessage};
+use crate::protocol::{config, event_paths};
 use crate::rooms::{collect_chat_summaries, store_cached_chats, sync_client_rooms_once, MatrixChatSummary};
 
 #[derive(Copy, Clone)]
@@ -21,10 +22,10 @@ pub enum RoomUpdateEvent {
 impl RoomUpdateEvent {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::RoomAdded => "matrix://rooms/added",
-            Self::RoomUpdated => "matrix://rooms/updated",
-            Self::RoomRemoved => "matrix://rooms/removed",
-            Self::SelectedRoomMessages => "matrix://rooms/selected/messages",
+            Self::RoomAdded => event_paths::ROOM_ADDED,
+            Self::RoomUpdated => event_paths::ROOM_UPDATED,
+            Self::RoomRemoved => event_paths::ROOM_REMOVED,
+            Self::SelectedRoomMessages => event_paths::SELECTED_ROOM_MESSAGES,
         }
     }
 }
@@ -81,7 +82,8 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
     let task_app = app.clone();
 
     tauri::async_runtime::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        let mut interval =
+            tokio::time::interval(Duration::from_secs(config::ROOM_UPDATE_POLL_INTERVAL_SECONDS));
         let mut previous_snapshot: HashMap<String, MatrixChatSummary> = HashMap::new();
 
         loop {

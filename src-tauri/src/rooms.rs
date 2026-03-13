@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use crate::auth::AuthState;
+use crate::protocol::{config, storage_keys};
 use crate::storage;
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -41,10 +42,7 @@ pub async fn matrix_get_chats(
     }
 
     let client = auth_state.client()?;
-
-    if let Err(error) = sync_client_rooms_once(&client).await {
-        return Err(error);
-    }
+    sync_client_rooms_once(&client).await?;
 
     let chats = collect_chat_summaries(&client).await;
 
@@ -55,7 +53,10 @@ pub async fn matrix_get_chats(
 
 pub(crate) async fn sync_client_rooms_once(client: &matrix_sdk::Client) -> Result<(), String> {
     client
-        .sync_once(matrix_sdk::config::SyncSettings::default().timeout(Duration::from_secs(5)))
+        .sync_once(
+            matrix_sdk::config::SyncSettings::default()
+                .timeout(Duration::from_secs(config::SYNC_TIMEOUT_SECONDS)),
+        )
         .await
         .map_err(|error| format!("Failed to sync Matrix rooms: {error}"))?;
 
@@ -93,7 +94,7 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
 
 fn chats_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
     let data_dir = storage::app_data_dir(app)?;
-    Ok(data_dir.join("matrix-chats-cache.json"))
+    Ok(data_dir.join(storage_keys::CHATS_CACHE_FILE))
 }
 
 pub(crate) fn load_cached_chats(app: &AppHandle) -> Result<Option<Vec<MatrixChatSummary>>, String> {

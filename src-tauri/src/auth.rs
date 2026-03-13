@@ -9,10 +9,8 @@ use matrix_sdk::Client;
 use tauri::{AppHandle, Manager, State};
 use url::Url;
 
+use crate::protocol::{config, storage_keys};
 use crate::storage;
-
-const CALLBACK_REDIRECT_URI: &str = "http://127.0.0.1:8743/matrix-oauth-callback";
-const TOKEN_ROTATION_INTERVAL_SECONDS: u64 = 30 * 60;
 
 #[derive(Default)]
 pub struct AuthState {
@@ -102,7 +100,7 @@ impl AuthState {
 pub fn start_token_rotation_worker(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(
-            TOKEN_ROTATION_INTERVAL_SECONDS,
+            config::TOKEN_ROTATION_INTERVAL_SECONDS,
         ));
 
         loop {
@@ -202,7 +200,7 @@ pub async fn matrix_start_oauth(
 
     let authorization_url = client
         .matrix_auth()
-        .get_sso_login_url(CALLBACK_REDIRECT_URI, None)
+        .get_sso_login_url(config::CALLBACK_REDIRECT_URI, None)
         .await
         .map_err(|error| format!("Failed to construct Matrix SSO login URL: {error}"))?;
 
@@ -216,7 +214,7 @@ pub async fn matrix_start_oauth(
 
     Ok(MatrixStartOAuthResponse {
         authorization_url,
-        redirect_uri: String::from(CALLBACK_REDIRECT_URI),
+        redirect_uri: String::from(config::CALLBACK_REDIRECT_URI),
     })
 }
 
@@ -242,7 +240,7 @@ pub async fn matrix_complete_oauth(
 
     let parsed = client
         .matrix_auth()
-        .login_with_sso_callback(callback_url.into())
+        .login_with_sso_callback(callback_url)
         .map_err(|_| String::from("Callback URL is missing a valid loginToken"))?
         .initial_device_display_name("Singularity Desktop")
         .request_refresh_token()
@@ -345,7 +343,7 @@ pub async fn matrix_logout(
 
 fn persisted_session_path(app: &AppHandle) -> Result<PathBuf, String> {
     let data_dir = storage::app_data_dir(app)?;
-    Ok(data_dir.join("matrix-session.json"))
+    Ok(data_dir.join(storage_keys::SESSION_FILE))
 }
 
 fn load_persisted_session(app: &AppHandle) -> Result<Option<PersistedMatrixSession>, String> {
