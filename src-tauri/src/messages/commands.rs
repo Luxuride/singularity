@@ -9,9 +9,10 @@ use crate::protocol::sync::sync_once_serialized;
 use super::persistence::{is_cacheable_initial_request, sort_messages_by_timestamp};
 use super::types::{
     MatrixChatMessageStreamEvent, MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse,
-    MatrixMessageLoadKind, MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
+    MatrixMessageLoadKind, MatrixSendChatMessageRequest, MatrixSendChatMessageResponse,
+    MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
 };
-use super::workers::fetch_room_messages_from_client;
+use super::workers::{fetch_room_messages_from_client, send_room_message_from_client};
 use super::MessageCacheState;
 
 #[tauri::command]
@@ -222,4 +223,33 @@ pub async fn matrix_stream_chat_messages(
         stream_id,
         started: true,
     })
+}
+
+#[tauri::command]
+pub async fn matrix_send_chat_message(
+    request: MatrixSendChatMessageRequest,
+    auth_state: State<'_, AuthState>,
+    room_update_trigger_state: State<'_, RoomUpdateTriggerState>,
+    app_handle: AppHandle,
+) -> Result<MatrixSendChatMessageResponse, String> {
+    info!("matrix_send_chat_message requested");
+    auth_state
+        .restore_client_from_disk_if_needed(&app_handle)
+        .await?;
+
+    let client = auth_state.client()?;
+
+    sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
+        .await
+        .map_err(|error| format!("Failed to sync Matrix before send: {error}"))?;
+
+    let room_id = request.room_id;
+    let event_id = send_room_message_from_client(&client, room_id.as_str(), request.body.as_str())
+        .await?;
+
+    let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
+        selected_room_id: Some(room_id),
+    });
+
+    Ok(MatrixSendChatMessageResponse { event_id })
 }

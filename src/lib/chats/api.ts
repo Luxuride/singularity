@@ -4,6 +4,8 @@ import type {
   MatrixGetChatMessagesRequest,
   MatrixGetChatMessagesResponse,
   MatrixGetChatsResponse,
+  MatrixSendChatMessageRequest,
+  MatrixSendChatMessageResponse,
   MatrixStreamChatMessagesRequest,
   MatrixStreamChatMessagesResponse,
   MatrixGetUserDevicesResponse,
@@ -55,6 +57,18 @@ export async function matrixStreamChatMessages(
 ): Promise<MatrixStreamChatMessagesResponse> {
   try {
     return await invoke<MatrixStreamChatMessagesResponse>("matrix_stream_chat_messages", {
+      request: input,
+    });
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixSendChatMessage(
+  input: MatrixSendChatMessageRequest,
+): Promise<MatrixSendChatMessageResponse> {
+  try {
+    return await invoke<MatrixSendChatMessageResponse>("matrix_send_chat_message", {
       request: input,
     });
   } catch (error) {

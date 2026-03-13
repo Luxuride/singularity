@@ -43,6 +43,11 @@ export interface MatrixStreamChatMessagesRequest {
   loadKind: MatrixMessageLoadKind;
 }
 
+export interface MatrixSendChatMessageRequest {
+  roomId: string;
+  body: string;
+}
+
 export type MatrixMessageDecryptionStatus = "plaintext" | "decrypted" | "unableToDecrypt";
 
 export type MatrixMessageVerificationStatus = "unknown" | "verified" | "unverified";
@@ -66,6 +71,10 @@ export interface MatrixGetChatMessagesResponse {
 export interface MatrixStreamChatMessagesResponse {
   streamId: string;
   started: boolean;
+}
+
+export interface MatrixSendChatMessageResponse {
+  eventId: string;
 }
 
 export interface MatrixChatMessageStreamEvent {

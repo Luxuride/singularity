@@ -2,6 +2,7 @@ use log::{debug, warn};
 use matrix_sdk::deserialized_responses::VerificationState;
 use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::api::Direction;
+use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
 use matrix_sdk::ruma::uint;
 use serde_json::Value;
 
@@ -126,4 +127,29 @@ pub(crate) async fn fetch_room_messages_from_client(
         next_from,
         messages,
     })
+}
+
+pub(crate) async fn send_room_message_from_client(
+    client: &matrix_sdk::Client,
+    room_id_raw: &str,
+    body: &str,
+) -> Result<String, String> {
+    let trimmed_body = body.trim();
+    if trimmed_body.is_empty() {
+        return Err(String::from("Message cannot be empty"));
+    }
+
+    let room_id = matrix_sdk::ruma::OwnedRoomId::try_from(room_id_raw)
+        .map_err(|_| String::from("roomId is invalid"))?;
+
+    let room = client
+        .get_room(&room_id)
+        .ok_or_else(|| String::from("Room is not available in current session"))?;
+
+    let response = room
+        .send(RoomMessageEventContent::text_plain(trimmed_body))
+        .await
+        .map_err(|error| format!("Failed to send room message: {error}"))?;
+
+    Ok(response.event_id.to_string())
 }
