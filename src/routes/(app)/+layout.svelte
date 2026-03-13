@@ -36,6 +36,7 @@
         onRoomUpdated: applyRoomUpsert,
         onRoomRemoved: applyRoomRemoval,
         onSelectedRoomMessages: (_payload: MatrixSelectedRoomMessagesEvent) => {},
+        onChatMessagesStream: () => {},
       });
 
       await loadShell();

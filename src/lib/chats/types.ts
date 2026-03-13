@@ -33,6 +33,16 @@ export interface MatrixGetChatMessagesRequest {
   limit?: number;
 }
 
+export type MatrixMessageLoadKind = "initial" | "older";
+
+export interface MatrixStreamChatMessagesRequest {
+  roomId: string;
+  from?: string;
+  limit?: number;
+  streamId: string;
+  loadKind: MatrixMessageLoadKind;
+}
+
 export type MatrixMessageDecryptionStatus = "plaintext" | "decrypted" | "unableToDecrypt";
 
 export type MatrixMessageVerificationStatus = "unknown" | "verified" | "unverified";
@@ -51,6 +61,21 @@ export interface MatrixGetChatMessagesResponse {
   roomId: string;
   nextFrom: string | null;
   messages: MatrixChatMessage[];
+}
+
+export interface MatrixStreamChatMessagesResponse {
+  streamId: string;
+  started: boolean;
+}
+
+export interface MatrixChatMessageStreamEvent {
+  roomId: string;
+  streamId: string;
+  loadKind: MatrixMessageLoadKind;
+  sequence: number;
+  message: MatrixChatMessage | null;
+  nextFrom: string | null;
+  done: boolean;
 }
 
 // ----- Verification types -----

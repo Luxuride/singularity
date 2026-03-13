@@ -1,5 +1,12 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MatrixMessageLoadKind {
+    Initial,
+    Older,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MatrixMessageDecryptionStatus {
@@ -24,6 +31,16 @@ pub struct MatrixGetChatMessagesRequest {
     pub limit: Option<u32>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixStreamChatMessagesRequest {
+    pub room_id: String,
+    pub from: Option<String>,
+    pub limit: Option<u32>,
+    pub stream_id: String,
+    pub load_kind: MatrixMessageLoadKind,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixChatMessage {
@@ -42,4 +59,23 @@ pub struct MatrixGetChatMessagesResponse {
     pub room_id: String,
     pub next_from: Option<String>,
     pub messages: Vec<MatrixChatMessage>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixStreamChatMessagesResponse {
+    pub stream_id: String,
+    pub started: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixChatMessageStreamEvent {
+    pub room_id: String,
+    pub stream_id: String,
+    pub load_kind: MatrixMessageLoadKind,
+    pub sequence: u32,
+    pub message: Option<MatrixChatMessage>,
+    pub next_from: Option<String>,
+    pub done: bool,
 }
