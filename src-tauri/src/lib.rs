@@ -15,6 +15,11 @@ pub fn run() {
             app.manage(trigger_state);
             Ok(())
         })
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             auth::matrix_start_oauth,
