@@ -134,7 +134,11 @@ async fn run_refresh_pass(
             if is_unknown_token_error(&error) {
                 warn!("Room refresh failed with unknown token; attempting token recovery");
 
-                handle_unknown_token_error(app, &auth_state, &client).await?;
+                let recovered = handle_unknown_token_error(app, &auth_state, &client).await?;
+
+                if !recovered {
+                    return Ok(());
+                }
 
                 // Retry once after refresh so restart-time token expiry doesn't force a logout.
                 match refresh_room_snapshot(app, &client).await {
