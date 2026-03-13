@@ -5,6 +5,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 
 use crate::auth::AuthState;
+use crate::auth::handle_unknown_token_error;
 use crate::messages::{fetch_room_messages_from_client, MessageCacheState};
 use crate::protocol::config;
 use crate::protocol::sync::sync_once_serialized;
@@ -131,12 +132,28 @@ async fn run_refresh_pass(
         Ok(snapshot) => snapshot,
         Err(error) => {
             if is_unknown_token_error(&error) {
-                warn!("Room refresh failed due to expired Matrix session; clearing local session");
-                auth_state.clear_session_everywhere(app)?;
-                return Ok(());
-            }
+                warn!("Room refresh failed with unknown token; attempting token recovery");
 
-            return Err(error);
+                handle_unknown_token_error(app, &auth_state, &client).await?;
+
+                // Retry once after refresh so restart-time token expiry doesn't force a logout.
+                match refresh_room_snapshot(app, &client).await {
+                    Ok(snapshot) => snapshot,
+                    Err(retry_error) => {
+                        if is_unknown_token_error(&retry_error) {
+                            warn!(
+                                "Room refresh still failing with unknown token after refresh; clearing local session"
+                            );
+                            auth_state.clear_session_everywhere(app)?;
+                            return Ok(());
+                        }
+
+                        return Err(retry_error);
+                    }
+                }
+            } else {
+                return Err(error);
+            }
         }
     };
 
