@@ -7,6 +7,7 @@ use crate::protocol::config;
 use crate::protocol::endpoints::HomeserverEndpoints;
 use crate::protocol::sync::sync_once_serialized;
 use crate::verification::start_verification_state_watcher;
+use crate::messages::MessageCacheState;
 
 use super::persistence::{clear_persisted_session, persist_session, PersistedMatrixSession};
 use super::stateful_types::{
@@ -270,6 +271,7 @@ pub async fn matrix_recover_with_key(
 #[tauri::command]
 pub async fn matrix_logout(
     auth_state: State<'_, AuthState>,
+    message_cache: State<'_, MessageCacheState>,
     app_handle: AppHandle,
 ) -> Result<MatrixLogoutResponse, String> {
     let client = auth_state.client().ok();
@@ -283,6 +285,7 @@ pub async fn matrix_logout(
     }
 
     clear_persisted_session(&app_handle)?;
+    message_cache.clear().await;
 
     Ok(MatrixLogoutResponse { logged_out: true })
 }

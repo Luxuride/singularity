@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
 
   import { matrixGetChatMessages } from "../../../lib/chats/api";
   import { subscribeToRoomUpdates } from "../../../lib/chats/realtime";
@@ -11,6 +11,22 @@
 
   let messages = $state<MatrixChatMessage[]>([]);
   let nextFrom = $state<string | null>(null);
+  let timelineElement = $state<HTMLElement | null>(null);
+
+  type RoomScrollState = {
+    top: number;
+    anchorEventId: string | null;
+    anchorOffset: number;
+  };
+
+  const roomScrollStates = new Map<string, RoomScrollState>();
+
+  let pendingRestoreRoomId = "";
+  let pendingRestoreToBottom = false;
+  let pendingRestoreAttempts = 0;
+  let restoringScroll = false;
+
+  const MAX_RESTORE_ATTEMPTS = 8;
 
   let previousSelectedRoomId = "";
 
@@ -36,6 +52,9 @@
 
     if (!selectedRoomId) {
       previousSelectedRoomId = "";
+      pendingRestoreRoomId = "";
+      pendingRestoreToBottom = false;
+      pendingRestoreAttempts = 0;
       messages = [];
       nextFrom = null;
       return;
@@ -45,11 +64,137 @@
       return;
     }
 
+    pendingRestoreRoomId = selectedRoomId;
+    pendingRestoreToBottom = !roomScrollStates.has(selectedRoomId);
+    pendingRestoreAttempts = 0;
     previousSelectedRoomId = selectedRoomId;
+
     messages = [];
     nextFrom = null;
+
     void loadMessages(selectedRoomId);
   });
+
+  $effect(() => {
+    const selectedRoomId = $shellSelectedRoomId;
+
+    if (
+      !selectedRoomId ||
+      !timelineElement ||
+      loadingMessages ||
+      pendingRestoreRoomId !== selectedRoomId
+    ) {
+      return;
+    }
+
+    const targetScrollState = roomScrollStates.get(selectedRoomId) ?? {
+      top: 0,
+      anchorEventId: null,
+      anchorOffset: 0,
+    };
+    const restoreToBottom = pendingRestoreToBottom;
+
+    void (async () => {
+      await tick();
+
+      if (!timelineElement || $shellSelectedRoomId !== selectedRoomId) {
+        return;
+      }
+
+      // Wait an extra frame so li nodes have their final layout before restoring.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+      if (!timelineElement || $shellSelectedRoomId !== selectedRoomId) {
+        return;
+      }
+
+      const maxScrollTop = Math.max(0, timelineElement.scrollHeight - timelineElement.clientHeight);
+      let nextScrollTop = restoreToBottom ? maxScrollTop : Math.min(targetScrollState.top, maxScrollTop);
+
+      const hasRenderableMessages =
+        timelineElement.querySelector("[data-message-event-id]") !== null;
+      const shouldRetryRestore =
+        !restoreToBottom &&
+        messages.length > 0 &&
+        targetScrollState.top > 0 &&
+        (!hasRenderableMessages || maxScrollTop === 0) &&
+        pendingRestoreAttempts < MAX_RESTORE_ATTEMPTS;
+
+      if (shouldRetryRestore) {
+        pendingRestoreAttempts += 1;
+        return;
+      }
+
+      if (!restoreToBottom && targetScrollState.anchorEventId) {
+        const anchorElement = timelineElement.querySelector<HTMLElement>(
+          `[data-message-event-id="${targetScrollState.anchorEventId}"]`
+        );
+
+        if (anchorElement) {
+          nextScrollTop = Math.max(
+            0,
+            Math.min(anchorElement.offsetTop - targetScrollState.anchorOffset, maxScrollTop)
+          );
+        }
+      }
+
+      restoringScroll = true;
+      timelineElement.scrollTop = nextScrollTop;
+      saveRoomScrollState(selectedRoomId);
+      restoringScroll = false;
+
+      pendingRestoreRoomId = "";
+      pendingRestoreToBottom = false;
+      pendingRestoreAttempts = 0;
+    })();
+  });
+
+  function handleTimelineScroll() {
+    const selectedRoomId = $shellSelectedRoomId;
+
+    if (!selectedRoomId || !timelineElement || restoringScroll) {
+      return;
+    }
+
+    saveRoomScrollState(selectedRoomId);
+  }
+
+  function saveRoomScrollState(roomId: string) {
+    if (!timelineElement) {
+      return;
+    }
+
+    roomScrollStates.set(roomId, {
+      top: timelineElement.scrollTop,
+      ...findTopVisibleMessageAnchor(),
+    });
+  }
+
+  function findTopVisibleMessageAnchor(): { anchorEventId: string | null; anchorOffset: number } {
+    if (!timelineElement) {
+      return { anchorEventId: null, anchorOffset: 0 };
+    }
+
+    const children = timelineElement.querySelectorAll<HTMLElement>("[data-message-event-id]");
+
+    for (const child of children) {
+      if (child.offsetTop + child.offsetHeight <= timelineElement.scrollTop) {
+        continue;
+      }
+
+      const eventId = child.dataset.messageEventId;
+      if (!eventId) {
+        continue;
+      }
+
+      return {
+        anchorEventId: eventId,
+        anchorOffset: child.offsetTop - timelineElement.scrollTop,
+      };
+    }
+
+    return { anchorEventId: null, anchorOffset: 0 };
+  }
 
   function applySelectedRoomMessages(payload: MatrixSelectedRoomMessagesEvent) {
     if (payload.roomId !== $shellSelectedRoomId) {
@@ -153,7 +298,11 @@
   }
 </script>
 
-<section class="card p-4 preset-outlined-surface-200-800 bg-surface-100-900 max-h-[70vh] overflow-y-auto space-y-3">
+<section
+  class="card p-4 preset-outlined-surface-200-800 bg-surface-100-900 max-h-[70vh] overflow-y-auto space-y-3"
+  bind:this={timelineElement}
+  onscroll={handleTimelineScroll}
+>
   {#if errorMessage}
     <p class="card p-3 text-sm preset-filled-error-500">{errorMessage}</p>
   {/if}
@@ -184,7 +333,10 @@
     {:else}
       <ul class="space-y-2">
         {#each messages as message, index (`${message.eventId ?? index}-${message.timestamp ?? 0}`)}
-          <li class="card p-3 preset-outlined-surface-300-700 bg-surface-50-950">
+          <li
+            class="card p-3 preset-outlined-surface-300-700 bg-surface-50-950"
+            data-message-event-id={message.eventId ?? undefined}
+          >
             <div class="flex items-center justify-between gap-2 text-xs text-surface-700-300 mb-1">
               <span>{message.sender}</span>
               <span>{toTime(message.timestamp)}</span>
