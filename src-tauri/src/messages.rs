@@ -1,6 +1,7 @@
 use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::api::Direction;
 use matrix_sdk::ruma::uint;
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
@@ -40,6 +41,7 @@ pub async fn matrix_get_chat_messages(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixGetChatMessagesResponse, String> {
+    info!("matrix_get_chat_messages requested");
     auth_state.restore_client_from_disk_if_needed(&app_handle).await?;
     let client = auth_state.client()?;
     client
@@ -135,6 +137,7 @@ pub(crate) async fn fetch_room_messages_from_client(
     }
 
     messages.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+    debug!("Fetched {} chat messages", messages.len());
 
     Ok(MatrixGetChatMessagesResponse {
         room_id: room_id.to_string(),

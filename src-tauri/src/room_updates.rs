@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use log::error;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc::{self, UnboundedSender};
@@ -104,7 +105,7 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
             }
 
             if let Err(error) = run_refresh_pass(&task_app, &mut previous_snapshot, trigger_room_id).await {
-                eprintln!("Room update pass failed: {error}");
+                error!("Room update pass failed: {error}");
             }
         }
     });
