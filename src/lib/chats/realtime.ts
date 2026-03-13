@@ -4,18 +4,21 @@ import type {
   MatrixChatSummary,
   MatrixRoomRemovedEvent,
   MatrixSelectedRoomMessagesEvent,
+  MatrixVerificationStateChangedEvent,
 } from "./types";
 
 const EVENT_ROOM_ADDED = "matrix://rooms/added";
 const EVENT_ROOM_UPDATED = "matrix://rooms/updated";
 const EVENT_ROOM_REMOVED = "matrix://rooms/removed";
 const EVENT_SELECTED_ROOM_MESSAGES = "matrix://rooms/selected/messages";
+const EVENT_VERIFICATION_STATE_CHANGED = "matrix://verification/state";
 
 export interface RoomUpdateHandlers {
   onRoomAdded: (room: MatrixChatSummary) => void;
   onRoomUpdated: (room: MatrixChatSummary) => void;
   onRoomRemoved: (payload: MatrixRoomRemovedEvent) => void;
   onSelectedRoomMessages: (payload: MatrixSelectedRoomMessagesEvent) => void;
+  onVerificationStateChanged?: (payload: MatrixVerificationStateChangedEvent) => void;
 }
 
 export async function subscribeToRoomUpdates(handlers: RoomUpdateHandlers): Promise<() => void> {
@@ -26,6 +29,9 @@ export async function subscribeToRoomUpdates(handlers: RoomUpdateHandlers): Prom
     listen<MatrixSelectedRoomMessagesEvent>(EVENT_SELECTED_ROOM_MESSAGES, (event) =>
       handlers.onSelectedRoomMessages(event.payload),
     ),
+    listen<MatrixVerificationStateChangedEvent>(EVENT_VERIFICATION_STATE_CHANGED, (event) => {
+      handlers.onVerificationStateChanged?.(event.payload);
+    }),
   ]);
 
   return () => {

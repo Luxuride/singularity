@@ -4,8 +4,12 @@ use tauri::{AppHandle, Manager};
 
 use crate::protocol::config;
 
-use super::persistence::persist_session_from_client;
+use super::persistence::{clear_persisted_session, persist_session_from_client};
 use super::AuthState;
+
+fn is_invalid_refresh_token_error(message: &str) -> bool {
+    message.contains("UnknownToken") || message.contains("refresh token does not exist")
+}
 
 pub fn start_token_rotation_worker(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
@@ -40,11 +44,18 @@ async fn run_token_rotation_pass(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    client
-        .matrix_auth()
-        .refresh_access_token()
-        .await
-        .map_err(|error| format!("Failed to refresh Matrix access token: {error}"))?;
+    if let Err(error) = client.matrix_auth().refresh_access_token().await {
+        let message = format!("Failed to refresh Matrix access token: {error}");
+
+        if is_invalid_refresh_token_error(&message) {
+            log::warn!("Matrix refresh token is invalid, clearing local session");
+            auth_state.clear_runtime_session()?;
+            clear_persisted_session(app)?;
+            return Ok(());
+        }
+
+        return Err(message);
+    }
 
     persist_session_from_client(app, &client)?;
 

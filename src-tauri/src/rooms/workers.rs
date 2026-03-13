@@ -1,12 +1,13 @@
 use std::time::Duration;
 
-use log::error;
+use log::{error, warn};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 
 use crate::auth::AuthState;
 use crate::messages::fetch_room_messages_from_client;
 use crate::protocol::config;
+use crate::protocol::sync::sync_once_serialized;
 
 use super::persistence::refresh_room_snapshot;
 use super::types::MatrixChatSummary;
@@ -29,13 +30,13 @@ impl Default for RoomUpdateWorkerConfig {
 }
 
 pub(crate) async fn sync_client_rooms_once(client: &matrix_sdk::Client) -> Result<(), String> {
-    client
-        .sync_once(
-            matrix_sdk::config::SyncSettings::default()
-                .timeout(Duration::from_secs(config::SYNC_TIMEOUT_SECONDS)),
-        )
-        .await
-        .map_err(|error| format!("Failed to sync Matrix rooms: {error}"))?;
+    sync_once_serialized(
+        client,
+        matrix_sdk::config::SyncSettings::default()
+            .timeout(Duration::from_secs(config::SYNC_TIMEOUT_SECONDS)),
+    )
+    .await
+    .map_err(|error| format!("Failed to sync Matrix rooms: {error}"))?;
 
     Ok(())
 }
@@ -126,7 +127,18 @@ async fn run_refresh_pass(
         Err(_) => return Ok(()),
     };
 
-    let current_snapshot = refresh_room_snapshot(app, &client).await?;
+    let current_snapshot = match refresh_room_snapshot(app, &client).await {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            if is_unknown_token_error(&error) {
+                warn!("Room refresh failed due to expired Matrix session; clearing local session");
+                auth_state.clear_session_everywhere(app)?;
+                return Ok(());
+            }
+
+            return Err(error);
+        }
+    };
 
     for (room_id, chat) in &current_snapshot {
         match previous_snapshot.get(room_id) {
@@ -170,4 +182,8 @@ async fn run_refresh_pass(
 
     *previous_snapshot = current_snapshot;
     Ok(())
+}
+
+fn is_unknown_token_error(error: &str) -> bool {
+    error.contains("M_UNKNOWN_TOKEN") || error.contains("refresh token does not exist")
 }
