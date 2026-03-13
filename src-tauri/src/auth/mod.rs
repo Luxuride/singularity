@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use tauri::AppHandle;
 
 pub use workers::start_token_rotation_worker;
+pub(crate) use workers::handle_unknown_token_error;
 
 use crate::verification::start_verification_state_watcher;
 
