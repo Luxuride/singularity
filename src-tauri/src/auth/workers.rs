@@ -4,7 +4,9 @@ use tauri::{AppHandle, Manager};
 
 use crate::protocol::config;
 
-use super::persistence::{clear_persisted_session, persist_session_from_client};
+use super::persistence::{
+    clear_matrix_sdk_store, clear_persisted_session, persist_session_from_client,
+};
 use super::AuthState;
 
 fn is_invalid_refresh_token_error(message: &str) -> bool {
@@ -51,6 +53,7 @@ async fn run_token_rotation_pass(app: &AppHandle) -> Result<(), String> {
             log::warn!("Matrix refresh token is invalid, clearing local session");
             auth_state.clear_runtime_session()?;
             clear_persisted_session(app)?;
+            clear_matrix_sdk_store(app)?;
             return Ok(());
         }
 

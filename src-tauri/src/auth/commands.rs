@@ -9,7 +9,10 @@ use crate::protocol::sync::sync_once_serialized;
 use crate::verification::start_verification_state_watcher;
 use crate::messages::MessageCacheState;
 
-use super::persistence::{clear_persisted_session, persist_session, PersistedMatrixSession};
+use super::persistence::{
+    clear_matrix_sdk_store, clear_persisted_session, persist_session, prepare_matrix_sdk_store,
+    PersistedMatrixSession,
+};
 use super::stateful_types::{
     MatrixCompleteOAuthRequest, MatrixCompleteOAuthResponse, MatrixLogoutResponse,
     MatrixRecoverWithKeyRequest, MatrixRecoverWithKeyResponse, MatrixRecoveryStatusResponse,
@@ -32,11 +35,14 @@ fn map_recovery_state(state: RecoveryState) -> String {
 pub async fn matrix_start_oauth(
     request: MatrixStartOAuthRequest,
     auth_state: State<'_, AuthState>,
+    app_handle: AppHandle,
 ) -> Result<MatrixStartOAuthResponse, String> {
     let endpoints = HomeserverEndpoints::from_raw(&request.homeserver_url)?;
     let homeserver_url = endpoints.homeserver_url().to_owned();
+    let store_path = prepare_matrix_sdk_store(&app_handle)?;
     let client = matrix_sdk::Client::builder()
         .server_name_or_homeserver_url(homeserver_url)
+        .sqlite_store(&store_path, None)
         .cross_process_store_locks_holder_name(cross_process_lock_holder_name())
         .handle_refresh_tokens()
         .build()
@@ -285,6 +291,7 @@ pub async fn matrix_logout(
     }
 
     clear_persisted_session(&app_handle)?;
+    clear_matrix_sdk_store(&app_handle)?;
     message_cache.clear().await;
 
     Ok(MatrixLogoutResponse { logged_out: true })
