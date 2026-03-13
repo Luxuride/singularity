@@ -5,7 +5,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 
 use crate::auth::AuthState;
-use crate::messages::fetch_room_messages_from_client;
+use crate::messages::{fetch_room_messages_from_client, MessageCacheState};
 use crate::protocol::config;
 use crate::protocol::sync::sync_once_serialized;
 
@@ -168,6 +168,9 @@ async fn run_refresh_pass(
             if let Ok(response) =
                 fetch_room_messages_from_client(&client, &room_id, None, Some(50)).await
             {
+                let message_cache = app.state::<MessageCacheState>();
+                message_cache.store_initial_room_messages(&response).await;
+
                 let _ = app.emit(
                     RoomUpdateEvent::SelectedRoomMessages.as_str(),
                     MatrixSelectedRoomMessagesEvent {

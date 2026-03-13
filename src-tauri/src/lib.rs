@@ -11,6 +11,7 @@ mod verification;
 pub fn run() {
     tauri::Builder::default()
         .manage(auth::AuthState::default())
+        .manage(messages::MessageCacheState::default())
         .setup(|app| {
             auth::start_token_rotation_worker(app.handle().clone());
             let trigger_state = rooms::start_room_update_worker(app.handle().clone());

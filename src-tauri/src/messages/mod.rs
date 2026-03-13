@@ -3,6 +3,7 @@ mod persistence;
 mod types;
 mod workers;
 
+pub(crate) use persistence::MessageCacheState;
 pub(crate) use types::{
     MatrixChatMessage, MatrixMessageDecryptionStatus, MatrixMessageVerificationStatus,
 };
