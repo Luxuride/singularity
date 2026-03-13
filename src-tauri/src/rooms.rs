@@ -35,13 +35,14 @@ pub async fn matrix_get_chats(
     app_handle: AppHandle,
 ) -> Result<MatrixGetChatsResponse, String> {
     auth_state.restore_client_from_disk_if_needed(&app_handle).await?;
+
+    if let Some(cached_chats) = load_cached_chats(&app_handle)? {
+        return Ok(MatrixGetChatsResponse { chats: cached_chats });
+    }
+
     let client = auth_state.client()?;
 
     if let Err(error) = sync_client_rooms_once(&client).await {
-        if let Some(cached_chats) = load_cached_chats(&app_handle)? {
-            return Ok(MatrixGetChatsResponse { chats: cached_chats });
-        }
-
         return Err(error);
     }
 
