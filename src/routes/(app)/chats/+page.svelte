@@ -1,12 +1,17 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
 
-  import { matrixSendChatMessage, matrixStreamChatMessages } from "../../../lib/chats/api";
+  import {
+    matrixSendChatMessage,
+    matrixStreamChatMessages,
+    matrixTriggerRoomUpdate,
+  } from "../../../lib/chats/api";
   import { subscribeToRoomUpdates } from "../../../lib/chats/realtime";
   import { shellChats, shellCurrentUserId, shellSelectedRoomId } from "../../../lib/chats/shell";
   import type {
     MatrixChatMessage,
     MatrixChatMessageStreamEvent,
+    MatrixSelectedRoomMessagesEvent,
     MatrixSendChatMessageRequest,
     MatrixMessageLoadKind,
   } from "../../../lib/chats/types";
@@ -58,7 +63,7 @@
         onRoomAdded: () => {},
         onRoomUpdated: () => {},
         onRoomRemoved: () => {},
-        onSelectedRoomMessages: () => {},
+        onSelectedRoomMessages: applySelectedRoomMessages,
         onChatMessagesStream: applyChatMessageStream,
       });
     })();
@@ -109,6 +114,15 @@
     nextFrom = null;
 
     void loadMessages(selectedRoomId);
+  });
+
+  $effect(() => {
+    const selectedRoomId = $shellSelectedRoomId;
+    if (!selectedRoomId) {
+      return;
+    }
+
+    void matrixTriggerRoomUpdate({ selectedRoomId });
   });
 
   $effect(() => {
@@ -352,6 +366,47 @@
     if (payload.loadKind === "initial") {
       queuePinTimelineToBottom(payload.roomId);
     }
+  }
+
+  function applySelectedRoomMessages(payload: MatrixSelectedRoomMessagesEvent) {
+    if (payload.roomId !== $shellSelectedRoomId) {
+      return;
+    }
+
+    if (loadingMessages && activeLoadKind === "initial") {
+      return;
+    }
+
+    const incoming = payload.messages
+      .filter((message) => message.eventId && !seenEventIds.has(message.eventId))
+      .reverse();
+
+    if (!incoming.length) {
+      return;
+    }
+
+    const toAppend: TimelineMessage[] = [];
+
+    for (const message of incoming) {
+      if (tryReplaceOptimisticWithRemote(message)) {
+        if (message.eventId) {
+          seenEventIds.add(message.eventId);
+        }
+        continue;
+      }
+
+      if (message.eventId) {
+        seenEventIds.add(message.eventId);
+      }
+      toAppend.push(message);
+    }
+
+    if (!toAppend.length) {
+      return;
+    }
+
+    messages = [...messages, ...toAppend];
+    queuePinTimelineToBottom(payload.roomId);
   }
 
   function buildOptimisticMessage(body: string): TimelineMessage {

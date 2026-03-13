@@ -1,6 +1,8 @@
 use tauri::{AppHandle, State};
+use std::time::Duration;
 
 use crate::auth::AuthState;
+use crate::protocol::config;
 
 use super::persistence::{load_cached_chats, store_cached_chats};
 use super::types::MatrixGetChatsResponse;
@@ -26,7 +28,11 @@ pub async fn matrix_get_chats(
     }
 
     let client = auth_state.client()?;
-    sync_client_rooms_once(&client).await?;
+    sync_client_rooms_once(
+        &client,
+        Duration::from_secs(config::LONG_POLL_SYNC_TIMEOUT_SECONDS),
+    )
+    .await?;
 
     let chats = collect_chat_summaries(&client).await;
 

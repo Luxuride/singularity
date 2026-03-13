@@ -82,8 +82,9 @@ pub(crate) fn store_cached_chats(
 pub(crate) async fn refresh_room_snapshot(
     app: &tauri::AppHandle,
     client: &matrix_sdk::Client,
+    sync_timeout: std::time::Duration,
 ) -> Result<RoomSnapshot, String> {
-    sync_client_rooms_once(client).await?;
+    sync_client_rooms_once(client, sync_timeout).await?;
 
     let chats = collect_chat_summaries(client).await;
     let _ = store_cached_chats(app, &chats);

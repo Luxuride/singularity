@@ -19,22 +19,30 @@ use super::{
 
 #[derive(Clone, Debug)]
 struct RoomUpdateWorkerConfig {
-    polling_interval: Duration,
+    sync_timeout: Duration,
+    unauthenticated_delay: Duration,
+    retry_initial_delay: Duration,
+    retry_max_delay: Duration,
 }
 
 impl Default for RoomUpdateWorkerConfig {
     fn default() -> Self {
         Self {
-            polling_interval: Duration::from_secs(config::ROOM_UPDATE_POLL_INTERVAL_SECONDS),
+            sync_timeout: Duration::from_secs(config::LONG_POLL_SYNC_TIMEOUT_SECONDS),
+            unauthenticated_delay: Duration::from_secs(config::WORKER_UNAUTH_SLEEP_SECONDS),
+            retry_initial_delay: Duration::from_millis(config::WORKER_RETRY_INITIAL_DELAY_MS),
+            retry_max_delay: Duration::from_millis(config::WORKER_RETRY_MAX_DELAY_MS),
         }
     }
 }
 
-pub(crate) async fn sync_client_rooms_once(client: &matrix_sdk::Client) -> Result<(), String> {
+pub(crate) async fn sync_client_rooms_once(
+    client: &matrix_sdk::Client,
+    timeout: Duration,
+) -> Result<(), String> {
     sync_once_serialized(
         client,
-        matrix_sdk::config::SyncSettings::default()
-            .timeout(Duration::from_secs(config::SYNC_TIMEOUT_SECONDS)),
+        matrix_sdk::config::SyncSettings::default().timeout(timeout),
     )
     .await
     .map_err(|error| format!("Failed to sync Matrix rooms: {error}"))?;
@@ -81,33 +89,81 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
     let worker_config = RoomUpdateWorkerConfig::default();
 
     tauri::async_runtime::spawn(async move {
-        let mut interval = tokio::time::interval(worker_config.polling_interval);
         let mut previous_snapshot = RoomSnapshot::new();
+        let mut selected_room_id = None::<String>;
+        let mut retry_delay = None::<Duration>;
 
         loop {
-            let mut trigger_room_id = None;
-
-            tokio::select! {
-                _ = interval.tick() => {}
-                maybe_trigger = receiver.recv() => {
-                    let Some(trigger) = maybe_trigger else {
-                        break;
-                    };
-
-                    trigger_room_id = trigger.selected_room_id;
-
-                    while let Ok(next_trigger) = receiver.try_recv() {
-                        if next_trigger.selected_room_id.is_some() {
-                            trigger_room_id = next_trigger.selected_room_id;
-                        }
+            while let Ok(trigger) = receiver.try_recv() {
+                if let Some(room_id) = trigger.selected_room_id {
+                    if room_id.is_empty() {
+                        selected_room_id = None;
+                    } else {
+                        selected_room_id = Some(room_id);
                     }
                 }
             }
 
-            if let Err(error) =
-                run_refresh_pass(&task_app, &mut previous_snapshot, trigger_room_id).await
+            match run_refresh_pass(
+                &task_app,
+                &mut previous_snapshot,
+                selected_room_id.clone(),
+                worker_config.sync_timeout,
+            )
+            .await
             {
-                error!("Room update pass failed: {error}");
+                Ok(refresh_completed) => {
+                    retry_delay = None;
+
+                    if !refresh_completed {
+                        tokio::select! {
+                            _ = tokio::time::sleep(worker_config.unauthenticated_delay) => {}
+                            maybe_trigger = receiver.recv() => {
+                                let Some(trigger) = maybe_trigger else {
+                                    break;
+                                };
+
+                                if let Some(room_id) = trigger.selected_room_id {
+                                    if room_id.is_empty() {
+                                        selected_room_id = None;
+                                    } else {
+                                        selected_room_id = Some(room_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(error) => {
+                    error!("Room update pass failed: {error}");
+
+                    let next_delay = retry_delay
+                        .unwrap_or(worker_config.retry_initial_delay)
+                        .min(worker_config.retry_max_delay);
+
+                    retry_delay = Some(
+                        next_delay
+                            .saturating_mul(2)
+                            .min(worker_config.retry_max_delay),
+                    );
+
+                    tokio::select! {
+                        _ = tokio::time::sleep(next_delay) => {}
+                        maybe_trigger = receiver.recv() => {
+                            let Some(trigger) = maybe_trigger else {
+                                break;
+                            };
+
+                            if let Some(room_id) = trigger.selected_room_id {
+                                if room_id.is_empty() {
+                                    selected_room_id = None;
+                                } else {
+                                    selected_room_id = Some(room_id);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     });
@@ -119,16 +175,17 @@ async fn run_refresh_pass(
     app: &AppHandle,
     previous_snapshot: &mut RoomSnapshot,
     selected_room_id: Option<String>,
-) -> Result<(), String> {
+    sync_timeout: Duration,
+) -> Result<bool, String> {
     let auth_state = app.state::<AuthState>();
     auth_state.restore_client_from_disk_if_needed(app).await?;
 
     let client = match auth_state.client() {
         Ok(client) => client,
-        Err(_) => return Ok(()),
+        Err(_) => return Ok(false),
     };
 
-    let current_snapshot = match refresh_room_snapshot(app, &client).await {
+    let current_snapshot = match refresh_room_snapshot(app, &client, sync_timeout).await {
         Ok(snapshot) => snapshot,
         Err(error) => {
             if is_unknown_token_error(&error) {
@@ -137,11 +194,11 @@ async fn run_refresh_pass(
                 let recovered = handle_unknown_token_error(app, &auth_state, &client).await?;
 
                 if !recovered {
-                    return Ok(());
+                    return Ok(false);
                 }
 
                 // Retry once after refresh so restart-time token expiry doesn't force a logout.
-                match refresh_room_snapshot(app, &client).await {
+                match refresh_room_snapshot(app, &client, sync_timeout).await {
                     Ok(snapshot) => snapshot,
                     Err(retry_error) => {
                         if is_unknown_token_error(&retry_error) {
@@ -149,7 +206,7 @@ async fn run_refresh_pass(
                                 "Room refresh still failing with unknown token after refresh; clearing local session"
                             );
                             auth_state.clear_session_everywhere(app)?;
-                            return Ok(());
+                            return Ok(false);
                         }
 
                         return Err(retry_error);
@@ -205,7 +262,7 @@ async fn run_refresh_pass(
     }
 
     *previous_snapshot = current_snapshot;
-    Ok(())
+    Ok(true)
 }
 
 fn is_unknown_token_error(error: &str) -> bool {
