@@ -1,10 +1,14 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
 
-  import { matrixGetChatMessages } from "../../../lib/chats/api";
+  import { matrixStreamChatMessages } from "../../../lib/chats/api";
   import { subscribeToRoomUpdates } from "../../../lib/chats/realtime";
   import { shellChats, shellSelectedRoomId } from "../../../lib/chats/shell";
-  import type { MatrixChatMessage, MatrixSelectedRoomMessagesEvent } from "../../../lib/chats/types";
+  import type {
+    MatrixChatMessage,
+    MatrixChatMessageStreamEvent,
+    MatrixMessageLoadKind,
+  } from "../../../lib/chats/types";
 
   let loadingMessages = $state(false);
   let errorMessage = $state("");
@@ -12,6 +16,11 @@
   let messages = $state<MatrixChatMessage[]>([]);
   let nextFrom = $state<string | null>(null);
   let timelineElement = $state<HTMLElement | null>(null);
+  let activeStreamId = $state("");
+  let activeLoadKind = $state<MatrixMessageLoadKind | null>(null);
+  let streamMessageCount = $state(0);
+
+  const seenEventIds = new Set<string>();
 
   type RoomScrollState = {
     top: number;
@@ -38,7 +47,8 @@
         onRoomAdded: () => {},
         onRoomUpdated: () => {},
         onRoomRemoved: () => {},
-        onSelectedRoomMessages: applySelectedRoomMessages,
+        onSelectedRoomMessages: () => {},
+        onChatMessagesStream: applyChatMessageStream,
       });
     })();
 
@@ -55,6 +65,11 @@
       pendingRestoreRoomId = "";
       pendingRestoreToBottom = false;
       pendingRestoreAttempts = 0;
+      activeStreamId = "";
+      activeLoadKind = null;
+      streamMessageCount = 0;
+      seenEventIds.clear();
+      loadingMessages = false;
       messages = [];
       nextFrom = null;
       return;
@@ -68,6 +83,10 @@
     pendingRestoreToBottom = !roomScrollStates.has(selectedRoomId);
     pendingRestoreAttempts = 0;
     previousSelectedRoomId = selectedRoomId;
+    activeStreamId = "";
+    activeLoadKind = null;
+    streamMessageCount = 0;
+    seenEventIds.clear();
 
     messages = [];
     nextFrom = null;
@@ -196,35 +215,86 @@
     return { anchorEventId: null, anchorOffset: 0 };
   }
 
-  function applySelectedRoomMessages(payload: MatrixSelectedRoomMessagesEvent) {
+  function createStreamId(): string {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+      return crypto.randomUUID();
+    }
+
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function isDuplicateMessage(message: MatrixChatMessage): boolean {
+    if (!message.eventId) {
+      return false;
+    }
+
+    if (seenEventIds.has(message.eventId)) {
+      return true;
+    }
+
+    seenEventIds.add(message.eventId);
+    return false;
+  }
+
+  function applyChatMessageStream(payload: MatrixChatMessageStreamEvent) {
     if (payload.roomId !== $shellSelectedRoomId) {
       return;
     }
 
-    messages = payload.messages;
-    nextFrom = payload.nextFrom;
+    if (!activeStreamId || payload.streamId !== activeStreamId || payload.loadKind !== activeLoadKind) {
+      return;
+    }
+
+    if (payload.done) {
+      nextFrom = payload.nextFrom;
+      loadingMessages = false;
+      activeStreamId = "";
+      activeLoadKind = null;
+      streamMessageCount = 0;
+      return;
+    }
+
+    if (!payload.message || isDuplicateMessage(payload.message)) {
+      return;
+    }
+
+    streamMessageCount = payload.sequence + 1;
+
+    // Backend streams newest -> older for immediate delivery; prepend keeps timeline ordered.
+    messages = [payload.message, ...messages];
   }
 
   async function loadMessages(roomId: string) {
     loadingMessages = true;
     errorMessage = "";
+    seenEventIds.clear();
+
+    const streamId = createStreamId();
+    activeStreamId = streamId;
+    activeLoadKind = "initial";
+    streamMessageCount = 0;
 
     try {
-      const response = await matrixGetChatMessages({
+      await matrixStreamChatMessages({
         roomId,
         limit: 50,
+        streamId,
+        loadKind: "initial",
       });
 
-      if ($shellSelectedRoomId !== roomId) {
+      if ($shellSelectedRoomId !== roomId || activeStreamId !== streamId) {
+        return;
+      }
+    } catch (error) {
+      if (activeStreamId !== streamId) {
         return;
       }
 
-      messages = response.messages;
-      nextFrom = response.nextFrom;
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : "Failed to load messages";
-    } finally {
       loadingMessages = false;
+      activeStreamId = "";
+      activeLoadKind = null;
+      streamMessageCount = 0;
+      errorMessage = error instanceof Error ? error.message : "Failed to stream messages";
     }
   }
 
@@ -237,20 +307,43 @@
     loadingMessages = true;
     errorMessage = "";
 
+    const streamId = createStreamId();
+    activeStreamId = streamId;
+    activeLoadKind = "older";
+    streamMessageCount = 0;
+
     try {
-      const response = await matrixGetChatMessages({
+      await matrixStreamChatMessages({
         roomId: selectedRoomId,
         from: nextFrom,
         limit: 50,
+        streamId,
+        loadKind: "older",
       });
-
-      messages = [...response.messages, ...messages];
-      nextFrom = response.nextFrom;
     } catch (error) {
-      errorMessage = error instanceof Error ? error.message : "Failed to load older messages";
-    } finally {
+      if (activeStreamId !== streamId) {
+        return;
+      }
+
       loadingMessages = false;
+      activeStreamId = "";
+      activeLoadKind = null;
+      streamMessageCount = 0;
+      errorMessage = error instanceof Error ? error.message : "Failed to stream older messages";
     }
+  }
+
+  function streamStatusLabel(): string {
+    if (!loadingMessages || !activeLoadKind) {
+      return "";
+    }
+
+    const noun = streamMessageCount === 1 ? "message" : "messages";
+    if (activeLoadKind === "older") {
+      return `Loading older ${noun}: ${streamMessageCount}`;
+    }
+
+    return `Streaming ${noun}: ${streamMessageCount}`;
   }
 
   function toTime(timestamp: number | null): string {
@@ -316,6 +409,9 @@
         <p class="text-xs text-surface-700-300">
           {selectedRoomEncrypted() ? "Encrypted room" : "Unencrypted room"}
         </p>
+        {#if loadingMessages && activeLoadKind}
+          <p class="text-xs text-primary-700-300">{streamStatusLabel()}</p>
+        {/if}
       </div>
 
       <button
