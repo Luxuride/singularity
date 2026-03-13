@@ -41,6 +41,18 @@ fn legacy_persisted_session_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(data_dir.join(storage_keys::SESSION_FILE_LEGACY))
 }
 
+pub(crate) fn matrix_sdk_store_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let data_dir = storage::app_data_dir(app)?;
+    Ok(data_dir.join(storage_keys::MATRIX_SDK_STORE_DIR))
+}
+
+pub(crate) fn prepare_matrix_sdk_store(app: &AppHandle) -> Result<PathBuf, String> {
+    let store_path = matrix_sdk_store_path(app)?;
+    fs::create_dir_all(&store_path)
+        .map_err(|error| format!("Failed to create Matrix SDK store directory: {error}"))?;
+    Ok(store_path)
+}
+
 pub(crate) fn load_persisted_session(
     app: &AppHandle,
 ) -> Result<Option<PersistedMatrixSession>, String> {
@@ -109,6 +121,16 @@ pub(crate) fn clear_persisted_session(app: &AppHandle) -> Result<(), String> {
     if legacy_path.exists() {
         fs::remove_file(legacy_path)
             .map_err(|error| format!("Failed to clear persisted Matrix session: {error}"))?;
+    }
+
+    Ok(())
+}
+
+pub(crate) fn clear_matrix_sdk_store(app: &AppHandle) -> Result<(), String> {
+    let path = matrix_sdk_store_path(app)?;
+    if path.exists() {
+        fs::remove_dir_all(path)
+            .map_err(|error| format!("Failed to clear Matrix SDK store: {error}"))?;
     }
 
     Ok(())

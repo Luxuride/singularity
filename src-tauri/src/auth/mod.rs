@@ -125,6 +125,7 @@ impl AuthState {
     pub fn clear_session_everywhere(&self, app: &AppHandle) -> Result<(), String> {
         self.clear_runtime_session()?;
         persistence::clear_persisted_session(app)?;
+        persistence::clear_matrix_sdk_store(app)?;
         Ok(())
     }
 
@@ -145,8 +146,11 @@ impl AuthState {
             return Ok(());
         };
 
+        let store_path = persistence::prepare_matrix_sdk_store(app)?;
+
         let client = Client::builder()
             .server_name_or_homeserver_url(persisted.homeserver_url.clone())
+            .sqlite_store(&store_path, None)
             .cross_process_store_locks_holder_name(cross_process_lock_holder_name())
             .handle_refresh_tokens()
             .build()
