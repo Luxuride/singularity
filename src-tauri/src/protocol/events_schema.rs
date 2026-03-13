@@ -1,5 +1,6 @@
 use serde_json::Value;
 
+use crate::messages::{MatrixMessageDecryptionStatus, MatrixMessageVerificationStatus};
 use crate::protocol::event_types;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -9,11 +10,14 @@ pub struct ParsedTimelineMessage {
     pub timestamp: Option<u64>,
     pub body: String,
     pub encrypted: bool,
+    pub decryption_status: MatrixMessageDecryptionStatus,
+    pub verification_status: MatrixMessageVerificationStatus,
 }
 
 pub fn parse_timeline_message(
     event: &Value,
-    is_encrypted_event: bool,
+    decryption_status: MatrixMessageDecryptionStatus,
+    verification_status: MatrixMessageVerificationStatus,
 ) -> Option<ParsedTimelineMessage> {
     let event_type = event
         .get("type")
@@ -57,7 +61,9 @@ pub fn parse_timeline_message(
             sender,
             timestamp,
             body: text_body,
-            encrypted: is_encrypted_event,
+            encrypted: !matches!(decryption_status, MatrixMessageDecryptionStatus::Plaintext),
+            decryption_status,
+            verification_status,
         });
     }
 
@@ -66,8 +72,10 @@ pub fn parse_timeline_message(
             event_id,
             sender,
             timestamp,
-            body: String::from("Encrypted message"),
+            body: String::from("Unable to decrypt encrypted message"),
             encrypted: true,
+            decryption_status: MatrixMessageDecryptionStatus::UnableToDecrypt,
+            verification_status: MatrixMessageVerificationStatus::Unknown,
         });
     }
 
@@ -77,6 +85,8 @@ pub fn parse_timeline_message(
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+
+    use crate::messages::{MatrixMessageDecryptionStatus, MatrixMessageVerificationStatus};
 
     use super::parse_timeline_message;
 
@@ -93,9 +103,18 @@ mod tests {
             }
         });
 
-        let parsed = parse_timeline_message(&event, false).expect("message should parse");
+        let parsed = parse_timeline_message(
+            &event,
+            MatrixMessageDecryptionStatus::Plaintext,
+            MatrixMessageVerificationStatus::Unknown,
+        )
+        .expect("message should parse");
         assert_eq!(parsed.body, "hello");
         assert!(!parsed.encrypted);
+        assert!(matches!(
+            parsed.decryption_status,
+            MatrixMessageDecryptionStatus::Plaintext
+        ));
     }
 
     #[test]
@@ -109,8 +128,17 @@ mod tests {
             }
         });
 
-        let parsed = parse_timeline_message(&event, false).expect("message should parse");
+        let parsed = parse_timeline_message(
+            &event,
+            MatrixMessageDecryptionStatus::Decrypted,
+            MatrixMessageVerificationStatus::Verified,
+        )
+        .expect("message should parse");
         assert_eq!(parsed.body, "Unsupported message type: m.image");
+        assert!(matches!(
+            parsed.verification_status,
+            MatrixMessageVerificationStatus::Verified
+        ));
     }
 
     #[test]
@@ -120,8 +148,17 @@ mod tests {
             "sender": "@alice:example.org"
         });
 
-        let parsed = parse_timeline_message(&event, false).expect("message should parse");
-        assert_eq!(parsed.body, "Encrypted message");
+        let parsed = parse_timeline_message(
+            &event,
+            MatrixMessageDecryptionStatus::UnableToDecrypt,
+            MatrixMessageVerificationStatus::Unknown,
+        )
+        .expect("message should parse");
+        assert_eq!(parsed.body, "Unable to decrypt encrypted message");
         assert!(parsed.encrypted);
+        assert!(matches!(
+            parsed.decryption_status,
+            MatrixMessageDecryptionStatus::UnableToDecrypt
+        ));
     }
 }

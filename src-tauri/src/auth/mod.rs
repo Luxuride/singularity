@@ -9,6 +9,8 @@ use tauri::AppHandle;
 
 pub use workers::start_token_rotation_worker;
 
+use crate::verification::start_verification_state_watcher;
+
 mod stateful_types {
     use serde::{Deserialize, Serialize};
 
@@ -44,6 +46,25 @@ mod stateful_types {
     #[serde(rename_all = "camelCase")]
     pub struct MatrixLogoutResponse {
         pub logged_out: bool,
+    }
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct MatrixRecoveryStatusResponse {
+        pub state: String,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct MatrixRecoverWithKeyRequest {
+        pub recovery_key: String,
+    }
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct MatrixRecoverWithKeyResponse {
+        pub recovered: bool,
+        pub state: String,
     }
 
     #[derive(Serialize)]
@@ -88,6 +109,25 @@ impl AuthState {
             .ok_or_else(|| String::from("No authenticated Matrix session"))
     }
 
+    pub fn clear_runtime_session(&self) -> Result<(), String> {
+        let mut state = self
+            .inner
+            .lock()
+            .map_err(|_| String::from("Failed to acquire auth state lock"))?;
+
+        state.pending_client = None;
+        state.session = None;
+        state.client = None;
+
+        Ok(())
+    }
+
+    pub fn clear_session_everywhere(&self, app: &AppHandle) -> Result<(), String> {
+        self.clear_runtime_session()?;
+        persistence::clear_persisted_session(app)?;
+        Ok(())
+    }
+
     pub async fn restore_client_from_disk_if_needed(&self, app: &AppHandle) -> Result<(), String> {
         {
             let state = self
@@ -107,6 +147,7 @@ impl AuthState {
 
         let client = Client::builder()
             .server_name_or_homeserver_url(persisted.homeserver_url.clone())
+            .cross_process_store_locks_holder_name(cross_process_lock_holder_name())
             .handle_refresh_tokens()
             .build()
             .await
@@ -121,18 +162,44 @@ impl AuthState {
             .await
             .map_err(|error| format!("Failed to restore Matrix session: {error}"))?;
 
-        let mut state = self
-            .inner
-            .lock()
-            .map_err(|_| String::from("Failed to acquire auth state lock"))?;
+        if let Err(error) = client
+            .encryption()
+            .enable_cross_process_store_lock(
+                client.cross_process_store_locks_holder_name().to_owned(),
+            )
+            .await
+        {
+            log::warn!("Failed to enable cross-process crypto store lock: {error}");
+        }
 
-        state.client = Some(client);
-        state.session = Some(MatrixSession {
-            homeserver_url: persisted.homeserver_url,
-            user_id: persisted.matrix_session.meta.user_id.to_string(),
-            device_id: persisted.matrix_session.meta.device_id.to_string(),
-        });
+        {
+            let mut state = self
+                .inner
+                .lock()
+                .map_err(|_| String::from("Failed to acquire auth state lock"))?;
+
+            state.client = Some(client.clone());
+            state.session = Some(MatrixSession {
+                homeserver_url: persisted.homeserver_url,
+                user_id: persisted.matrix_session.meta.user_id.to_string(),
+                device_id: persisted.matrix_session.meta.device_id.to_string(),
+            });
+        }
+
+        wait_for_e2ee_initialization(&client).await;
+        start_verification_state_watcher(app.clone(), client);
 
         Ok(())
     }
+}
+
+pub(crate) async fn wait_for_e2ee_initialization(client: &Client) {
+    client
+        .encryption()
+        .wait_for_e2ee_initialization_tasks()
+        .await;
+}
+
+pub(crate) fn cross_process_lock_holder_name() -> String {
+    format!("singularity-{}", std::process::id())
 }

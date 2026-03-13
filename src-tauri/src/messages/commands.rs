@@ -1,9 +1,8 @@
 use log::info;
-use std::time::Duration;
 use tauri::{AppHandle, State};
 
 use crate::auth::AuthState;
-use crate::protocol::config;
+use crate::protocol::sync::sync_once_serialized;
 
 use super::types::{MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse};
 use super::workers::fetch_room_messages_from_client;
@@ -19,11 +18,7 @@ pub async fn matrix_get_chat_messages(
         .restore_client_from_disk_if_needed(&app_handle)
         .await?;
     let client = auth_state.client()?;
-    client
-        .sync_once(
-            matrix_sdk::config::SyncSettings::default()
-                .timeout(Duration::from_secs(config::SYNC_TIMEOUT_SECONDS)),
-        )
+    sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
         .await
         .map_err(|error| format!("Failed to sync Matrix room messages: {error}"))?;
 

@@ -4,6 +4,10 @@ import type {
   MatrixGetChatMessagesRequest,
   MatrixGetChatMessagesResponse,
   MatrixGetChatsResponse,
+  MatrixGetUserDevicesResponse,
+  MatrixOwnVerificationStatus,
+  MatrixRequestVerificationResponse,
+  MatrixVerificationFlowResponse,
   MatrixTriggerRoomUpdateRequest,
   MatrixTriggerRoomUpdateResponse,
 } from "./types";
@@ -50,6 +54,108 @@ export async function matrixTriggerRoomUpdate(
   try {
     return await invoke<MatrixTriggerRoomUpdateResponse>("matrix_trigger_room_update", {
       request: input ?? null,
+    });
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixOwnVerificationStatus(): Promise<MatrixOwnVerificationStatus> {
+  try {
+    return await invoke<MatrixOwnVerificationStatus>("matrix_own_verification_status");
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixGetUserDevices(userId: string): Promise<MatrixGetUserDevicesResponse> {
+  try {
+    return await invoke<MatrixGetUserDevicesResponse>("matrix_get_user_devices", {
+      userIdRaw: userId,
+    });
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixRequestDeviceVerification(
+  userId: string,
+  deviceId: string,
+): Promise<MatrixRequestVerificationResponse> {
+  try {
+    return await invoke<MatrixRequestVerificationResponse>(
+      "matrix_request_device_verification",
+      { userIdRaw: userId, deviceIdRaw: deviceId },
+    );
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixGetVerificationFlow(
+  userId: string,
+  flowId: string,
+): Promise<MatrixVerificationFlowResponse> {
+  try {
+    return await invoke<MatrixVerificationFlowResponse>("matrix_get_verification_flow", {
+      userIdRaw: userId,
+      flowId,
+    });
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixAcceptVerificationRequest(
+  userId: string,
+  flowId: string,
+): Promise<MatrixVerificationFlowResponse> {
+  try {
+    return await invoke<MatrixVerificationFlowResponse>("matrix_accept_verification_request", {
+      userIdRaw: userId,
+      flowId,
+    });
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixStartSasVerification(
+  userId: string,
+  flowId: string,
+): Promise<MatrixVerificationFlowResponse> {
+  try {
+    return await invoke<MatrixVerificationFlowResponse>("matrix_start_sas_verification", {
+      userIdRaw: userId,
+      flowId,
+    });
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixAcceptSasVerification(
+  userId: string,
+  flowId: string,
+): Promise<MatrixVerificationFlowResponse> {
+  try {
+    return await invoke<MatrixVerificationFlowResponse>("matrix_accept_sas_verification", {
+      userIdRaw: userId,
+      flowId,
+    });
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixConfirmSasVerification(
+  userId: string,
+  flowId: string,
+): Promise<MatrixVerificationFlowResponse> {
+  try {
+    return await invoke<MatrixVerificationFlowResponse>("matrix_confirm_sas_verification", {
+      userIdRaw: userId,
+      flowId,
     });
   } catch (error) {
     throw new Error(toMessage(error));

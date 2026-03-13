@@ -25,6 +25,21 @@ export interface MatrixSessionStatusResponse {
   deviceId: string | null;
 }
 
+export type MatrixRecoveryState = "unknown" | "enabled" | "disabled" | "incomplete";
+
+export interface MatrixRecoveryStatusResponse {
+  state: MatrixRecoveryState;
+}
+
+export interface MatrixRecoverWithKeyRequest {
+  recoveryKey: string;
+}
+
+export interface MatrixRecoverWithKeyResponse {
+  recovered: boolean;
+  state: MatrixRecoveryState;
+}
+
 export interface MatrixLogoutResponse {
   loggedOut: boolean;
 }

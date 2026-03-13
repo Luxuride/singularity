@@ -13,13 +13,13 @@
           overlays = [ rust-overlay.overlays.default ];
         };
 
-        toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-
+        toolchain = (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml).override {
+          extensions = [ "rust-src" "rust-analyzer" ];
+        };
         packages = with pkgs; [
           cargo
           cargo-tauri
           toolchain
-          rust-analyzer-unwrapped
           nodejs_22
           pnpm
         ];
@@ -47,7 +47,6 @@
         ];
 
       in {
-
         devShells.default = pkgs.mkShell {
           buildInputs = packages;
           nativeBuildInputs = nativeBuildPackages;
