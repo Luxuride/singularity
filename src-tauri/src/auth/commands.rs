@@ -19,7 +19,8 @@ use super::stateful_types::{
     MatrixSessionStatusResponse, MatrixStartOAuthRequest, MatrixStartOAuthResponse,
 };
 use super::{
-    cross_process_lock_holder_name, wait_for_e2ee_initialization, AuthState, MatrixSession,
+    cross_process_lock_holder_name, start_session_persistence_watcher,
+    wait_for_e2ee_initialization, AuthState, MatrixSession,
 };
 
 fn map_recovery_state(state: RecoveryState) -> String {
@@ -136,6 +137,7 @@ pub async fn matrix_complete_oauth(
 
     wait_for_e2ee_initialization(&client).await;
 
+    start_session_persistence_watcher(app_handle.clone(), client.clone());
     start_verification_state_watcher(app_handle.clone(), client);
 
     Ok(MatrixCompleteOAuthResponse {

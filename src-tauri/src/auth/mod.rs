@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use tauri::AppHandle;
 
 pub use workers::start_token_rotation_worker;
+pub use workers::start_session_persistence_watcher;
 pub(crate) use workers::handle_unknown_token_error;
 
 use crate::verification::start_verification_state_watcher;
@@ -192,6 +193,7 @@ impl AuthState {
         }
 
         wait_for_e2ee_initialization(&client).await;
+        start_session_persistence_watcher(app.clone(), client.clone());
         start_verification_state_watcher(app.clone(), client);
 
         Ok(())

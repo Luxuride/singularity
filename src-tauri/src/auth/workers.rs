@@ -1,6 +1,7 @@
 use std::time::Duration;
 use std::sync::OnceLock;
 
+use matrix_sdk::SessionChange;
 use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex;
 
@@ -12,7 +13,9 @@ use super::persistence::{
 use super::AuthState;
 
 fn is_invalid_refresh_token_error(message: &str) -> bool {
-    message.contains("UnknownToken") || message.contains("refresh token does not exist")
+    message.contains("UnknownToken")
+        || message.contains("refresh token does not exist")
+        || message.contains("refresh token isn't valid anymore")
 }
 
 fn refresh_lock() -> &'static Mutex<()> {
@@ -71,6 +74,27 @@ pub(crate) async fn handle_unknown_token_error(
     }
 
     Ok(recovered)
+}
+
+pub fn start_session_persistence_watcher(app: AppHandle, client: matrix_sdk::Client) {
+    tauri::async_runtime::spawn(async move {
+        let mut session_changes = client.subscribe_to_session_changes();
+
+        loop {
+            match session_changes.recv().await {
+                Ok(SessionChange::TokensRefreshed) => {
+                    if let Err(error) = persist_session_from_client(&app, &client) {
+                        log::warn!(
+                            "Failed to persist Matrix session after token refresh: {error}"
+                        );
+                    }
+                }
+                Ok(SessionChange::UnknownToken { .. }) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
 }
 
 pub fn start_token_rotation_worker(app: AppHandle) {
