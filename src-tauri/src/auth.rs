@@ -4,13 +4,15 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Duration;
 use matrix_sdk::Client;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use url::Url;
 
 use crate::storage;
 
 const CALLBACK_REDIRECT_URI: &str = "http://127.0.0.1:8743/matrix-oauth-callback";
+const TOKEN_ROTATION_INTERVAL_SECONDS: u64 = 30 * 60;
 
 #[derive(Default)]
 pub struct AuthState {
@@ -95,6 +97,51 @@ impl AuthState {
 
         Ok(())
     }
+}
+
+pub fn start_token_rotation_worker(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(
+            TOKEN_ROTATION_INTERVAL_SECONDS,
+        ));
+
+        loop {
+            interval.tick().await;
+
+            if let Err(error) = run_token_rotation_pass(&app).await {
+                log::warn!("Matrix token rotation failed: {error}");
+            }
+        }
+    });
+}
+
+async fn run_token_rotation_pass(app: &AppHandle) -> Result<(), String> {
+    let auth_state = app.state::<AuthState>();
+    auth_state.restore_client_from_disk_if_needed(app).await?;
+
+    let client = match auth_state.client() {
+        Ok(client) => client,
+        Err(_) => return Ok(()),
+    };
+
+    let has_refresh_token = client
+        .session_tokens()
+        .and_then(|tokens| tokens.refresh_token)
+        .is_some();
+
+    if !has_refresh_token {
+        return Ok(());
+    }
+
+    client
+        .matrix_auth()
+        .refresh_access_token()
+        .await
+        .map_err(|error| format!("Failed to refresh Matrix access token: {error}"))?;
+
+    persist_session_from_client(app, &client)?;
+
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -328,6 +375,21 @@ fn persist_session(app: &AppHandle, session: &PersistedMatrixSession) -> Result<
 
     fs::write(path, raw).map_err(|error| format!("Failed to persist Matrix session: {error}"))?;
     Ok(())
+}
+
+fn persist_session_from_client(app: &AppHandle, client: &Client) -> Result<(), String> {
+    let session = client
+        .matrix_auth()
+        .session()
+        .ok_or_else(|| String::from("Missing Matrix session while persisting token refresh"))?;
+
+    persist_session(
+        app,
+        &PersistedMatrixSession {
+            homeserver_url: client.homeserver().to_string(),
+            matrix_session: session,
+        },
+    )
 }
 
 fn clear_persisted_session(app: &AppHandle) -> Result<(), String> {
