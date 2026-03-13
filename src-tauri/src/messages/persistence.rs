@@ -2,7 +2,6 @@ use std::collections::{HashMap, VecDeque};
 
 use tokio::sync::RwLock;
 
-use super::types::MatrixChatMessage;
 use super::types::MatrixGetChatMessagesResponse;
 
 const MESSAGE_CACHE_MAX_ROOMS: usize = 64;
@@ -70,6 +69,3 @@ pub fn is_cacheable_initial_request(from: Option<&str>, limit: Option<u32>) -> b
     effective_limit == 50
 }
 
-pub(crate) fn sort_messages_by_timestamp(messages: &mut [MatrixChatMessage]) {
-    messages.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
-}

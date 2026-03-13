@@ -44,6 +44,8 @@
   };
 
   const roomScrollStates = new Map<string, RoomScrollState>();
+  const AUTO_LOAD_TOP_THRESHOLD_PX = 96;
+  const AUTO_LOAD_OLDER_COOLDOWN_MS = 400;
 
   let pendingRestoreRoomId = "";
   let pendingRestoreToBottom = false;
@@ -54,6 +56,7 @@
   const MAX_RESTORE_ATTEMPTS = 8;
 
   let previousSelectedRoomId = "";
+  let lastAutoLoadOlderAt = 0;
 
   onMount(() => {
     let unlisten = () => {};
@@ -78,6 +81,7 @@
 
     if (!selectedRoomId) {
       previousSelectedRoomId = "";
+      lastAutoLoadOlderAt = 0;
       pendingRestoreRoomId = "";
       pendingRestoreToBottom = false;
       pendingRestoreAttempts = 0;
@@ -102,6 +106,7 @@
     pendingRestoreToBottom = !roomScrollStates.has(selectedRoomId);
     pendingRestoreAttempts = 0;
     previousSelectedRoomId = selectedRoomId;
+    lastAutoLoadOlderAt = 0;
     activeStreamId = "";
     activeLoadKind = null;
     streamMessageCount = 0;
@@ -209,6 +214,18 @@
     }
 
     saveRoomScrollState(selectedRoomId);
+
+    if (timelineElement.scrollTop > AUTO_LOAD_TOP_THRESHOLD_PX || loadingMessages || !nextFrom) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastAutoLoadOlderAt < AUTO_LOAD_OLDER_COOLDOWN_MS) {
+      return;
+    }
+
+    lastAutoLoadOlderAt = now;
+    void loadOlder();
   }
 
   function saveRoomScrollState(roomId: string) {
@@ -373,21 +390,54 @@
       return;
     }
 
-    if (loadingMessages && activeLoadKind === "initial") {
+    if (loadingMessages) {
       return;
     }
 
-    const incoming = payload.messages
-      .filter((message) => message.eventId && !seenEventIds.has(message.eventId))
-      .reverse();
+    const indexed = payload.messages
+      .map((message, index) => ({ message, index }))
+      .filter(({ message }) => Boolean(message.eventId));
 
-    if (!incoming.length) {
+    if (!indexed.length) {
       return;
     }
 
-    const toAppend: TimelineMessage[] = [];
+    const seenIndexes = indexed
+      .filter(({ message }) => Boolean(message.eventId && seenEventIds.has(message.eventId)))
+      .map(({ index }) => index);
 
-    for (const message of incoming) {
+    const newerCandidates: MatrixChatMessage[] = [];
+    const olderCandidates: MatrixChatMessage[] = [];
+
+    if (!seenIndexes.length) {
+      for (const { message } of indexed) {
+        if (!message.eventId || seenEventIds.has(message.eventId)) {
+          continue;
+        }
+        newerCandidates.push(message);
+      }
+    } else {
+      const firstSeenIndex = Math.min(...seenIndexes);
+      const lastSeenIndex = Math.max(...seenIndexes);
+
+      for (const { message, index } of indexed) {
+        if (!message.eventId || seenEventIds.has(message.eventId)) {
+          continue;
+        }
+
+        if (index < firstSeenIndex) {
+          newerCandidates.push(message);
+          continue;
+        }
+
+        if (index > lastSeenIndex) {
+          olderCandidates.push(message);
+        }
+      }
+    }
+
+    const prependOlder: TimelineMessage[] = [];
+    for (const message of olderCandidates) {
       if (tryReplaceOptimisticWithRemote(message)) {
         if (message.eventId) {
           seenEventIds.add(message.eventId);
@@ -398,15 +448,34 @@
       if (message.eventId) {
         seenEventIds.add(message.eventId);
       }
-      toAppend.push(message);
+
+      prependOlder.push(message);
     }
 
-    if (!toAppend.length) {
+    const appendNewer: TimelineMessage[] = [];
+    for (const message of [...newerCandidates].reverse()) {
+      if (tryReplaceOptimisticWithRemote(message)) {
+        if (message.eventId) {
+          seenEventIds.add(message.eventId);
+        }
+        continue;
+      }
+
+      if (message.eventId) {
+        seenEventIds.add(message.eventId);
+      }
+
+      appendNewer.push(message);
+    }
+
+    if (!prependOlder.length && !appendNewer.length) {
       return;
     }
 
-    messages = [...messages, ...toAppend];
-    queuePinTimelineToBottom(payload.roomId);
+    messages = [...prependOlder.reverse(), ...messages, ...appendNewer];
+    if (appendNewer.length) {
+      queuePinTimelineToBottom(payload.roomId);
+    }
   }
 
   function buildOptimisticMessage(body: string): TimelineMessage {
@@ -558,7 +627,7 @@
     try {
       await matrixStreamChatMessages({
         roomId,
-        limit: 50,
+        limit: 20,
         streamId,
         loadKind: "initial",
       });
@@ -597,7 +666,7 @@
       await matrixStreamChatMessages({
         roomId: selectedRoomId,
         from: nextFrom,
-        limit: 50,
+        limit: 10,
         streamId,
         loadKind: "older",
       });
