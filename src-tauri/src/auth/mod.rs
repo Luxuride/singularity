@@ -1,5 +1,6 @@
 pub(crate) mod commands;
 mod persistence;
+pub(crate) mod types;
 mod workers;
 
 use matrix_sdk::store::RoomLoadSettings;
@@ -7,77 +8,10 @@ use matrix_sdk::Client;
 use std::sync::Mutex;
 use tauri::AppHandle;
 
-pub use workers::start_token_rotation_worker;
 pub use workers::start_session_persistence_watcher;
 pub(crate) use workers::handle_unknown_token_error;
 
 use crate::verification::start_verification_state_watcher;
-
-mod stateful_types {
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct MatrixStartOAuthRequest {
-        pub homeserver_url: String,
-    }
-
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct MatrixStartOAuthResponse {
-        pub authorization_url: String,
-        pub redirect_uri: String,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct MatrixCompleteOAuthRequest {
-        pub callback_url: String,
-    }
-
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct MatrixSessionStatusResponse {
-        pub authenticated: bool,
-        pub homeserver_url: Option<String>,
-        pub user_id: Option<String>,
-        pub device_id: Option<String>,
-    }
-
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct MatrixLogoutResponse {
-        pub logged_out: bool,
-    }
-
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct MatrixRecoveryStatusResponse {
-        pub state: String,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct MatrixRecoverWithKeyRequest {
-        pub recovery_key: String,
-    }
-
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct MatrixRecoverWithKeyResponse {
-        pub recovered: bool,
-        pub state: String,
-    }
-
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct MatrixCompleteOAuthResponse {
-        pub authenticated: bool,
-        pub homeserver_url: String,
-        pub user_id: String,
-        pub device_id: String,
-    }
-}
 
 #[derive(Default)]
 pub struct AuthState {
@@ -99,23 +33,23 @@ pub(crate) struct MatrixSession {
 }
 
 impl AuthState {
-    pub fn client(&self) -> Result<Client, String> {
-        let state = self
-            .inner
+    pub(crate) fn lock_inner(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, AuthRuntimeState>, String> {
+        self.inner
             .lock()
-            .map_err(|_| String::from("Failed to acquire auth state lock"))?;
+            .map_err(|_| String::from("Failed to acquire auth state lock"))
+    }
 
-        state
+    pub fn client(&self) -> Result<Client, String> {
+        self.lock_inner()?
             .client
             .clone()
             .ok_or_else(|| String::from("No authenticated Matrix session"))
     }
 
     pub fn clear_runtime_session(&self) -> Result<(), String> {
-        let mut state = self
-            .inner
-            .lock()
-            .map_err(|_| String::from("Failed to acquire auth state lock"))?;
+        let mut state = self.lock_inner()?;
 
         state.pending_client = None;
         state.session = None;
@@ -124,21 +58,9 @@ impl AuthState {
         Ok(())
     }
 
-    pub fn clear_session_everywhere(&self, app: &AppHandle) -> Result<(), String> {
-        self.clear_runtime_session()?;
-        persistence::clear_persisted_session(app)?;
-        persistence::clear_matrix_sdk_store(app)?;
-        Ok(())
-    }
-
     pub async fn restore_client_from_disk_if_needed(&self, app: &AppHandle) -> Result<(), String> {
         {
-            let state = self
-                .inner
-                .lock()
-                .map_err(|_| String::from("Failed to acquire auth state lock"))?;
-
-            if state.client.is_some() {
+            if self.lock_inner()?.client.is_some() {
                 return Ok(());
             }
         }
@@ -179,10 +101,7 @@ impl AuthState {
         }
 
         {
-            let mut state = self
-                .inner
-                .lock()
-                .map_err(|_| String::from("Failed to acquire auth state lock"))?;
+            let mut state = self.lock_inner()?;
 
             state.client = Some(client.clone());
             state.session = Some(MatrixSession {
@@ -197,6 +116,11 @@ impl AuthState {
         start_verification_state_watcher(app.clone(), client);
 
         Ok(())
+    }
+
+    pub async fn restore_client_and_get(&self, app: &AppHandle) -> Result<Client, String> {
+        self.restore_client_from_disk_if_needed(app).await?;
+        self.client()
     }
 }
 

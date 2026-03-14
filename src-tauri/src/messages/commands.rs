@@ -24,14 +24,11 @@ pub async fn matrix_get_chat_messages(
     app_handle: AppHandle,
 ) -> Result<MatrixGetChatMessagesResponse, String> {
     info!("matrix_get_chat_messages requested");
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
 
     let from = request.from.clone();
     let cacheable_initial_request = is_cacheable_initial_request(from.as_deref(), request.limit);
     let limit = request.limit;
-    let client = auth_state.client()?;
 
     if let Some(cached) = message_cache
         .load_initial_room_messages(request.room_id.as_str(), from.as_deref(), limit)
@@ -71,9 +68,7 @@ pub async fn matrix_stream_chat_messages(
     app_handle: AppHandle,
 ) -> Result<MatrixStreamChatMessagesResponse, String> {
     info!("matrix_stream_chat_messages requested");
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
 
     let room_id = request.room_id;
     let stream_id = request.stream_id;
@@ -136,8 +131,6 @@ pub async fn matrix_stream_chat_messages(
             });
         }
     }
-
-    let client = auth_state.client()?;
 
     sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
         .await
@@ -239,11 +232,7 @@ pub async fn matrix_send_chat_message(
     app_handle: AppHandle,
 ) -> Result<MatrixSendChatMessageResponse, String> {
     info!("matrix_send_chat_message requested");
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
-
-    let client = auth_state.client()?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
 
     sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
         .await
