@@ -3,8 +3,8 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::auth::AuthState;
 use crate::protocol::event_paths;
-use crate::rooms::{RoomRefreshTrigger, RoomUpdateTriggerState};
 use crate::protocol::sync::sync_once_serialized;
+use crate::rooms::{RoomRefreshTrigger, RoomUpdateTriggerState};
 
 use super::persistence::is_cacheable_initial_request;
 use super::types::{
@@ -44,13 +44,8 @@ pub async fn matrix_get_chat_messages(
         .await
         .map_err(|error| format!("Failed to sync Matrix room messages: {error}"))?;
 
-    let response = fetch_room_messages_from_client(
-        &client,
-        request.room_id.as_str(),
-        from,
-        limit,
-    )
-    .await?;
+    let response =
+        fetch_room_messages_from_client(&client, request.room_id.as_str(), from, limit).await?;
 
     if cacheable_initial_request {
         message_cache.store_initial_room_messages(&response).await;
@@ -101,7 +96,9 @@ pub async fn matrix_stream_chat_messages(
                             done: false,
                         },
                     )
-                    .map_err(|error| format!("Failed to emit chat message stream event: {error}"))?;
+                    .map_err(|error| {
+                        format!("Failed to emit chat message stream event: {error}")
+                    })?;
 
                 sequence = sequence.saturating_add(1);
             }
@@ -119,7 +116,9 @@ pub async fn matrix_stream_chat_messages(
                         done: true,
                     },
                 )
-                .map_err(|error| format!("Failed to emit chat message stream completion: {error}"))?;
+                .map_err(|error| {
+                    format!("Failed to emit chat message stream completion: {error}")
+                })?;
 
             let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
                 selected_room_id: Some(room_id),
@@ -239,8 +238,8 @@ pub async fn matrix_send_chat_message(
         .map_err(|error| format!("Failed to sync Matrix before send: {error}"))?;
 
     let room_id = request.room_id;
-    let event_id = send_room_message_from_client(&client, room_id.as_str(), request.body.as_str())
-        .await?;
+    let event_id =
+        send_room_message_from_client(&client, room_id.as_str(), request.body.as_str()).await?;
 
     let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
         selected_room_id: Some(room_id),

@@ -4,8 +4,8 @@ use log::{error, warn};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 
-use crate::auth::AuthState;
 use crate::auth::handle_unknown_token_error;
+use crate::auth::AuthState;
 use crate::messages::{fetch_room_messages_from_client, MessageCacheState};
 use crate::protocol::config;
 
@@ -97,11 +97,7 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
                         .unwrap_or(retry_initial_delay)
                         .min(retry_max_delay);
 
-                    retry_delay = Some(
-                        next_delay
-                            .saturating_mul(2)
-                            .min(retry_max_delay),
-                    );
+                    retry_delay = Some(next_delay.saturating_mul(2).min(retry_max_delay));
 
                     tokio::select! {
                         _ = tokio::time::sleep(next_delay) => {}
@@ -202,6 +198,10 @@ fn is_unknown_token_error(error: &str) -> bool {
 
 fn apply_trigger(trigger: RoomRefreshTrigger, selected: &mut Option<String>) {
     if let Some(room_id) = trigger.selected_room_id {
-        *selected = if room_id.is_empty() { None } else { Some(room_id) };
+        *selected = if room_id.is_empty() {
+            None
+        } else {
+            Some(room_id)
+        };
     }
 }

@@ -1,5 +1,5 @@
-use tauri::{AppHandle, State};
 use std::time::Duration;
+use tauri::{AppHandle, State};
 
 use crate::auth::AuthState;
 use crate::protocol::config;

@@ -3,11 +3,11 @@ use url::Url;
 
 use matrix_sdk::encryption::recovery::RecoveryState;
 
+use crate::messages::MessageCacheState;
 use crate::protocol::config;
 use crate::protocol::endpoints::normalize_homeserver_url;
 use crate::protocol::sync::sync_once_serialized;
 use crate::verification::start_verification_state_watcher;
-use crate::messages::MessageCacheState;
 
 use super::persistence::{
     clear_matrix_sdk_store, clear_persisted_session, persist_session, prepare_matrix_sdk_store,

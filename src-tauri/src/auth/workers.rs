@@ -30,9 +30,7 @@ pub fn start_session_persistence_watcher(app: AppHandle, client: matrix_sdk::Cli
             match session_changes.recv().await {
                 Ok(SessionChange::TokensRefreshed) => {
                     if let Err(error) = persist_session_from_client(&app, &client) {
-                        log::warn!(
-                            "Failed to persist Matrix session after token refresh: {error}"
-                        );
+                        log::warn!("Failed to persist Matrix session after token refresh: {error}");
                     }
                 }
                 Ok(SessionChange::UnknownToken { .. }) => {}
@@ -42,4 +40,3 @@ pub fn start_session_persistence_watcher(app: AppHandle, client: matrix_sdk::Cli
         }
     });
 }
-
