@@ -1,0 +1,62 @@
+name: 'quality-checks'
+
+on:
+  workflow_call:
+    inputs:
+      check:
+        required: true
+        type: string
+
+jobs:
+  quality-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install Rust stable
+        if: inputs.check == 'cargo-fmt' || inputs.check == 'cargo-clippy'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: install tauri dependencies
+        if: inputs.check == 'cargo-fmt' || inputs.check == 'cargo-clippy'
+        run: |
+          sudo apt-get update
+          sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: install fmt dependencies
+        if: inputs.check == 'cargo-fmt'
+        working-directory: src-tauri
+        run: rustup component add rustfmt
+
+      - name: check code formatting
+        if: inputs.check == 'cargo-fmt'
+        working-directory: src-tauri
+        run: cargo fmt --all -- --check
+
+      - name: install clippy
+        if: inputs.check == 'cargo-clippy'
+        working-directory: src-tauri
+        run: rustup component add clippy
+
+      - name: run clippy linter
+        if: inputs.check == 'cargo-clippy'
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: setup node
+        if: inputs.check == 'pnpm-check'
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: install pnpm
+        if: inputs.check == 'pnpm-check'
+        run: npm install -g pnpm
+
+      - name: check frontend dependencies
+        if: inputs.check == 'pnpm-check'
+        run: pnpm install --frozen-lockfile
+
+      - name: check frontend source
+        if: inputs.check == 'pnpm-check'
+        run: pnpm check
