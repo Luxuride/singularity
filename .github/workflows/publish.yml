@@ -27,18 +27,22 @@ jobs:
       - cargo-fmt
       - cargo-clippy
       - pnpm-check
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: 'macos-latest' # for Arm based macs (M1 and above).
             args: '--target aarch64-apple-darwin'
+            artifact_name: 'singularity-macos-aarch64'
+            artifact_path: 'src-tauri/target/aarch64-apple-darwin/release/bundle/**'
           - platform: 'ubuntu-22.04' # for Tauri v1 you could replace this with ubuntu-20.04.
             args: ''
+            artifact_name: 'singularity-linux-x64'
+            artifact_path: 'src-tauri/target/release/bundle/**'
           - platform: 'windows-latest'
             args: ''
+            artifact_name: 'singularity-windows-x64'
+            artifact_path: 'src-tauri/target/release/bundle/**'
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -70,13 +74,14 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install # change this to npm, pnpm or bun depending on which one you use.
 
+      # Omitting tag/release fields makes tauri-action build only.
       - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: app-v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version.
-          releaseName: 'App v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true
-          prerelease: false
           args: ${{ matrix.args }}
+
+      - name: upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
