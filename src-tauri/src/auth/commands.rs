@@ -4,7 +4,7 @@ use url::Url;
 use matrix_sdk::encryption::recovery::RecoveryState;
 
 use crate::protocol::config;
-use crate::protocol::endpoints::HomeserverEndpoints;
+use crate::protocol::endpoints::normalize_homeserver_url;
 use crate::protocol::sync::sync_once_serialized;
 use crate::verification::start_verification_state_watcher;
 use crate::messages::MessageCacheState;
@@ -38,8 +38,7 @@ pub async fn matrix_start_oauth(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixStartOAuthResponse, String> {
-    let endpoints = HomeserverEndpoints::from_raw(&request.homeserver_url)?;
-    let homeserver_url = endpoints.homeserver_url().to_owned();
+    let homeserver_url = normalize_homeserver_url(&request.homeserver_url)?;
     let store_path = prepare_matrix_sdk_store(&app_handle)?;
     let client = matrix_sdk::Client::builder()
         .server_name_or_homeserver_url(homeserver_url)

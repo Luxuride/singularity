@@ -1,21 +1,5 @@
 use url::Url;
 
-#[derive(Clone, Debug)]
-pub struct HomeserverEndpoints {
-    homeserver_url: String,
-}
-
-impl HomeserverEndpoints {
-    pub fn from_raw(raw: &str) -> Result<Self, String> {
-        let homeserver_url = normalize_homeserver_url(raw)?;
-        Ok(Self { homeserver_url })
-    }
-
-    pub fn homeserver_url(&self) -> &str {
-        self.homeserver_url.as_str()
-    }
-}
-
 pub fn normalize_homeserver_url(raw: &str) -> Result<String, String> {
     let candidate = raw.trim();
     if candidate.is_empty() {
@@ -49,7 +33,7 @@ pub fn normalize_homeserver_url(raw: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_homeserver_url, HomeserverEndpoints};
+    use super::normalize_homeserver_url;
 
     #[test]
     fn normalizes_url_without_scheme_to_https() {
@@ -71,8 +55,8 @@ mod tests {
     }
 
     #[test]
-    fn endpoints_wrap_normalized_value() {
-        let endpoints = HomeserverEndpoints::from_raw(" matrix.example.org ").expect("endpoints");
-        assert_eq!(endpoints.homeserver_url(), "https://matrix.example.org");
+    fn normalization_trims_input() {
+        let normalized = normalize_homeserver_url(" matrix.example.org ").expect("normalization");
+        assert_eq!(normalized, "https://matrix.example.org");
     }
 }

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { toMessage } from "../errors";
 import type {
   MatrixCompleteOAuthRequest,
   MatrixCompleteOAuthResponse,
@@ -10,21 +11,6 @@ import type {
   MatrixStartOAuthRequest,
   MatrixStartOAuthResponse,
 } from "./types";
-
-function toMessage(error: unknown): string {
-  if (typeof error === "string") {
-    return error;
-  }
-
-  if (error && typeof error === "object") {
-    const candidate = (error as Record<string, unknown>).message;
-    if (typeof candidate === "string") {
-      return candidate;
-    }
-  }
-
-  return "Unexpected error";
-}
 
 export async function matrixStartOAuth(
   input: MatrixStartOAuthRequest,
