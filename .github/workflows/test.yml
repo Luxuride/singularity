@@ -1,9 +1,52 @@
 name: 'test-on-pr'
 
-on: [pull_request]
+on:
+  pull_request:
+    branches:
+      - master
+      - release
 
 jobs:
+  cargo-fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: check formatting
+        run: cargo fmt --all -- --check
+  cargo-clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: check clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+  pnpm-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: install pnpm
+        run: npm install -g pnpm
+
+      - name: check pnpm lockfile
+        run: pnpm install --frozen-lockfile
   test-tauri:
+    needs:
+      - cargo-fmt
+      - cargo-clippy
+      - pnpm-check
     strategy:
       fail-fast: false
       matrix:
