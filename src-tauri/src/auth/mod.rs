@@ -8,7 +8,6 @@ use matrix_sdk::Client;
 use std::sync::Mutex;
 use tauri::AppHandle;
 
-pub use workers::start_token_rotation_worker;
 pub use workers::start_session_persistence_watcher;
 pub(crate) use workers::handle_unknown_token_error;
 
