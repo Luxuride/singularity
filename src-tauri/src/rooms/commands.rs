@@ -3,10 +3,11 @@ use std::time::Duration;
 
 use crate::auth::AuthState;
 use crate::protocol::config;
+use crate::protocol::sync::sync_once_serialized;
 
 use super::persistence::{load_cached_chats, store_cached_chats};
 use super::types::MatrixGetChatsResponse;
-use super::workers::{collect_chat_summaries, sync_client_rooms_once};
+use super::workers::collect_chat_summaries;
 use super::{
     MatrixTriggerRoomUpdateRequest, MatrixTriggerRoomUpdateResponse, RoomRefreshTrigger,
     RoomUpdateTriggerState,
@@ -28,11 +29,13 @@ pub async fn matrix_get_chats(
     }
 
     let client = auth_state.client()?;
-    sync_client_rooms_once(
+    sync_once_serialized(
         &client,
-        Duration::from_secs(config::LONG_POLL_SYNC_TIMEOUT_SECONDS),
+        matrix_sdk::config::SyncSettings::default()
+            .timeout(Duration::from_secs(config::LONG_POLL_SYNC_TIMEOUT_SECONDS)),
     )
-    .await?;
+    .await
+    .map_err(|error| format!("Failed to sync Matrix rooms: {error}"))?;
 
     let chats = collect_chat_summaries(&client).await;
 

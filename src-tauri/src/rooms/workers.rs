@@ -8,7 +8,6 @@ use crate::auth::AuthState;
 use crate::auth::handle_unknown_token_error;
 use crate::messages::{fetch_room_messages_from_client, MessageCacheState};
 use crate::protocol::config;
-use crate::protocol::sync::sync_once_serialized;
 
 use super::persistence::refresh_room_snapshot;
 use super::types::MatrixChatSummary;
@@ -16,39 +15,6 @@ use super::{
     MatrixRoomRemovedEvent, MatrixSelectedRoomMessagesEvent, RoomRefreshTrigger, RoomSnapshot,
     RoomUpdateEvent, RoomUpdateTriggerState,
 };
-
-#[derive(Clone, Debug)]
-struct RoomUpdateWorkerConfig {
-    sync_timeout: Duration,
-    unauthenticated_delay: Duration,
-    retry_initial_delay: Duration,
-    retry_max_delay: Duration,
-}
-
-impl Default for RoomUpdateWorkerConfig {
-    fn default() -> Self {
-        Self {
-            sync_timeout: Duration::from_secs(config::LONG_POLL_SYNC_TIMEOUT_SECONDS),
-            unauthenticated_delay: Duration::from_secs(config::WORKER_UNAUTH_SLEEP_SECONDS),
-            retry_initial_delay: Duration::from_millis(config::WORKER_RETRY_INITIAL_DELAY_MS),
-            retry_max_delay: Duration::from_millis(config::WORKER_RETRY_MAX_DELAY_MS),
-        }
-    }
-}
-
-pub(crate) async fn sync_client_rooms_once(
-    client: &matrix_sdk::Client,
-    timeout: Duration,
-) -> Result<(), String> {
-    sync_once_serialized(
-        client,
-        matrix_sdk::config::SyncSettings::default().timeout(timeout),
-    )
-    .await
-    .map_err(|error| format!("Failed to sync Matrix rooms: {error}"))?;
-
-    Ok(())
-}
 
 pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixChatSummary> {
     let mut chats = Vec::new();
@@ -86,7 +52,10 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
 pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
     let (sender, mut receiver) = mpsc::unbounded_channel::<RoomRefreshTrigger>();
     let task_app = app.clone();
-    let worker_config = RoomUpdateWorkerConfig::default();
+    let sync_timeout = Duration::from_secs(config::LONG_POLL_SYNC_TIMEOUT_SECONDS);
+    let unauthenticated_delay = Duration::from_secs(config::WORKER_UNAUTH_SLEEP_SECONDS);
+    let retry_initial_delay = Duration::from_millis(config::WORKER_RETRY_INITIAL_DELAY_MS);
+    let retry_max_delay = Duration::from_millis(config::WORKER_RETRY_MAX_DELAY_MS);
 
     tauri::async_runtime::spawn(async move {
         let mut previous_snapshot = RoomSnapshot::new();
@@ -108,7 +77,7 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
                 &task_app,
                 &mut previous_snapshot,
                 selected_room_id.clone(),
-                worker_config.sync_timeout,
+                sync_timeout,
             )
             .await
             {
@@ -117,7 +86,7 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
 
                     if !refresh_completed {
                         tokio::select! {
-                            _ = tokio::time::sleep(worker_config.unauthenticated_delay) => {}
+                            _ = tokio::time::sleep(unauthenticated_delay) => {}
                             maybe_trigger = receiver.recv() => {
                                 let Some(trigger) = maybe_trigger else {
                                     break;
@@ -138,13 +107,13 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
                     error!("Room update pass failed: {error}");
 
                     let next_delay = retry_delay
-                        .unwrap_or(worker_config.retry_initial_delay)
-                        .min(worker_config.retry_max_delay);
+                        .unwrap_or(retry_initial_delay)
+                        .min(retry_max_delay);
 
                     retry_delay = Some(
                         next_delay
                             .saturating_mul(2)
-                            .min(worker_config.retry_max_delay),
+                            .min(retry_max_delay),
                     );
 
                     tokio::select! {
