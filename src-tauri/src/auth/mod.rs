@@ -8,8 +8,8 @@ use matrix_sdk::Client;
 use std::sync::Mutex;
 use tauri::AppHandle;
 
-pub use workers::start_session_persistence_watcher;
 pub(crate) use workers::handle_unknown_token_error;
+pub use workers::start_session_persistence_watcher;
 
 use crate::verification::start_verification_state_watcher;
 
@@ -33,9 +33,7 @@ pub(crate) struct MatrixSession {
 }
 
 impl AuthState {
-    pub(crate) fn lock_inner(
-        &self,
-    ) -> Result<std::sync::MutexGuard<'_, AuthRuntimeState>, String> {
+    pub(crate) fn lock_inner(&self) -> Result<std::sync::MutexGuard<'_, AuthRuntimeState>, String> {
         self.inner
             .lock()
             .map_err(|_| String::from("Failed to acquire auth state lock"))

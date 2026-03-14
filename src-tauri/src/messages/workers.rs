@@ -45,7 +45,8 @@ pub(crate) async fn fetch_room_messages_from_client(
                 "Failed to download backup keys for room {}: {}",
                 room_id, error
             );
-        } else if let Ok(retry_response) = room.messages(build_messages_options(from, limit)).await {
+        } else if let Ok(retry_response) = room.messages(build_messages_options(from, limit)).await
+        {
             let (retry_messages, retry_had_utd) = parse_message_chunk(retry_response.chunk);
             messages = retry_messages;
             had_utd = retry_had_utd;
@@ -130,8 +131,7 @@ fn parse_message_chunk(chunk: Vec<TimelineEvent>) -> (Vec<MatrixChatMessage>, bo
             continue;
         };
 
-        if let Some(parsed) =
-            parse_timeline_message(&event, decryption_status, verification_status)
+        if let Some(parsed) = parse_timeline_message(&event, decryption_status, verification_status)
         {
             messages.push(MatrixChatMessage {
                 event_id: parsed.event_id,

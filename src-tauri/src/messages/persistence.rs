@@ -38,7 +38,11 @@ impl MessageCacheState {
         let mut inner = self.inner.write().await;
         inner.by_room.insert(room_id.clone(), response.clone());
 
-        if let Some(index) = inner.lru_order.iter().position(|candidate| candidate == &room_id) {
+        if let Some(index) = inner
+            .lru_order
+            .iter()
+            .position(|candidate| candidate == &room_id)
+        {
             inner.lru_order.remove(index);
         }
 
@@ -68,4 +72,3 @@ pub fn is_cacheable_initial_request(from: Option<&str>, limit: Option<u32>) -> b
     let effective_limit = limit.unwrap_or(50).min(100);
     effective_limit == 50
 }
-
