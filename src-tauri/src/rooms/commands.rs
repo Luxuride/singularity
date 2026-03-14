@@ -18,17 +18,13 @@ pub async fn matrix_get_chats(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixGetChatsResponse, String> {
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
-
     if let Some(cached_chats) = load_cached_chats(&app_handle)? {
         return Ok(MatrixGetChatsResponse {
             chats: cached_chats,
         });
     }
 
-    let client = auth_state.client()?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
     sync_once_serialized(
         &client,
         matrix_sdk::config::SyncSettings::default()
