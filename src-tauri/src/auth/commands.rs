@@ -4,7 +4,7 @@ use url::Url;
 use matrix_sdk::encryption::recovery::RecoveryState;
 
 use crate::protocol::config;
-use crate::protocol::endpoints::HomeserverEndpoints;
+use crate::protocol::endpoints::normalize_homeserver_url;
 use crate::protocol::sync::sync_once_serialized;
 use crate::verification::start_verification_state_watcher;
 use crate::messages::MessageCacheState;
@@ -13,7 +13,7 @@ use super::persistence::{
     clear_matrix_sdk_store, clear_persisted_session, persist_session, prepare_matrix_sdk_store,
     PersistedMatrixSession,
 };
-use super::stateful_types::{
+use super::types::{
     MatrixCompleteOAuthRequest, MatrixCompleteOAuthResponse, MatrixLogoutResponse,
     MatrixRecoverWithKeyRequest, MatrixRecoverWithKeyResponse, MatrixRecoveryStatusResponse,
     MatrixSessionStatusResponse, MatrixStartOAuthRequest, MatrixStartOAuthResponse,
@@ -38,8 +38,7 @@ pub async fn matrix_start_oauth(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixStartOAuthResponse, String> {
-    let endpoints = HomeserverEndpoints::from_raw(&request.homeserver_url)?;
-    let homeserver_url = endpoints.homeserver_url().to_owned();
+    let homeserver_url = normalize_homeserver_url(&request.homeserver_url)?;
     let store_path = prepare_matrix_sdk_store(&app_handle)?;
     let client = matrix_sdk::Client::builder()
         .server_name_or_homeserver_url(homeserver_url)
@@ -56,13 +55,7 @@ pub async fn matrix_start_oauth(
         .await
         .map_err(|error| format!("Failed to construct Matrix SSO login URL: {error}"))?;
 
-    {
-        let mut state = auth_state
-            .inner
-            .lock()
-            .map_err(|_| String::from("Failed to acquire auth state lock"))?;
-        state.pending_client = Some(client);
-    }
+    auth_state.lock_inner()?.pending_client = Some(client);
 
     Ok(MatrixStartOAuthResponse {
         authorization_url,
@@ -79,16 +72,11 @@ pub async fn matrix_complete_oauth(
     let callback_url = Url::parse(&request.callback_url)
         .map_err(|_| String::from("Callback URL is not a valid URL"))?;
 
-    let client = {
-        let mut state = auth_state
-            .inner
-            .lock()
-            .map_err(|_| String::from("Failed to acquire auth state lock"))?;
-        state
-            .pending_client
-            .take()
-            .ok_or_else(|| String::from("No login flow in progress. Start OAuth first."))?
-    };
+    let client = auth_state
+        .lock_inner()?
+        .pending_client
+        .take()
+        .ok_or_else(|| String::from("No login flow in progress. Start OAuth first."))?;
 
     let parsed = client
         .matrix_auth()
@@ -101,6 +89,8 @@ pub async fn matrix_complete_oauth(
         .map_err(|error| format!("Matrix login completion failed: {error}"))?;
 
     let homeserver_url = client.homeserver().to_string();
+    let user_id = parsed.user_id.to_string();
+    let device_id = parsed.device_id.to_string();
 
     if let Err(error) = client
         .encryption()
@@ -121,17 +111,12 @@ pub async fn matrix_complete_oauth(
     )?;
 
     {
-        let mut state = auth_state
-            .inner
-            .lock()
-            .map_err(|_| String::from("Failed to acquire auth state lock"))?;
-
-        state.pending_client = None;
+        let mut state = auth_state.lock_inner()?;
         state.client = Some(client.clone());
         state.session = Some(MatrixSession {
             homeserver_url: homeserver_url.clone(),
-            user_id: parsed.user_id.to_string(),
-            device_id: parsed.device_id.to_string(),
+            user_id: user_id.clone(),
+            device_id: device_id.clone(),
         });
     }
 
@@ -143,8 +128,8 @@ pub async fn matrix_complete_oauth(
     Ok(MatrixCompleteOAuthResponse {
         authenticated: true,
         homeserver_url,
-        user_id: parsed.user_id.to_string(),
-        device_id: parsed.device_id.to_string(),
+        user_id,
+        device_id,
     })
 }
 
@@ -157,10 +142,7 @@ pub async fn matrix_session_status(
         .restore_client_from_disk_if_needed(&app_handle)
         .await?;
 
-    let state = auth_state
-        .inner
-        .lock()
-        .map_err(|_| String::from("Failed to acquire auth state lock"))?;
+    let state = auth_state.lock_inner()?;
 
     match &state.session {
         Some(session) => Ok(MatrixSessionStatusResponse {
@@ -183,11 +165,7 @@ pub async fn matrix_recovery_status(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixRecoveryStatusResponse, String> {
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
-
-    let client = auth_state.client()?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
     wait_for_e2ee_initialization(&client).await;
 
     Ok(MatrixRecoveryStatusResponse {
@@ -201,12 +179,10 @@ pub async fn matrix_recover_with_key(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixRecoverWithKeyResponse, String> {
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
-
-    let client = auth_state.client()?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
     wait_for_e2ee_initialization(&client).await;
+
+    let sync_timeout = std::time::Duration::from_secs(config::SYNC_TIMEOUT_SECONDS);
 
     client
         .encryption()
@@ -218,8 +194,7 @@ pub async fn matrix_recover_with_key(
     // First sync after recovery imports secrets and processes new to-device data.
     sync_once_serialized(
         &client,
-        matrix_sdk::config::SyncSettings::default()
-            .timeout(std::time::Duration::from_secs(config::SYNC_TIMEOUT_SECONDS)),
+        matrix_sdk::config::SyncSettings::default().timeout(sync_timeout),
     )
     .await
     .map_err(|error| format!("Failed to sync after recovery: {error}"))?;
@@ -264,8 +239,7 @@ pub async fn matrix_recover_with_key(
     // A second sync pass helps trigger re-decryption once keys are now local.
     sync_once_serialized(
         &client,
-        matrix_sdk::config::SyncSettings::default()
-            .timeout(std::time::Duration::from_secs(config::SYNC_TIMEOUT_SECONDS)),
+        matrix_sdk::config::SyncSettings::default().timeout(sync_timeout),
     )
     .await
     .map_err(|error| format!("Failed to sync decrypted state after recovery: {error}"))?;

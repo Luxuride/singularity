@@ -5,10 +5,11 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 use crate::protocol::storage_keys;
+use crate::protocol::sync::sync_once_serialized;
 use crate::storage;
 
 use super::types::MatrixChatSummary;
-use super::workers::{collect_chat_summaries, sync_client_rooms_once};
+use super::workers::collect_chat_summaries;
 use super::RoomSnapshot;
 
 #[derive(Deserialize, Serialize)]
@@ -24,13 +25,11 @@ const fn cache_schema_version() -> u32 {
 }
 
 fn chats_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let data_dir = storage::app_data_dir(app)?;
-    Ok(data_dir.join(storage_keys::CHATS_CACHE_FILE))
+    storage::app_data_file(app, storage_keys::CHATS_CACHE_FILE)
 }
 
 fn legacy_chats_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let data_dir = storage::app_data_dir(app)?;
-    Ok(data_dir.join(storage_keys::CHATS_CACHE_FILE_LEGACY))
+    storage::app_data_file(app, storage_keys::CHATS_CACHE_FILE_LEGACY)
 }
 
 pub(crate) fn load_cached_chats(app: &AppHandle) -> Result<Option<Vec<MatrixChatSummary>>, String> {
@@ -84,7 +83,12 @@ pub(crate) async fn refresh_room_snapshot(
     client: &matrix_sdk::Client,
     sync_timeout: std::time::Duration,
 ) -> Result<RoomSnapshot, String> {
-    sync_client_rooms_once(client, sync_timeout).await?;
+    sync_once_serialized(
+        client,
+        matrix_sdk::config::SyncSettings::default().timeout(sync_timeout),
+    )
+    .await
+    .map_err(|error| format!("Failed to sync Matrix rooms: {error}"))?;
 
     let chats = collect_chat_summaries(client).await;
     let _ = store_cached_chats(app, &chats);

@@ -32,18 +32,15 @@ const fn cache_schema_version() -> u32 {
 }
 
 fn persisted_session_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let data_dir = storage::app_data_dir(app)?;
-    Ok(data_dir.join(storage_keys::SESSION_FILE))
+    storage::app_data_file(app, storage_keys::SESSION_FILE)
 }
 
 fn legacy_persisted_session_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let data_dir = storage::app_data_dir(app)?;
-    Ok(data_dir.join(storage_keys::SESSION_FILE_LEGACY))
+    storage::app_data_file(app, storage_keys::SESSION_FILE_LEGACY)
 }
 
 pub(crate) fn matrix_sdk_store_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let data_dir = storage::app_data_dir(app)?;
-    Ok(data_dir.join(storage_keys::MATRIX_SDK_STORE_DIR))
+    storage::app_data_file(app, storage_keys::MATRIX_SDK_STORE_DIR)
 }
 
 pub(crate) fn prepare_matrix_sdk_store(app: &AppHandle) -> Result<PathBuf, String> {

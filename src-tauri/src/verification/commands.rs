@@ -149,10 +149,7 @@ pub async fn matrix_own_verification_status(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixOwnVerificationStatus, String> {
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
-    let client = auth_state.client()?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
 
     let encryption = client.encryption();
 
@@ -191,10 +188,7 @@ pub async fn matrix_get_user_devices(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixGetUserDevicesResponse, String> {
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
-    let client = auth_state.client()?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
 
     let user_id = parse_user_id(&user_id_raw)?;
 
@@ -264,10 +258,7 @@ pub async fn matrix_request_device_verification(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixRequestVerificationResponse, String> {
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
-    let client = auth_state.client()?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
 
     let user_id = parse_user_id(&user_id_raw)?;
     let device_id = OwnedDeviceId::from(device_id_raw.as_str());
@@ -302,10 +293,7 @@ pub async fn matrix_get_verification_flow(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixVerificationFlowResponse, String> {
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
-    let client = auth_state.client()?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
     let user_id = parse_user_id(&user_id_raw)?;
 
     Ok(get_flow_response(&client, &user_id, &flow_id).await)
@@ -318,10 +306,7 @@ pub async fn matrix_accept_verification_request(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixVerificationFlowResponse, String> {
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
-    let client = auth_state.client()?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
     let user_id = parse_user_id(&user_id_raw)?;
 
     let request = client
@@ -345,10 +330,7 @@ pub async fn matrix_start_sas_verification(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixVerificationFlowResponse, String> {
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
-    let client = auth_state.client()?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
     let user_id = parse_user_id(&user_id_raw)?;
 
     let request = client
@@ -373,10 +355,7 @@ pub async fn matrix_accept_sas_verification(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixVerificationFlowResponse, String> {
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
-    let client = auth_state.client()?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
     let user_id = parse_user_id(&user_id_raw)?;
 
     let sas = client
@@ -400,10 +379,7 @@ pub async fn matrix_confirm_sas_verification(
     auth_state: State<'_, AuthState>,
     app_handle: AppHandle,
 ) -> Result<MatrixVerificationFlowResponse, String> {
-    auth_state
-        .restore_client_from_disk_if_needed(&app_handle)
-        .await?;
-    let client = auth_state.client()?;
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
     let user_id = parse_user_id(&user_id_raw)?;
 
     let sas = client
