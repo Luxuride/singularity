@@ -23,6 +23,9 @@ jobs:
           sudo apt-get update
           sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
+      - name: rust cache
+        uses: Swatinem/rust-cache@v2
+
       - name: install fmt dependencies
         if: inputs.check == 'cargo-fmt'
         working-directory: src-tauri
