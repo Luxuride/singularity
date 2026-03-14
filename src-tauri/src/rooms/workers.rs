@@ -64,13 +64,7 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
 
         loop {
             while let Ok(trigger) = receiver.try_recv() {
-                if let Some(room_id) = trigger.selected_room_id {
-                    if room_id.is_empty() {
-                        selected_room_id = None;
-                    } else {
-                        selected_room_id = Some(room_id);
-                    }
-                }
+                apply_trigger(trigger, &mut selected_room_id);
             }
 
             match run_refresh_pass(
@@ -91,14 +85,7 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
                                 let Some(trigger) = maybe_trigger else {
                                     break;
                                 };
-
-                                if let Some(room_id) = trigger.selected_room_id {
-                                    if room_id.is_empty() {
-                                        selected_room_id = None;
-                                    } else {
-                                        selected_room_id = Some(room_id);
-                                    }
-                                }
+                                apply_trigger(trigger, &mut selected_room_id);
                             }
                         }
                     }
@@ -122,14 +109,7 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
                             let Some(trigger) = maybe_trigger else {
                                 break;
                             };
-
-                            if let Some(room_id) = trigger.selected_room_id {
-                                if room_id.is_empty() {
-                                    selected_room_id = None;
-                                } else {
-                                    selected_room_id = Some(room_id);
-                                }
-                            }
+                            apply_trigger(trigger, &mut selected_room_id);
                         }
                     }
                 }
@@ -158,32 +138,12 @@ async fn run_refresh_pass(
         Ok(snapshot) => snapshot,
         Err(error) => {
             if is_unknown_token_error(&error) {
-                warn!("Room refresh failed with unknown token; attempting token recovery");
-
-                let recovered = handle_unknown_token_error(app, &auth_state, &client).await?;
-
-                if !recovered {
-                    return Ok(false);
-                }
-
-                // Retry once after refresh so restart-time token expiry doesn't force a logout.
-                match refresh_room_snapshot(app, &client, sync_timeout).await {
-                    Ok(snapshot) => snapshot,
-                    Err(retry_error) => {
-                        if is_unknown_token_error(&retry_error) {
-                            warn!(
-                                "Room refresh still failing with unknown token after refresh; clearing local session"
-                            );
-                            auth_state.clear_session_everywhere(app)?;
-                            return Ok(false);
-                        }
-
-                        return Err(retry_error);
-                    }
-                }
+                warn!("Room refresh failed with unknown token; clearing session");
+                handle_unknown_token_error(app, &auth_state, &client).await?;
             } else {
                 return Err(error);
             }
+            return Ok(false);
         }
     };
 
@@ -238,4 +198,10 @@ fn is_unknown_token_error(error: &str) -> bool {
     error.contains("M_UNKNOWN_TOKEN")
         || error.contains("refresh token does not exist")
         || error.contains("refresh token isn't valid anymore")
+}
+
+fn apply_trigger(trigger: RoomRefreshTrigger, selected: &mut Option<String>) {
+    if let Some(room_id) = trigger.selected_room_id {
+        *selected = if room_id.is_empty() { None } else { Some(room_id) };
+    }
 }

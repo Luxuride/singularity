@@ -58,13 +58,6 @@ impl AuthState {
         Ok(())
     }
 
-    pub fn clear_session_everywhere(&self, app: &AppHandle) -> Result<(), String> {
-        self.clear_runtime_session()?;
-        persistence::clear_persisted_session(app)?;
-        persistence::clear_matrix_sdk_store(app)?;
-        Ok(())
-    }
-
     pub async fn restore_client_from_disk_if_needed(&self, app: &AppHandle) -> Result<(), String> {
         {
             if self.lock_inner()?.client.is_some() {
