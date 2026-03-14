@@ -8,40 +8,20 @@ on:
 
 jobs:
   cargo-fmt:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    uses: ./.github/workflows/quality-checks.yml
+    with:
+      check: cargo-fmt
 
-      - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: check formatting
-        run: cargo fmt --all -- --check
   cargo-clippy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    uses: ./.github/workflows/quality-checks.yml
+    with:
+      check: cargo-clippy
 
-      - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: check clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
   pnpm-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    uses: ./.github/workflows/quality-checks.yml
+    with:
+      check: pnpm-check
 
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-
-      - name: install pnpm
-        run: npm install -g pnpm
-
-      - name: check pnpm lockfile
-        run: pnpm install --frozen-lockfile
   publish-tauri:
     needs:
       - cargo-fmt
