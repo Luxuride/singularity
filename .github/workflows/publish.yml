@@ -38,7 +38,10 @@ jobs:
           - platform: 'ubuntu-22.04' # for Tauri v1 you could replace this with ubuntu-20.04.
             args: ''
             artifact_name: 'singularity-linux-x64'
-            artifact_path: 'src-tauri/target/release/bundle/**'
+            artifact_path: |
+              src-tauri/target/release/bundle/**/*.deb
+              src-tauri/target/release/bundle/**/*.AppImage
+              src-tauri/target/release/bundle/**/*.rpm
           - platform: 'windows-latest'
             args: ''
             artifact_name: 'singularity-windows-x64'
