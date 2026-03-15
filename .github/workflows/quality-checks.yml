@@ -13,6 +13,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: rust cache
+        if: inputs.check == 'cargo-fmt' || inputs.check == 'cargo-clippy'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+
       - name: install Rust stable
         if: inputs.check == 'cargo-fmt' || inputs.check == 'cargo-clippy'
         uses: dtolnay/rust-toolchain@stable
@@ -22,9 +29,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
-
-      - name: rust cache
-        uses: Swatinem/rust-cache@v2
 
       - name: install fmt dependencies
         if: inputs.check == 'cargo-fmt'

@@ -44,6 +44,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+
       - name: setup node
         uses: actions/setup-node@v4
         with:
