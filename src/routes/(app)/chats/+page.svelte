@@ -5,16 +5,18 @@
     matrixSendChatMessage,
     matrixStreamChatMessages,
     matrixTriggerRoomUpdate,
-  } from "../../../lib/chats/api";
-  import { subscribeToRoomUpdates } from "../../../lib/chats/realtime";
-  import { shellChats, shellCurrentUserId, shellSelectedRoomId } from "../../../lib/chats/shell";
+  } from "$lib/chats/api";
+  import { subscribeToRoomUpdates } from "$lib/chats/realtime";
+  import { shellChats, shellCurrentUserId, shellSelectedRoomId } from "$lib/chats/shell";
   import type {
     MatrixChatMessage,
     MatrixChatMessageStreamEvent,
     MatrixSelectedRoomMessagesEvent,
     MatrixSendChatMessageRequest,
     MatrixMessageLoadKind,
-  } from "../../../lib/chats/types";
+  } from "$lib/chats/types";
+  import MessageTimeline from "$lib/components/messaging/MessageTimeline.svelte";
+  import MessageComposer from "$lib/components/messaging/MessageComposer.svelte";
 
   let loadingMessages = $state(false);
   let errorMessage = $state("");
@@ -683,57 +685,6 @@
     }
   }
 
-  function streamStatusLabel(): string {
-    if (!loadingMessages || !activeLoadKind) {
-      return "";
-    }
-
-    const noun = streamMessageCount === 1 ? "message" : "messages";
-    if (activeLoadKind === "older") {
-      return `Loading older ${noun}: ${streamMessageCount}`;
-    }
-
-    return `Streaming ${noun}: ${streamMessageCount}`;
-  }
-
-  function toTime(timestamp: number | null): string {
-    if (!timestamp) {
-      return "";
-    }
-
-    return new Date(timestamp).toLocaleString();
-  }
-
-  function decryptionLabel(status: MatrixChatMessage["decryptionStatus"]): string {
-    if (status === "decrypted") {
-      return "Decrypted";
-    }
-
-    if (status === "unableToDecrypt") {
-      return "Unable to decrypt";
-    }
-
-    return "Plaintext";
-  }
-
-  function verificationLabel(status: MatrixChatMessage["verificationStatus"]): string {
-    if (status === "verified") {
-      return "Verified sender device";
-    }
-
-    if (status === "unverified") {
-      return "Unverified sender device";
-    }
-
-    return "Verification unknown";
-  }
-
-  function selectedRoomName(): string {
-    const selectedRoomId = $shellSelectedRoomId;
-    const selectedRoom = $shellChats.find((chat) => chat.roomId === selectedRoomId);
-    return selectedRoom?.displayName ?? "";
-  }
-
   function selectedRoomEncrypted(): boolean {
     const selectedRoomId = $shellSelectedRoomId;
     const selectedRoom = $shellChats.find((chat) => chat.roomId === selectedRoomId);
@@ -741,106 +692,29 @@
   }
 </script>
 
-<section
-  class="card p-4 preset-outlined-surface-200-800 bg-surface-100-900 max-h-[70vh] overflow-y-auto space-y-3"
-  bind:this={timelineElement}
-  onscroll={handleTimelineScroll}
->
-  {#if errorMessage}
-    <p class="card p-3 text-sm preset-filled-error-500">{errorMessage}</p>
-  {/if}
+<MessageTimeline
+  {messages}
+  roomId={$shellSelectedRoomId || ""}
+  selectedRoomId={$shellSelectedRoomId}
+  roomEncrypted={selectedRoomEncrypted()}
+  roomName={$shellChats.find((chat) => chat.roomId === $shellSelectedRoomId)?.displayName ?? ""}
+  {loadingMessages}
+  {activeLoadKind}
+  {streamMessageCount}
+  error={errorMessage}
+  {nextFrom}
+  isSending={sendingMessage}
+  onScroll={handleTimelineScroll}
+  onLoadOlder={loadOlder}
+  onRetryMessage={retryMessage}
+/>
 
-  {#if !$shellSelectedRoomId}
-    <p class="text-sm text-surface-700-300">Select a room to read messages.</p>
-  {:else}
-    <header class="flex items-center justify-between gap-2 sticky top-0 bg-surface-100-900 py-1">
-      <div>
-        <h2 class="h5">{selectedRoomName()}</h2>
-        <p class="text-xs text-surface-700-300">
-          {selectedRoomEncrypted() ? "Encrypted room" : "Unencrypted room"}
-        </p>
-        {#if loadingMessages && activeLoadKind}
-          <p class="text-xs text-primary-700-300">{streamStatusLabel()}</p>
-        {/if}
-      </div>
-
-      <button
-        type="button"
-        class="btn preset-tonal"
-        onclick={loadOlder}
-        disabled={!nextFrom || loadingMessages}
-      >
-        {#if loadingMessages}Loading...{:else}Load Older{/if}
-      </button>
-    </header>
-
-    {#if messages.length === 0}
-      <p class="text-sm text-surface-700-300">No messages yet.</p>
-    {:else}
-      <ul class="space-y-2">
-        {#each messages as message, index (`${message.eventId ?? index}-${message.timestamp ?? 0}`)}
-          <li
-            class="card p-3 preset-outlined-surface-300-700 bg-surface-50-950"
-            data-message-event-id={message.eventId ?? undefined}
-          >
-            <div class="flex items-center justify-between gap-2 text-xs text-surface-700-300 mb-1">
-              <span>{message.sender}</span>
-              <span>{toTime(message.timestamp)}</span>
-            </div>
-            <p class="text-sm whitespace-pre-wrap break-words">{message.body}</p>
-            {#if message.sendState}
-              <div class="mt-2 flex items-center gap-2 text-xs">
-                {#if message.sendState === "sending"}
-                  <span class="rounded px-2 py-0.5 bg-primary-200-800 text-primary-900-100">Sending...</span>
-                {:else}
-                  <span class="rounded px-2 py-0.5 bg-error-200-800 text-error-900-100">Failed to send</span>
-                  <button type="button" class="btn btn-xs preset-tonal" onclick={() => void retryMessage(message)} disabled={sendingMessage}>
-                    Retry
-                  </button>
-                {/if}
-              </div>
-            {/if}
-            {#if message.encrypted}
-              <div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                <span class="rounded px-2 py-0.5 bg-surface-200-800">{decryptionLabel(message.decryptionStatus)}</span>
-                <span
-                  class="rounded px-2 py-0.5"
-                  class:bg-success-200-800={message.verificationStatus === "verified"}
-                  class:bg-warning-200-800={message.verificationStatus === "unverified"}
-                  class:bg-surface-200-800={message.verificationStatus === "unknown"}
-                >
-                  {verificationLabel(message.verificationStatus)}
-                </span>
-              </div>
-            {/if}
-          </li>
-        {/each}
-      </ul>
-    {/if}
-  {/if}
-</section>
-
-<form class="card p-3 mt-3 preset-outlined-surface-200-800 bg-surface-100-900" onsubmit={handleComposerSubmit}>
-  {#if composerErrorMessage}
-    <p class="mb-2 text-sm preset-filled-error-500 card p-2">{composerErrorMessage}</p>
-  {/if}
-
-  <label class="text-xs text-surface-700-300 mb-1" for="chat-message-draft">Message</label>
-  <textarea
-    id="chat-message-draft"
-    class="input h-24"
-    placeholder={$shellSelectedRoomId ? "Write a message..." : "Select a room to compose"}
-    bind:value={messageDraft}
-    disabled={!$shellSelectedRoomId || sendingMessage}
-  ></textarea>
-
-  <div class="mt-2 flex justify-end">
-    <button
-      type="submit"
-      class="btn preset-filled"
-      disabled={!$shellSelectedRoomId || sendingMessage || messageDraft.trim().length === 0}
-    >
-      {#if sendingMessage}Sending...{:else}Send{/if}
-    </button>
-  </div>
-</form>
+<MessageComposer
+  draft={messageDraft}
+  error={composerErrorMessage}
+  isSending={sendingMessage}
+  isDisabled={!$shellSelectedRoomId}
+  placeholder={$shellSelectedRoomId ? "Write a message..." : "Select a room to compose"}
+  onSubmit={sendDraftMessage}
+  onDraftChange={(d) => messageDraft = d}
+/>

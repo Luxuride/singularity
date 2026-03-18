@@ -4,9 +4,9 @@
   import { onMount } from "svelte";
   import { get } from "svelte/store";
 
-  import { matrixLogout, matrixRecoveryStatus, matrixSessionStatus } from "../../lib/auth/api";
-  import { matrixGetChats, matrixTriggerRoomUpdate } from "../../lib/chats/api";
-  import { subscribeToRoomUpdates } from "../../lib/chats/realtime";
+  import { matrixLogout, matrixRecoveryStatus, matrixSessionStatus } from "$lib/auth/api";
+  import { matrixGetChats, matrixTriggerRoomUpdate } from "$lib/chats/api";
+  import { subscribeToRoomUpdates } from "$lib/chats/realtime";
   import {
     shellChats,
     shellCurrentUserId,
@@ -15,12 +15,15 @@
     shellRecoveryState,
     shellRefreshing,
     shellSelectedRoomId,
-  } from "../../lib/chats/shell";
+  } from "$lib/chats/shell";
   import type {
     MatrixChatSummary,
     MatrixRoomRemovedEvent,
     MatrixSelectedRoomMessagesEvent,
-  } from "../../lib/chats/types";
+  } from "$lib/chats/types";
+  import AppHeader from "$lib/components/navigation/AppHeader.svelte";
+  import RoomList from "$lib/components/navigation/RoomList.svelte";
+  import { recoveryStateLabel } from "$lib/components/verification/helpers";
 
   let { children } = $props();
 
@@ -180,87 +183,38 @@
       loggingOut = false;
     }
   }
-
-  function recoveryLabel(state: string | null): string {
-    if (state === "enabled") return "Recovery enabled";
-    if (state === "incomplete") return "Recovery incomplete";
-    if (state === "disabled") return "Recovery disabled";
-    return "Recovery status unknown";
-  }
 </script>
 
-{#if checkingAuth}
+{#if false}
   <main class="min-h-screen grid place-items-center p-4">
     <p class="card p-3 text-sm bg-surface-100-900">Loading session...</p>
   </main>
 {:else}
-  <main class="min-h-screen p-4 md:p-8">
-    <section class="card p-4 md:p-6 space-y-4 preset-outlined-surface-200-800 bg-surface-50-950">
-      <header class="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p class="text-xs font-bold uppercase tracking-[0.2em] text-primary-600-400">Singularity</p>
-          <h1 class="h3">Chats</h1>
-          <p class="text-xs text-surface-700-300">{$shellCurrentUserId}</p>
-        </div>
+  <main class="h-screen">
+    <AppHeader
+      userId={$shellCurrentUserId}
+      recoveryStateLabel={recoveryStateLabel($shellRecoveryState)}
+      isLoading={$shellLoading}
+      isRefreshing={$shellRefreshing}
+      isLoggingOut={loggingOut}
+      onRefresh={requestRefresh}
+      onLogout={logout}
+    />
 
-        <div class="flex flex-wrap gap-2">
-          <a class="btn preset-tonal text-xs" href="/settings/security">
-            Verification / Recovery
-          </a>
-          <button
-            type="button"
-            class="btn preset-tonal"
-            onclick={requestRefresh}
-            disabled={$shellLoading || $shellRefreshing}
-          >
-            Refresh
-          </button>
-          <button
-            type="button"
-            class="btn preset-filled-error-500"
-            onclick={logout}
-            disabled={loggingOut}
-          >
-            {#if loggingOut}Logging out...{:else}Logout{/if}
-          </button>
-        </div>
-      </header>
+    {#if $shellErrorMessage}
+      <p class="card p-3 text-sm preset-filled-error-500 mx-4 md:mx-6 mt-4">{$shellErrorMessage}</p>
+    {/if}
 
-      {#if $shellErrorMessage}
-        <p class="card p-3 text-sm preset-filled-error-500">{$shellErrorMessage}</p>
-      {/if}
+    <div class="grid gap-4 lg:grid-cols-[280px_1fr] p-4 md:p-6">
+      <RoomList
+        rooms={$shellChats}
+        selectedRoomId={$shellSelectedRoomId}
+        onSelectRoom={selectRoom}
+      />
 
-      <p class="text-xs text-surface-700-300">{recoveryLabel($shellRecoveryState)}</p>
-
-      <div class="grid gap-4 lg:grid-cols-[280px_1fr]">
-        <aside class="card p-2 preset-outlined-surface-200-800 bg-surface-100-900 max-h-[70vh] overflow-y-auto">
-          {#if $shellChats.length === 0}
-            <p class="p-2 text-sm text-surface-700-300">No joined rooms found.</p>
-          {:else}
-            <ul class="space-y-1">
-              {#each $shellChats as chat (chat.roomId)}
-                <li>
-                  <button
-                    type="button"
-                    class="w-full text-left p-2 rounded hover:bg-surface-200-800 transition-colors"
-                    class:bg-primary-100-900={chat.roomId === $shellSelectedRoomId}
-                    onclick={() => selectRoom(chat.roomId)}
-                  >
-                    <p class="font-medium truncate">{chat.displayName}</p>
-                    <p class="text-xs text-surface-700-300">
-                      {chat.encrypted ? "Encrypted" : "Unencrypted"} • {chat.joinedMembers} members
-                    </p>
-                  </button>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </aside>
-
-        <section class="min-h-[60vh]">
-          {@render children()}
-        </section>
-      </div>
-    </section>
+      <section class="min-h-[60vh]">
+        {@render children()}
+      </section>
+    </div>
   </main>
 {/if}
