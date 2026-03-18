@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { toMessage } from "../errors";
 import type {
+  MatrixClearCacheExceptAuthResponse,
   MatrixCompleteOAuthRequest,
   MatrixCompleteOAuthResponse,
   MatrixLogoutResponse,
@@ -47,6 +48,14 @@ export async function matrixSessionStatus(): Promise<MatrixSessionStatusResponse
 export async function matrixLogout(): Promise<MatrixLogoutResponse> {
   try {
     return await invoke<MatrixLogoutResponse>("matrix_logout");
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixClearCacheExceptAuth(): Promise<MatrixClearCacheExceptAuthResponse> {
+  try {
+    return await invoke<MatrixClearCacheExceptAuthResponse>("matrix_clear_cache_except_auth");
   } catch (error) {
     throw new Error(toMessage(error));
   }

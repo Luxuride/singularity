@@ -9,11 +9,12 @@ use crate::protocol::sync::sync_once_serialized;
 use crate::verification::start_verification_state_watcher;
 
 use super::persistence::{
-    clear_app_cache, clear_matrix_sdk_store, clear_persisted_session, persist_session,
+    clear_app_cache, clear_app_cache_except_auth, clear_matrix_sdk_store, clear_persisted_session, persist_session,
     prepare_matrix_sdk_store,
     PersistedMatrixSession,
 };
 use super::types::{
+    MatrixClearCacheExceptAuthResponse,
     MatrixCompleteOAuthRequest, MatrixCompleteOAuthResponse, MatrixLogoutResponse,
     MatrixRecoverWithKeyRequest, MatrixRecoverWithKeyResponse, MatrixRecoveryStatusResponse,
     MatrixSessionStatusResponse, MatrixStartOAuthRequest, MatrixStartOAuthResponse,
@@ -268,4 +269,13 @@ pub async fn matrix_logout(
     clear_matrix_sdk_store(&app_handle)?;
 
     Ok(MatrixLogoutResponse { logged_out: true })
+}
+
+#[tauri::command]
+pub async fn matrix_clear_cache_except_auth(
+    app_handle: AppHandle,
+) -> Result<MatrixClearCacheExceptAuthResponse, String> {
+    clear_app_cache_except_auth(&app_handle)?;
+
+    Ok(MatrixClearCacheExceptAuthResponse { cleared: true })
 }
