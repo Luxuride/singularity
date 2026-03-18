@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod auth;
+mod db;
 mod messages;
 mod protocol;
 mod rooms;
@@ -11,8 +12,10 @@ mod verification;
 pub fn run() {
     tauri::Builder::default()
         .manage(auth::AuthState::default())
-        .manage(messages::MessageCacheState::default())
         .setup(|app| {
+            let app_db = db::AppDb::initialize(&app.handle())?;
+            app.manage(app_db);
+
             let trigger_state = rooms::start_room_update_worker(app.handle().clone());
             app.manage(trigger_state);
             Ok(())

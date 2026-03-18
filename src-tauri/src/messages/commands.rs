@@ -2,24 +2,24 @@ use log::info;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::auth::AuthState;
+use crate::db::AppDb;
 use crate::protocol::event_paths;
 use crate::protocol::sync::sync_once_serialized;
 use crate::rooms::{RoomRefreshTrigger, RoomUpdateTriggerState};
 
-use super::persistence::is_cacheable_initial_request;
+use super::persistence::{is_cacheable_initial_request, load_initial_room_messages, store_initial_room_messages};
 use super::types::{
     MatrixChatMessageStreamEvent, MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse,
     MatrixMessageLoadKind, MatrixSendChatMessageRequest, MatrixSendChatMessageResponse,
     MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
 };
 use super::workers::{fetch_room_messages_from_client, send_room_message_from_client};
-use super::MessageCacheState;
 
 #[tauri::command]
 pub async fn matrix_get_chat_messages(
     request: MatrixGetChatMessagesRequest,
     auth_state: State<'_, AuthState>,
-    message_cache: State<'_, MessageCacheState>,
+    app_db: State<'_, AppDb>,
     room_update_trigger_state: State<'_, RoomUpdateTriggerState>,
     app_handle: AppHandle,
 ) -> Result<MatrixGetChatMessagesResponse, String> {
@@ -30,9 +30,8 @@ pub async fn matrix_get_chat_messages(
     let cacheable_initial_request = is_cacheable_initial_request(from.as_deref(), request.limit);
     let limit = request.limit;
 
-    if let Some(cached) = message_cache
-        .load_initial_room_messages(request.room_id.as_str(), from.as_deref(), limit)
-        .await
+    if let Some(cached) =
+        load_initial_room_messages(&app_db, request.room_id.as_str(), from.as_deref(), limit)?
     {
         let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
             selected_room_id: Some(request.room_id.clone()),
@@ -48,7 +47,7 @@ pub async fn matrix_get_chat_messages(
         fetch_room_messages_from_client(&client, request.room_id.as_str(), from, limit).await?;
 
     if cacheable_initial_request {
-        message_cache.store_initial_room_messages(&response).await;
+        store_initial_room_messages(&app_db, &response)?;
     }
 
     Ok(response)
@@ -58,7 +57,7 @@ pub async fn matrix_get_chat_messages(
 pub async fn matrix_stream_chat_messages(
     request: MatrixStreamChatMessagesRequest,
     auth_state: State<'_, AuthState>,
-    message_cache: State<'_, MessageCacheState>,
+    app_db: State<'_, AppDb>,
     room_update_trigger_state: State<'_, RoomUpdateTriggerState>,
     app_handle: AppHandle,
 ) -> Result<MatrixStreamChatMessagesResponse, String> {
@@ -75,9 +74,8 @@ pub async fn matrix_stream_chat_messages(
         && is_cacheable_initial_request(from.as_deref(), limit);
 
     if cacheable_initial_request {
-        if let Some(cached) = message_cache
-            .load_initial_room_messages(room_id.as_str(), from.as_deref(), limit)
-            .await
+        if let Some(cached) =
+            load_initial_room_messages(&app_db, room_id.as_str(), from.as_deref(), limit)?
         {
             let iter = cached.messages.into_iter();
             let mut sequence = 0_u32;
@@ -193,13 +191,14 @@ pub async fn matrix_stream_chat_messages(
     let next_from = final_next_from.clone();
 
     if cacheable_initial_request {
-        message_cache
-            .store_initial_room_messages(&MatrixGetChatMessagesResponse {
+        store_initial_room_messages(
+            &app_db,
+            &MatrixGetChatMessagesResponse {
                 room_id: room_id.clone(),
                 next_from: next_from.clone(),
                 messages: cache_messages,
-            })
-            .await;
+            },
+        )?;
     }
 
     app_handle

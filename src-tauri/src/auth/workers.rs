@@ -2,7 +2,7 @@ use matrix_sdk::SessionChange;
 use tauri::AppHandle;
 
 use super::persistence::{
-    clear_matrix_sdk_store, clear_persisted_session, persist_session_from_client,
+    clear_app_cache, clear_matrix_sdk_store, clear_persisted_session, persist_session_from_client,
 };
 use super::AuthState;
 
@@ -18,6 +18,7 @@ pub(crate) async fn handle_unknown_token_error(
     log::warn!("Matrix request returned unknown token after automatic refresh; clearing session");
     auth_state.clear_runtime_session()?;
     clear_persisted_session(app)?;
+    clear_app_cache(app)?;
     clear_matrix_sdk_store(app)?;
     Ok(false)
 }
