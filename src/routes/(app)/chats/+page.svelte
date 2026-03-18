@@ -694,29 +694,31 @@
   }
 </script>
 
-<MessageTimeline
-  {messages}
-  roomId={$shellSelectedRoomId || ""}
-  selectedRoomId={$shellSelectedRoomId}
-  roomEncrypted={selectedRoomEncrypted()}
-  roomName={$shellChats.find((chat) => chat.roomId === $shellSelectedRoomId)?.displayName ?? ""}
-  {loadingMessages}
-  {activeLoadKind}
-  {streamMessageCount}
-  error={errorMessage}
-  {nextFrom}
-  isSending={sendingMessage}
-  onScroll={handleTimelineScroll}
-  onLoadOlder={loadOlder}
-  onRetryMessage={retryMessage}
-/>
+<div class="flex flex-col">
+  <MessageTimeline
+    {messages}
+    roomId={$shellSelectedRoomId || ""}
+    selectedRoomId={$shellSelectedRoomId}
+    roomEncrypted={selectedRoomEncrypted()}
+    roomName={$shellChats.find((chat) => chat.roomId === $shellSelectedRoomId)?.displayName ?? ""}
+    {loadingMessages}
+    {activeLoadKind}
+    {streamMessageCount}
+    error={errorMessage}
+    {nextFrom}
+    isSending={sendingMessage}
+    onScroll={handleTimelineScroll}
+    onLoadOlder={loadOlder}
+    onRetryMessage={retryMessage}
+  />
 
-<MessageComposer
-  draft={messageDraft}
-  error={composerErrorMessage}
-  isSending={sendingMessage}
-  isDisabled={!$shellSelectedRoomId}
-  placeholder={$shellSelectedRoomId ? "Write a message..." : "Select a room to compose"}
-  onSubmit={sendDraftMessage}
-  onDraftChange={(d) => messageDraft = d}
-/>
+  <MessageComposer
+    draft={messageDraft}
+    error={composerErrorMessage}
+    isSending={sendingMessage}
+    isDisabled={!$shellSelectedRoomId}
+    placeholder={$shellSelectedRoomId ? "Write a message..." : "Select a room to compose"}
+    onSubmit={sendDraftMessage}
+    onDraftChange={(d) => messageDraft = d}
+  />
+</div>
