@@ -1,8 +1,12 @@
 use log::{debug, warn};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
 use matrix_sdk::deserialized_responses::{TimelineEvent, VerificationState};
 use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::api::Direction;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
+use matrix_sdk::ruma::events::room::MediaSource;
 use matrix_sdk::ruma::uint;
 use serde_json::Value;
 
@@ -31,7 +35,7 @@ pub(crate) async fn fetch_room_messages_from_client(
         .await
         .map_err(|error| format!("Failed to read room messages: {error}"))?;
 
-    let (mut messages, mut had_utd) = parse_message_chunk(response.chunk);
+    let (mut messages, mut had_utd) = parse_message_chunk(client, response.chunk).await;
     let mut next_from = response.end;
 
     if had_utd && client.encryption().backups().are_enabled().await {
@@ -47,7 +51,8 @@ pub(crate) async fn fetch_room_messages_from_client(
             );
         } else if let Ok(retry_response) = room.messages(build_messages_options(from, limit)).await
         {
-            let (retry_messages, retry_had_utd) = parse_message_chunk(retry_response.chunk);
+            let (retry_messages, retry_had_utd) =
+                parse_message_chunk(client, retry_response.chunk).await;
             messages = retry_messages;
             had_utd = retry_had_utd;
             next_from = retry_response.end;
@@ -102,7 +107,10 @@ fn build_messages_options(from: Option<String>, limit: Option<u32>) -> MessagesO
     options
 }
 
-fn parse_message_chunk(chunk: Vec<TimelineEvent>) -> (Vec<MatrixChatMessage>, bool) {
+async fn parse_message_chunk(
+    client: &matrix_sdk::Client,
+    chunk: Vec<TimelineEvent>,
+) -> (Vec<MatrixChatMessage>, bool) {
     let mut messages = Vec::new();
     let mut had_utd = false;
 
@@ -131,13 +139,26 @@ fn parse_message_chunk(chunk: Vec<TimelineEvent>) -> (Vec<MatrixChatMessage>, bo
             continue;
         };
 
-        if let Some(parsed) = parse_timeline_message(&event, decryption_status, verification_status)
+        if let Some(parsed) = parse_timeline_message(
+            &event,
+            &client.homeserver(),
+            decryption_status,
+            verification_status,
+        )
         {
+            let image_url = if parsed.message_type.as_deref() == Some("m.image") {
+                resolve_image_data_url(client, &event).await.or(parsed.image_url)
+            } else {
+                parsed.image_url
+            };
+
             messages.push(MatrixChatMessage {
                 event_id: parsed.event_id,
                 sender: parsed.sender,
                 timestamp: parsed.timestamp,
                 body: parsed.body,
+                message_type: parsed.message_type,
+                image_url,
                 encrypted: parsed.encrypted,
                 decryption_status: parsed.decryption_status,
                 verification_status: parsed.verification_status,
@@ -146,4 +167,41 @@ fn parse_message_chunk(chunk: Vec<TimelineEvent>) -> (Vec<MatrixChatMessage>, bo
     }
 
     (messages, had_utd)
+}
+
+async fn resolve_image_data_url(client: &matrix_sdk::Client, event: &Value) -> Option<String> {
+    let media_source = image_media_source_from_event(event)?;
+    let mime_type = image_mime_type_from_event(event)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| String::from("application/octet-stream"));
+
+    let request = MediaRequestParameters {
+        source: media_source,
+        format: MediaFormat::File,
+    };
+
+    let bytes = match client.media().get_media_content(&request, true).await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            warn!("Failed to fetch image media content: {error}");
+            return None;
+        }
+    };
+
+    let encoded = BASE64_STANDARD.encode(bytes);
+    Some(format!("data:{mime_type};base64,{encoded}"))
+}
+
+fn image_media_source_from_event(event: &Value) -> Option<MediaSource> {
+    let content = event.get("content")?;
+    serde_json::from_value(content.clone()).ok()
+}
+
+fn image_mime_type_from_event(event: &Value) -> Option<String> {
+    event
+        .get("content")
+        .and_then(|content| content.get("info"))
+        .and_then(|info| info.get("mimetype"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
 }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
-  import { matrixRecoverWithKey, matrixRecoveryStatus } from "$lib/auth/api";
+  import { matrixClearCacheExceptAuth, matrixRecoverWithKey, matrixRecoveryStatus } from "$lib/auth/api";
   import {
     matrixAcceptSasVerification,
     matrixAcceptVerificationRequest,
@@ -11,7 +11,9 @@
     matrixOwnVerificationStatus,
     matrixRequestDeviceVerification,
     matrixStartSasVerification,
+    matrixTriggerRoomUpdate,
   } from "$lib/chats/api";
+  import { shellSelectedRoomId } from "$lib/chats/shell";
   import type { MatrixRecoveryState } from "$lib/auth/types";
   import type {
     MatrixDeviceInfo,
@@ -38,6 +40,8 @@
   let recoveryState = $state<MatrixRecoveryState | null>(null);
   let recoveryMessage = $state("");
   let recoveryPending = $state(false);
+  let clearingCache = $state(false);
+  let cacheMessage = $state("");
 
   onMount(async () => {
     await loadSecurity();
@@ -81,6 +85,29 @@
         error instanceof Error ? error.message : "Failed to recover encryption keys";
     } finally {
       recoveryPending = false;
+    }
+  }
+
+  async function clearCacheExceptAuth() {
+    clearingCache = true;
+    cacheMessage = "";
+
+    try {
+      const response = await matrixClearCacheExceptAuth();
+      if (!response.cleared) {
+        cacheMessage = "Cache clear was not acknowledged.";
+        return;
+      }
+
+      await matrixTriggerRoomUpdate({
+        selectedRoomId: $shellSelectedRoomId || undefined,
+      });
+      cacheMessage = "Cache cleared. Auth session is preserved.";
+    } catch (error) {
+      cacheMessage =
+        error instanceof Error ? error.message : "Failed to clear cache";
+    } finally {
+      clearingCache = false;
     }
   }
 
@@ -252,6 +279,24 @@
       message={recoveryMessage}
       onImport={recoverKeys}
     />
+
+    <section class="card p-3 preset-outlined-surface-300-700 bg-surface-50-950 space-y-2">
+      <h3 class="h6">Local Cache</h3>
+      <p class="text-xs text-surface-700-300">
+        Clears room and message cache, but keeps your current authentication session.
+      </p>
+      <button
+        type="button"
+        class="btn preset-tonal"
+        disabled={clearingCache}
+        onclick={clearCacheExceptAuth}
+      >
+        {#if clearingCache}Clearing...{:else}Clear Cache (Keep Auth){/if}
+      </button>
+      {#if cacheMessage}
+        <p class="text-xs text-surface-700-300">{cacheMessage}</p>
+      {/if}
+    </section>
 
     <VerificationFlow
       flow={activeVerificationFlow}

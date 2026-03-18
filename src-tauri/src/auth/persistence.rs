@@ -74,6 +74,11 @@ pub(crate) fn clear_app_cache(app: &AppHandle) -> Result<(), String> {
     app_db.clear_app_cache()
 }
 
+pub(crate) fn clear_app_cache_except_auth(app: &AppHandle) -> Result<(), String> {
+    let app_db = app.state::<AppDb>();
+    app_db.clear_non_auth_cache()
+}
+
 pub(crate) fn clear_matrix_sdk_store(app: &AppHandle) -> Result<(), String> {
     let path = matrix_sdk_store_path(app)?;
     if path.exists() {

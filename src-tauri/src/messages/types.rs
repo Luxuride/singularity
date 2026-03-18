@@ -55,6 +55,8 @@ pub struct MatrixChatMessage {
     pub sender: String,
     pub timestamp: Option<u64>,
     pub body: String,
+    pub message_type: Option<String>,
+    pub image_url: Option<String>,
     pub encrypted: bool,
     pub decryption_status: MatrixMessageDecryptionStatus,
     pub verification_status: MatrixMessageVerificationStatus,

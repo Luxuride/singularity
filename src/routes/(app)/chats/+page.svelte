@@ -488,6 +488,8 @@
       sender: $shellCurrentUserId || "You",
       timestamp: Date.now(),
       body,
+      messageType: "m.text",
+      imageUrl: null,
       encrypted: encryptedRoom,
       decryptionStatus: encryptedRoom ? "decrypted" : "plaintext",
       verificationStatus: "unknown",

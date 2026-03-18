@@ -21,7 +21,23 @@
     <span>{message.sender}</span>
     <span>{toTime(message.timestamp)}</span>
   </div>
-  <p class="text-sm whitespace-pre-wrap break-words">{message.body}</p>
+  {#if message.messageType === "m.image"}
+    <figure class="space-y-2">
+      <img
+        src={message.imageUrl}
+        alt={message.body || "Image"}
+        loading="lazy"
+        class="max-h-[28rem] w-full rounded preset-outlined-surface-300-700 object-contain bg-surface-100-900"
+      />
+      {#if message.body}
+        <figcaption class="text-sm whitespace-pre-wrap break-words text-surface-700-300">
+          {message.body}
+        </figcaption>
+      {/if}
+    </figure>
+  {:else}
+    <p class="text-sm whitespace-pre-wrap break-words">{message.body}</p>
+  {/if}
   {#if message.sendState}
     <div class="mt-2 flex items-center gap-2 text-xs">
       {#if message.sendState === "sending"}

@@ -43,3 +43,7 @@ export interface MatrixRecoverWithKeyResponse {
 export interface MatrixLogoutResponse {
   loggedOut: boolean;
 }
+
+export interface MatrixClearCacheExceptAuthResponse {
+  cleared: boolean;
+}

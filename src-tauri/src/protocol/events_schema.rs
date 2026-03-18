@@ -1,4 +1,5 @@
 use serde_json::Value;
+use url::Url;
 
 use crate::messages::{MatrixMessageDecryptionStatus, MatrixMessageVerificationStatus};
 use crate::protocol::event_types;
@@ -9,6 +10,8 @@ pub struct ParsedTimelineMessage {
     pub sender: String,
     pub timestamp: Option<u64>,
     pub body: String,
+    pub message_type: Option<String>,
+    pub image_url: Option<String>,
     pub encrypted: bool,
     pub decryption_status: MatrixMessageDecryptionStatus,
     pub verification_status: MatrixMessageVerificationStatus,
@@ -16,6 +19,7 @@ pub struct ParsedTimelineMessage {
 
 pub fn parse_timeline_message(
     event: &Value,
+    homeserver_url: &Url,
     decryption_status: MatrixMessageDecryptionStatus,
     verification_status: MatrixMessageVerificationStatus,
 ) -> Option<ParsedTimelineMessage> {
@@ -40,6 +44,11 @@ pub fn parse_timeline_message(
             .and_then(|content| content.get("msgtype"))
             .and_then(Value::as_str)
             .unwrap_or_default();
+        let message_type = if msgtype.is_empty() {
+            None
+        } else {
+            Some(msgtype.to_owned())
+        };
         let body = event
             .get("content")
             .and_then(|content| content.get("body"))
@@ -51,16 +60,28 @@ pub fn parse_timeline_message(
             || msgtype == event_types::message_types::NOTICE
             || msgtype == event_types::message_types::EMOTE
         {
-            body
+            Some((body, None))
+        } else if msgtype == event_types::message_types::IMAGE {
+            let image_url = extract_image_event_url(event)
+                .and_then(|raw| matrix_media_url_from_event_url(homeserver_url, raw));
+
+            Some((body, image_url))
         } else {
-            format!("Unsupported message type: {msgtype}")
+            None
+        };
+
+        let (body, image_url) = match text_body {
+            Some(values) => values,
+            None => (format!("Unsupported message type: {msgtype}"), None),
         };
 
         return Some(ParsedTimelineMessage {
             event_id,
             sender,
             timestamp,
-            body: text_body,
+            body,
+            message_type,
+            image_url,
             encrypted: !matches!(decryption_status, MatrixMessageDecryptionStatus::Plaintext),
             decryption_status,
             verification_status,
@@ -73,6 +94,8 @@ pub fn parse_timeline_message(
             sender,
             timestamp,
             body: String::from("Unable to decrypt encrypted message"),
+            message_type: None,
+            image_url: None,
             encrypted: true,
             decryption_status: MatrixMessageDecryptionStatus::UnableToDecrypt,
             verification_status: MatrixMessageVerificationStatus::Unknown,
@@ -82,9 +105,62 @@ pub fn parse_timeline_message(
     None
 }
 
+fn extract_image_event_url(event: &Value) -> Option<&str> {
+    let content = event.get("content")?;
+
+    content
+        .get("url")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            content
+                .get("file")
+                .and_then(|file| file.get("url"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            content
+                .get("info")
+                .and_then(|info| info.get("thumbnail_url"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            content
+                .get("info")
+                .and_then(|info| info.get("thumbnail_file"))
+                .and_then(|file| file.get("url"))
+                .and_then(Value::as_str)
+        })
+}
+
+fn matrix_media_url_from_event_url(homeserver_url: &Url, raw_url: &str) -> Option<String> {
+    if raw_url.starts_with("http://") || raw_url.starts_with("https://") {
+        return Some(raw_url.to_owned());
+    }
+
+    if !raw_url.starts_with("mxc://") {
+        return None;
+    }
+
+    let mxc = Url::parse(raw_url).ok()?;
+    let server_name = mxc.host_str()?;
+    let media_id = mxc.path().trim_start_matches('/');
+
+    if media_id.is_empty() {
+        return None;
+    }
+
+    let mut media_url = homeserver_url.clone();
+    media_url.set_path(&format!("/_matrix/media/v3/download/{server_name}/{media_id}"));
+    media_url.set_query(Some("allow_redirect=true"));
+    media_url.set_fragment(None);
+
+    Some(media_url.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use url::Url;
 
     use crate::messages::{MatrixMessageDecryptionStatus, MatrixMessageVerificationStatus};
 
@@ -92,6 +168,7 @@ mod tests {
 
     #[test]
     fn parses_plain_text_message() {
+        let homeserver = Url::parse("https://matrix.example.org").expect("homeserver");
         let event = json!({
             "type": "m.room.message",
             "event_id": "$abc",
@@ -105,11 +182,14 @@ mod tests {
 
         let parsed = parse_timeline_message(
             &event,
+            &homeserver,
             MatrixMessageDecryptionStatus::Plaintext,
             MatrixMessageVerificationStatus::Unknown,
         )
         .expect("message should parse");
         assert_eq!(parsed.body, "hello");
+        assert_eq!(parsed.message_type, Some("m.text".to_owned()));
+        assert!(parsed.image_url.is_none());
         assert!(!parsed.encrypted);
         assert!(matches!(
             parsed.decryption_status,
@@ -118,23 +198,34 @@ mod tests {
     }
 
     #[test]
-    fn maps_unsupported_msgtype_to_placeholder() {
+    fn parses_image_message_with_mxc_media_url() {
+        let homeserver = Url::parse("https://matrix.example.org").expect("homeserver");
         let event = json!({
             "type": "m.room.message",
             "sender": "@alice:example.org",
             "content": {
                 "msgtype": "m.image",
-                "body": "image"
+                "body": "image",
+                "url": "mxc://media.example.org/abcdef"
             }
         });
 
         let parsed = parse_timeline_message(
             &event,
+            &homeserver,
             MatrixMessageDecryptionStatus::Decrypted,
             MatrixMessageVerificationStatus::Verified,
         )
         .expect("message should parse");
-        assert_eq!(parsed.body, "Unsupported message type: m.image");
+        assert_eq!(parsed.body, "image");
+        assert_eq!(parsed.message_type, Some("m.image".to_owned()));
+        assert_eq!(
+            parsed.image_url,
+            Some(
+                "https://matrix.example.org/_matrix/media/v3/download/media.example.org/abcdef?allow_redirect=true"
+                    .to_owned()
+            )
+        );
         assert!(matches!(
             parsed.verification_status,
             MatrixMessageVerificationStatus::Verified
@@ -142,7 +233,64 @@ mod tests {
     }
 
     #[test]
+    fn parses_image_message_with_file_url() {
+        let homeserver = Url::parse("https://matrix.example.org").expect("homeserver");
+        let event = json!({
+            "type": "m.room.message",
+            "sender": "@alice:example.org",
+            "content": {
+                "msgtype": "m.image",
+                "body": "encrypted image",
+                "file": {
+                    "url": "mxc://media.example.org/encrypted-media"
+                }
+            }
+        });
+
+        let parsed = parse_timeline_message(
+            &event,
+            &homeserver,
+            MatrixMessageDecryptionStatus::Decrypted,
+            MatrixMessageVerificationStatus::Verified,
+        )
+        .expect("message should parse");
+        assert_eq!(parsed.message_type, Some("m.image".to_owned()));
+        assert_eq!(
+            parsed.image_url,
+            Some(
+                "https://matrix.example.org/_matrix/media/v3/download/media.example.org/encrypted-media?allow_redirect=true"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn maps_unsupported_msgtype_to_placeholder() {
+        let homeserver = Url::parse("https://matrix.example.org").expect("homeserver");
+        let event = json!({
+            "type": "m.room.message",
+            "sender": "@alice:example.org",
+            "content": {
+                "msgtype": "m.audio",
+                "body": "audio"
+            }
+        });
+
+        let parsed = parse_timeline_message(
+            &event,
+            &homeserver,
+            MatrixMessageDecryptionStatus::Decrypted,
+            MatrixMessageVerificationStatus::Verified,
+        )
+        .expect("message should parse");
+        assert_eq!(parsed.message_type, Some("m.audio".to_owned()));
+        assert_eq!(parsed.body, "Unsupported message type: m.audio");
+        assert!(parsed.image_url.is_none());
+    }
+
+    #[test]
     fn parses_encrypted_event_fallback() {
+        let homeserver = Url::parse("https://matrix.example.org").expect("homeserver");
         let event = json!({
             "type": "m.room.encrypted",
             "sender": "@alice:example.org"
@@ -150,11 +298,14 @@ mod tests {
 
         let parsed = parse_timeline_message(
             &event,
+            &homeserver,
             MatrixMessageDecryptionStatus::UnableToDecrypt,
             MatrixMessageVerificationStatus::Unknown,
         )
         .expect("message should parse");
+        assert!(parsed.message_type.is_none());
         assert_eq!(parsed.body, "Unable to decrypt encrypted message");
+        assert!(parsed.image_url.is_none());
         assert!(parsed.encrypted);
         assert!(matches!(
             parsed.decryption_status,

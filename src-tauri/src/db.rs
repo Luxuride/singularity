@@ -399,6 +399,8 @@ impl AppDb {
                 body: row
                     .get::<_, String>(3)
                     .map_err(|error| format!("Failed to decode cached body: {error}"))?,
+                message_type: None,
+                image_url: None,
                 encrypted: encrypted_flag != 0,
                 decryption_status: decryption_status_from_db(&decryption_status_raw)?,
                 verification_status: verification_status_from_db(&verification_status_raw)?,
@@ -417,6 +419,20 @@ impl AppDb {
         connection
             .execute("DELETE FROM session_cache", [])
             .map_err(|error| format!("Failed to clear session cache: {error}"))?;
+        connection
+            .execute("DELETE FROM chats_cache", [])
+            .map_err(|error| format!("Failed to clear chats cache: {error}"))?;
+        connection
+            .execute("DELETE FROM message_cache_state", [])
+            .map_err(|error| format!("Failed to clear message cache state: {error}"))?;
+        connection
+            .execute("DELETE FROM message_cache", [])
+            .map_err(|error| format!("Failed to clear message cache: {error}"))?;
+        Ok(())
+    }
+
+    pub(crate) fn clear_non_auth_cache(&self) -> Result<(), String> {
+        let connection = self.lock()?;
         connection
             .execute("DELETE FROM chats_cache", [])
             .map_err(|error| format!("Failed to clear chats cache: {error}"))?;

@@ -5,4 +5,5 @@ pub mod message_types {
     pub const TEXT: &str = "m.text";
     pub const NOTICE: &str = "m.notice";
     pub const EMOTE: &str = "m.emote";
+    pub const IMAGE: &str = "m.image";
 }

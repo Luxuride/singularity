@@ -57,6 +57,8 @@ export interface MatrixChatMessage {
   sender: string;
   timestamp: number | null;
   body: string;
+  messageType: string | null;
+  imageUrl: string | null;
   encrypted: boolean;
   decryptionStatus: MatrixMessageDecryptionStatus;
   verificationStatus: MatrixMessageVerificationStatus;

@@ -36,6 +36,12 @@ pub struct MatrixLogoutResponse {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MatrixClearCacheExceptAuthResponse {
+    pub cleared: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MatrixRecoveryStatusResponse {
     pub state: String,
 }
