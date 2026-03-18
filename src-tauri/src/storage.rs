@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::{fs, io};
 
 use tauri::{AppHandle, Manager};
 
@@ -14,48 +13,26 @@ pub fn app_data_file(app: &AppHandle, file_name: &str) -> Result<PathBuf, String
 }
 
 pub fn get_or_create_keyring_secret(
-    app: &AppHandle,
+    _app: &AppHandle,
     service_name: &str,
     account_name: &str,
-    mirror_file_name: &str,
     bytes_len: usize,
 ) -> Result<String, String> {
     let entry = keyring::Entry::new(service_name, account_name)
         .map_err(|error| format!("Failed to access keychain entry: {error}"))?;
 
     match entry.get_password() {
-        Ok(secret) if !secret.trim().is_empty() => {
-            persist_secret_mirror(app, mirror_file_name, &secret)?;
-            return Ok(secret);
-        }
+        Ok(secret) if !secret.trim().is_empty() => return Ok(secret),
         Ok(_) => {
             return Err(String::from(
                 "Keychain returned an empty app database secret",
             ));
         }
-        Err(keyring::Error::NoEntry) => {
-            if let Some(mirrored_secret) = load_secret_mirror(app, mirror_file_name)? {
-                if let Err(error) = entry.set_password(&mirrored_secret) {
-                    log::warn!("Failed to restore app database key into keychain: {error}");
-                }
-                return Ok(mirrored_secret);
-            }
-        }
-        Err(keyring::Error::NoStorageAccess(_error)) => {
-            if let Some(mirrored_secret) = load_secret_mirror(app, mirror_file_name)? {
-                if let Err(error) = entry.set_password(&mirrored_secret) {
-                    log::warn!("Failed to restore app database key into keychain: {error}");
-                }
-                return Ok(mirrored_secret);
-            }
+        Err(keyring::Error::NoEntry) => {}
+        Err(keyring::Error::NoStorageAccess(error)) => {
+            return Err(format!("Failed to access keychain storage for app database secret: {error}"));
         }
         Err(error) => {
-            if let Some(mirrored_secret) = load_secret_mirror(app, mirror_file_name)? {
-                log::warn!(
-                    "Failed to read app database secret from keychain; using local mirror: {error}"
-                );
-                return Ok(mirrored_secret);
-            }
             return Err(format!("Failed to read app database secret from keychain: {error}"));
         }
     }
@@ -68,58 +45,12 @@ pub fn get_or_create_keyring_secret(
     match entry.set_password(&encoded) {
         Ok(()) => {}
         Err(keyring::Error::NoStorageAccess(error)) => {
-            log::warn!(
-                "Keychain storage unavailable; continuing with mirrored app database key: {error}"
-            );
+            return Err(format!("Failed to access keychain storage for app database secret: {error}"));
         }
         Err(error) => {
             return Err(format!("Failed to store app database secret in keychain: {error}"));
         }
     }
 
-    persist_secret_mirror(app, mirror_file_name, &encoded)?;
-
     Ok(encoded)
-}
-
-fn load_secret_mirror(app: &AppHandle, mirror_file_name: &str) -> Result<Option<String>, String> {
-    let path = app_data_file(app, mirror_file_name)?;
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let secret = fs::read_to_string(path)
-        .map_err(|error| format!("Failed to read app database key mirror: {error}"))?;
-    let trimmed = secret.trim().to_owned();
-
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
-
-    Ok(Some(trimmed))
-}
-
-fn persist_secret_mirror(
-    app: &AppHandle,
-    mirror_file_name: &str,
-    secret: &str,
-) -> Result<(), String> {
-    let path = app_data_file(app, mirror_file_name)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Failed to create app data directory: {error}"))?;
-    }
-
-    fs::write(&path, secret)
-        .map_err(|error| format!("Failed to write app database key mirror: {error}"))?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).map_err(
-            |error: io::Error| format!("Failed to set app database key mirror permissions: {error}"),
-        )?;
-    }
-
-    Ok(())
 }
