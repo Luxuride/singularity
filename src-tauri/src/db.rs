@@ -3,7 +3,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use matrix_sdk::authentication::matrix::MatrixSession as SdkMatrixSession;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{params, Connection, OptionalExtension};
 use tauri::AppHandle;
 
 use crate::messages::{
@@ -42,8 +42,9 @@ impl AppDb {
                     log::warn!(
                         "Encrypted app cache could not be opened with current key; recreating app cache database"
                     );
-                    fs::remove_file(&path)
-                        .map_err(|remove_error| format!("Failed to reset app database file: {remove_error}"))?;
+                    fs::remove_file(&path).map_err(|remove_error| {
+                        format!("Failed to reset app database file: {remove_error}")
+                    })?;
                     Self::open_encrypted_connection(&path, &secret)?
                 } else {
                     return Err(error);
@@ -99,7 +100,10 @@ impl AppDb {
         })
     }
 
-    fn open_encrypted_connection(path: &std::path::Path, secret: &str) -> Result<Connection, String> {
+    fn open_encrypted_connection(
+        path: &std::path::Path,
+        secret: &str,
+    ) -> Result<Connection, String> {
         let connection = Connection::open(path)
             .map_err(|error| format!("Failed to open app database: {error}"))?;
 
@@ -116,7 +120,9 @@ impl AppDb {
             .map_err(|error| format!("Failed to enable app database foreign keys: {error}"))?;
 
         connection
-            .query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get::<_, i64>(0))
+            .query_row("SELECT count(*) FROM sqlite_master", [], |row| {
+                row.get::<_, i64>(0)
+            })
             .map_err(|error| format!("Failed to verify encrypted app database access: {error}"))?;
 
         Ok(connection)
@@ -154,7 +160,9 @@ impl AppDb {
         Ok(())
     }
 
-    pub(crate) fn load_persisted_session(&self) -> Result<Option<(String, SdkMatrixSession)>, String> {
+    pub(crate) fn load_persisted_session(
+        &self,
+    ) -> Result<Option<(String, SdkMatrixSession)>, String> {
         let connection = self.lock()?;
         let row = connection
             .query_row(
@@ -178,7 +186,10 @@ impl AppDb {
     pub(crate) fn clear_session(&self) -> Result<(), String> {
         let connection = self.lock()?;
         connection
-            .execute("DELETE FROM session_cache WHERE id = ?1", [SINGLETON_ROW_ID])
+            .execute(
+                "DELETE FROM session_cache WHERE id = ?1",
+                [SINGLETON_ROW_ID],
+            )
             .map_err(|error| format!("Failed to delete session cache entry: {error}"))?;
         Ok(())
     }
@@ -252,9 +263,9 @@ impl AppDb {
                 room_id: row
                     .get::<_, String>(0)
                     .map_err(|error| format!("Failed to decode chats cache room id: {error}"))?,
-                display_name: row
-                    .get::<_, String>(1)
-                    .map_err(|error| format!("Failed to decode chats cache display name: {error}"))?,
+                display_name: row.get::<_, String>(1).map_err(|error| {
+                    format!("Failed to decode chats cache display name: {error}")
+                })?,
                 encrypted: encrypted_flag != 0,
                 joined_members: joined_members_raw.max(0) as u64,
             });

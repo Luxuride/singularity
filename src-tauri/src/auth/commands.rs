@@ -9,15 +9,14 @@ use crate::protocol::sync::sync_once_serialized;
 use crate::verification::start_verification_state_watcher;
 
 use super::persistence::{
-    clear_app_cache, clear_app_cache_except_auth, clear_matrix_sdk_store, clear_persisted_session, persist_session,
-    prepare_matrix_sdk_store,
-    PersistedMatrixSession,
+    clear_app_cache, clear_app_cache_except_auth, clear_matrix_sdk_store, clear_persisted_session,
+    persist_session, prepare_matrix_sdk_store, PersistedMatrixSession,
 };
 use super::types::{
-    MatrixClearCacheExceptAuthResponse,
-    MatrixCompleteOAuthRequest, MatrixCompleteOAuthResponse, MatrixLogoutResponse,
-    MatrixRecoverWithKeyRequest, MatrixRecoverWithKeyResponse, MatrixRecoveryStatusResponse,
-    MatrixSessionStatusResponse, MatrixStartOAuthRequest, MatrixStartOAuthResponse,
+    MatrixClearCacheExceptAuthResponse, MatrixCompleteOAuthRequest, MatrixCompleteOAuthResponse,
+    MatrixLogoutResponse, MatrixRecoverWithKeyRequest, MatrixRecoverWithKeyResponse,
+    MatrixRecoveryStatusResponse, MatrixSessionStatusResponse, MatrixStartOAuthRequest,
+    MatrixStartOAuthResponse,
 };
 use super::{
     cross_process_lock_holder_name, start_session_persistence_watcher,

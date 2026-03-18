@@ -1,8 +1,8 @@
-use log::{debug, warn};
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
+use base64::Engine as _;
+use log::{debug, warn};
 use matrix_sdk::deserialized_responses::{TimelineEvent, VerificationState};
+use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
 use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::api::Direction;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
@@ -144,10 +144,11 @@ async fn parse_message_chunk(
             &client.homeserver(),
             decryption_status,
             verification_status,
-        )
-        {
+        ) {
             let image_url = if parsed.message_type.as_deref() == Some("m.image") {
-                resolve_image_data_url(client, &event).await.or(parsed.image_url)
+                resolve_image_data_url(client, &event)
+                    .await
+                    .or(parsed.image_url)
             } else {
                 parsed.image_url
             };
