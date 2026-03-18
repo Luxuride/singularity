@@ -32,7 +32,6 @@ impl AppDb {
             app,
             storage_keys::KEYCHAIN_SERVICE,
             storage_keys::KEYCHAIN_APP_DB_KEY,
-            storage_keys::APP_DB_KEY_MIRROR_FILE,
             32,
         )?;
 
