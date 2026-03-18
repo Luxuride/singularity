@@ -23,7 +23,6 @@
   } from "$lib/chats/types";
   import AppHeader from "$lib/components/navigation/AppHeader.svelte";
   import RoomList from "$lib/components/navigation/RoomList.svelte";
-  import { recoveryStateLabel } from "$lib/components/verification/helpers";
 
   let { children } = $props();
 
@@ -191,26 +190,22 @@
   </main>
 {:else}
   <main class="h-screen">
-    <AppHeader
-      userId={$shellCurrentUserId}
-      recoveryStateLabel={recoveryStateLabel($shellRecoveryState)}
-      isLoading={$shellLoading}
-      isRefreshing={$shellRefreshing}
-      isLoggingOut={loggingOut}
-      onRefresh={requestRefresh}
-      onLogout={logout}
-    />
-
     {#if $shellErrorMessage}
       <p class="card p-3 text-sm preset-filled-error-500 mx-4 md:mx-6 mt-4">{$shellErrorMessage}</p>
     {/if}
 
     <div class="grid gap-4 lg:grid-cols-[280px_1fr] p-4 md:p-6">
-      <RoomList
-        rooms={$shellChats}
-        selectedRoomId={$shellSelectedRoomId}
-        onSelectRoom={selectRoom}
-      />
+      <div class="space-y-4">
+        <AppHeader userId={$shellCurrentUserId} />
+        <RoomList
+          rooms={$shellChats}
+          selectedRoomId={$shellSelectedRoomId}
+          onSelectRoom={selectRoom}
+        />
+        <section class="card p-2 preset-outlined-surface-200-800 bg-surface-50-950">
+          <a class="btn preset-tonal w-full justify-center" href="/settings">Settings</a>
+        </section>
+      </div>
 
       <section class="min-h-[60vh]">
         {@render children()}
