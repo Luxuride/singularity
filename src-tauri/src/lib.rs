@@ -13,7 +13,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(auth::AuthState::default())
         .setup(|app| {
-            let app_db = db::AppDb::initialize(&app.handle())?;
+            let app_db = db::AppDb::initialize(app.handle())?;
             app.manage(app_db);
 
             let trigger_state = rooms::start_room_update_worker(app.handle().clone());

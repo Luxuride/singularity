@@ -30,10 +30,14 @@ pub fn get_or_create_keyring_secret(
         }
         Err(keyring::Error::NoEntry) => {}
         Err(keyring::Error::NoStorageAccess(error)) => {
-            return Err(format!("Failed to access keychain storage for app database secret: {error}"));
+            return Err(format!(
+                "Failed to access keychain storage for app database secret: {error}"
+            ));
         }
         Err(error) => {
-            return Err(format!("Failed to read app database secret from keychain: {error}"));
+            return Err(format!(
+                "Failed to read app database secret from keychain: {error}"
+            ));
         }
     }
 
@@ -45,10 +49,14 @@ pub fn get_or_create_keyring_secret(
     match entry.set_password(&encoded) {
         Ok(()) => {}
         Err(keyring::Error::NoStorageAccess(error)) => {
-            return Err(format!("Failed to access keychain storage for app database secret: {error}"));
+            return Err(format!(
+                "Failed to access keychain storage for app database secret: {error}"
+            ));
         }
         Err(error) => {
-            return Err(format!("Failed to store app database secret in keychain: {error}"));
+            return Err(format!(
+                "Failed to store app database secret in keychain: {error}"
+            ));
         }
     }
 

@@ -150,7 +150,9 @@ fn matrix_media_url_from_event_url(homeserver_url: &Url, raw_url: &str) -> Optio
     }
 
     let mut media_url = homeserver_url.clone();
-    media_url.set_path(&format!("/_matrix/media/v3/download/{server_name}/{media_id}"));
+    media_url.set_path(&format!(
+        "/_matrix/media/v3/download/{server_name}/{media_id}"
+    ));
     media_url.set_query(Some("allow_redirect=true"));
     media_url.set_fragment(None);
 

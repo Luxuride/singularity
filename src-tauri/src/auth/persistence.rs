@@ -38,10 +38,12 @@ pub(crate) fn load_persisted_session(
 ) -> Result<Option<PersistedMatrixSession>, String> {
     let app_db = app.state::<AppDb>();
     let loaded = app_db.load_persisted_session()?;
-    Ok(loaded.map(|(homeserver_url, matrix_session)| PersistedMatrixSession {
-        homeserver_url,
-        matrix_session,
-    }))
+    Ok(
+        loaded.map(|(homeserver_url, matrix_session)| PersistedMatrixSession {
+            homeserver_url,
+            matrix_session,
+        }),
+    )
 }
 
 pub(crate) fn persist_session(

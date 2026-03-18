@@ -7,7 +7,9 @@ use crate::protocol::event_paths;
 use crate::protocol::sync::sync_once_serialized;
 use crate::rooms::{RoomRefreshTrigger, RoomUpdateTriggerState};
 
-use super::persistence::{is_cacheable_initial_request, load_initial_room_messages, store_initial_room_messages};
+use super::persistence::{
+    is_cacheable_initial_request, load_initial_room_messages, store_initial_room_messages,
+};
 use super::types::{
     MatrixChatMessageStreamEvent, MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse,
     MatrixMessageLoadKind, MatrixSendChatMessageRequest, MatrixSendChatMessageResponse,
