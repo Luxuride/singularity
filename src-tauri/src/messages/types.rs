@@ -7,7 +7,7 @@ pub enum MatrixMessageLoadKind {
     Older,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MatrixMessageDecryptionStatus {
     Plaintext,
@@ -15,7 +15,7 @@ pub enum MatrixMessageDecryptionStatus {
     UnableToDecrypt,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MatrixMessageVerificationStatus {
     Unknown,
@@ -48,7 +48,7 @@ pub struct MatrixSendChatMessageRequest {
     pub body: String,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixChatMessage {
     pub event_id: Option<String>,
@@ -60,7 +60,7 @@ pub struct MatrixChatMessage {
     pub verification_status: MatrixMessageVerificationStatus,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixGetChatMessagesResponse {
     pub room_id: String,

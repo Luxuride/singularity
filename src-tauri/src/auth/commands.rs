@@ -3,14 +3,14 @@ use url::Url;
 
 use matrix_sdk::encryption::recovery::RecoveryState;
 
-use crate::messages::MessageCacheState;
 use crate::protocol::config;
 use crate::protocol::endpoints::normalize_homeserver_url;
 use crate::protocol::sync::sync_once_serialized;
 use crate::verification::start_verification_state_watcher;
 
 use super::persistence::{
-    clear_matrix_sdk_store, clear_persisted_session, persist_session, prepare_matrix_sdk_store,
+    clear_app_cache, clear_matrix_sdk_store, clear_persisted_session, persist_session,
+    prepare_matrix_sdk_store,
     PersistedMatrixSession,
 };
 use super::types::{
@@ -119,8 +119,6 @@ pub async fn matrix_complete_oauth(
             device_id: device_id.clone(),
         });
     }
-
-    wait_for_e2ee_initialization(&client).await;
 
     start_session_persistence_watcher(app_handle.clone(), client.clone());
     start_verification_state_watcher(app_handle.clone(), client);
@@ -253,7 +251,6 @@ pub async fn matrix_recover_with_key(
 #[tauri::command]
 pub async fn matrix_logout(
     auth_state: State<'_, AuthState>,
-    message_cache: State<'_, MessageCacheState>,
     app_handle: AppHandle,
 ) -> Result<MatrixLogoutResponse, String> {
     let client = auth_state.client().ok();
@@ -267,8 +264,8 @@ pub async fn matrix_logout(
     }
 
     clear_persisted_session(&app_handle)?;
+    clear_app_cache(&app_handle)?;
     clear_matrix_sdk_store(&app_handle)?;
-    message_cache.clear().await;
 
     Ok(MatrixLogoutResponse { logged_out: true })
 }

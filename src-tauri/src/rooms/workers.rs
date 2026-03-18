@@ -6,7 +6,8 @@ use tokio::sync::mpsc;
 
 use crate::auth::handle_unknown_token_error;
 use crate::auth::AuthState;
-use crate::messages::{fetch_room_messages_from_client, MessageCacheState};
+use crate::db::AppDb;
+use crate::messages::{fetch_room_messages_from_client, store_initial_room_messages};
 use crate::protocol::config;
 
 use super::persistence::refresh_room_snapshot;
@@ -171,8 +172,10 @@ async fn run_refresh_pass(
             if let Ok(response) =
                 fetch_room_messages_from_client(&client, &room_id, None, Some(50)).await
             {
-                let message_cache = app.state::<MessageCacheState>();
-                message_cache.store_initial_room_messages(&response).await;
+                let app_db = app.state::<AppDb>();
+                if let Err(error) = store_initial_room_messages(&app_db, &response) {
+                    warn!("Failed to persist selected-room message cache: {error}");
+                }
 
                 let _ = app.emit(
                     RoomUpdateEvent::SelectedRoomMessages.as_str(),

@@ -109,7 +109,6 @@ impl AuthState {
             });
         }
 
-        wait_for_e2ee_initialization(&client).await;
         start_session_persistence_watcher(app.clone(), client.clone());
         start_verification_state_watcher(app.clone(), client);
 
