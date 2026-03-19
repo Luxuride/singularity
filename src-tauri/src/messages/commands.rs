@@ -12,10 +12,16 @@ use super::persistence::{
 };
 use super::types::{
     MatrixChatMessageStreamEvent, MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse,
-    MatrixMessageLoadKind, MatrixSendChatMessageRequest, MatrixSendChatMessageResponse,
-    MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
+    MatrixMessageLoadKind, MatrixPrepareVideoPlaybackRequest,
+    MatrixPrepareVideoPlaybackResponse, MatrixSendChatMessageRequest,
+    MatrixSendChatMessageResponse, MatrixStreamChatMessagesRequest,
+    MatrixStreamChatMessagesResponse,
 };
-use super::workers::{fetch_room_messages_from_client, send_room_message_from_client};
+use super::workers::{
+    fetch_room_messages_from_client, prepare_video_playback_from_client,
+    send_room_message_from_client,
+};
+use crate::messages::VideoStreamState;
 
 #[tauri::command]
 pub async fn matrix_get_chat_messages(
@@ -247,4 +253,27 @@ pub async fn matrix_send_chat_message(
     });
 
     Ok(MatrixSendChatMessageResponse { event_id })
+}
+
+#[tauri::command]
+pub async fn matrix_prepare_video_playback(
+    request: MatrixPrepareVideoPlaybackRequest,
+    auth_state: State<'_, AuthState>,
+    stream_state: State<'_, VideoStreamState>,
+    app_handle: AppHandle,
+) -> Result<MatrixPrepareVideoPlaybackResponse, String> {
+    info!("matrix_prepare_video_playback requested");
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
+
+    sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
+        .await
+        .map_err(|error| format!("Failed to sync Matrix before video playback: {error}"))?;
+
+    prepare_video_playback_from_client(
+        &client,
+        request.room_id.as_str(),
+        request.event_id.as_str(),
+        &stream_state,
+    )
+    .await
 }
