@@ -72,6 +72,9 @@ impl AppDb {
                     updated_at INTEGER NOT NULL
                 );
 
+                DROP TABLE IF EXISTS message_cache_state;
+                DROP TABLE IF EXISTS message_cache;
+
                 CREATE TABLE IF NOT EXISTS message_cache_state (
                     room_id TEXT PRIMARY KEY,
                     next_from TEXT,
@@ -85,6 +88,12 @@ impl AppDb {
                     sender TEXT NOT NULL,
                     timestamp INTEGER,
                     body TEXT NOT NULL,
+                    message_type TEXT,
+                    image_url TEXT,
+                    video_thumbnail_url TEXT,
+                    video_mime_type TEXT,
+                    video_size_bytes INTEGER,
+                    video_duration_ms INTEGER,
                     encrypted INTEGER NOT NULL,
                     decryption_status TEXT NOT NULL,
                     verification_status TEXT NOT NULL,
@@ -315,12 +324,18 @@ impl AppDb {
                         sender,
                         timestamp,
                         body,
+                        message_type,
+                        image_url,
+                        video_thumbnail_url,
+                        video_mime_type,
+                        video_size_bytes,
+                        video_duration_ms,
                         encrypted,
                         decryption_status,
                         verification_status,
                         updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, unixepoch())
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, unixepoch())
                     ",
                 )
                 .map_err(|error| format!("Failed to prepare message cache insert: {error}"))?;
@@ -334,6 +349,12 @@ impl AppDb {
                         message.sender,
                         message.timestamp.map(|value| value as i64),
                         message.body,
+                        message.message_type.as_deref(),
+                        message.image_url.as_deref(),
+                        message.video_thumbnail_url.as_deref(),
+                        message.video_mime_type.as_deref(),
+                        message.video_size_bytes.map(|value| value as i64),
+                        message.video_duration_ms.map(|value| value as i64),
                         if message.encrypted { 1_i64 } else { 0_i64 },
                         decryption_status_to_db(message.decryption_status),
                         verification_status_to_db(message.verification_status),
@@ -369,7 +390,20 @@ impl AppDb {
         let mut statement = connection
             .prepare(
                 "
-                SELECT event_id, sender, timestamp, body, encrypted, decryption_status, verification_status
+                SELECT
+                    event_id,
+                    sender,
+                    timestamp,
+                    body,
+                    message_type,
+                    image_url,
+                    video_thumbnail_url,
+                    video_mime_type,
+                    video_size_bytes,
+                    video_duration_ms,
+                    encrypted,
+                    decryption_status,
+                    verification_status
                 FROM message_cache
                 WHERE room_id = ?1
                 ORDER BY sequence ASC
@@ -389,14 +423,20 @@ impl AppDb {
             let timestamp_raw: Option<i64> = row
                 .get(2)
                 .map_err(|error| format!("Failed to decode cached timestamp: {error}"))?;
+            let video_size_bytes_raw: Option<i64> = row
+                .get(8)
+                .map_err(|error| format!("Failed to decode cached video size bytes: {error}"))?;
+            let video_duration_ms_raw: Option<i64> = row
+                .get(9)
+                .map_err(|error| format!("Failed to decode cached video duration ms: {error}"))?;
             let encrypted_flag: i64 = row
-                .get(4)
+                .get(10)
                 .map_err(|error| format!("Failed to decode cached encrypted flag: {error}"))?;
             let decryption_status_raw: String = row
-                .get(5)
+                .get(11)
                 .map_err(|error| format!("Failed to decode cached decryption status: {error}"))?;
             let verification_status_raw: String = row
-                .get(6)
+                .get(12)
                 .map_err(|error| format!("Failed to decode cached verification status: {error}"))?;
 
             messages.push(MatrixChatMessage {
@@ -410,8 +450,22 @@ impl AppDb {
                 body: row
                     .get::<_, String>(3)
                     .map_err(|error| format!("Failed to decode cached body: {error}"))?,
-                message_type: None,
-                image_url: None,
+                message_type: row
+                    .get::<_, Option<String>>(4)
+                    .map_err(|error| format!("Failed to decode cached message type: {error}"))?,
+                image_url: row
+                    .get::<_, Option<String>>(5)
+                    .map_err(|error| format!("Failed to decode cached image url: {error}"))?,
+                video_thumbnail_url: row
+                    .get::<_, Option<String>>(6)
+                    .map_err(|error| {
+                        format!("Failed to decode cached video thumbnail url: {error}")
+                    })?,
+                video_mime_type: row
+                    .get::<_, Option<String>>(7)
+                    .map_err(|error| format!("Failed to decode cached video mime type: {error}"))?,
+                video_size_bytes: video_size_bytes_raw.map(|value| value.max(0) as u64),
+                video_duration_ms: video_duration_ms_raw.map(|value| value.max(0) as u64),
                 encrypted: encrypted_flag != 0,
                 decryption_status: decryption_status_from_db(&decryption_status_raw)?,
                 verification_status: verification_status_from_db(&verification_status_raw)?,

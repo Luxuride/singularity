@@ -3,6 +3,7 @@ use url::Url;
 
 use matrix_sdk::encryption::recovery::RecoveryState;
 
+use crate::messages::VideoStreamState;
 use crate::protocol::config;
 use crate::protocol::endpoints::normalize_homeserver_url;
 use crate::protocol::sync::sync_once_serialized;
@@ -251,6 +252,7 @@ pub async fn matrix_recover_with_key(
 #[tauri::command]
 pub async fn matrix_logout(
     auth_state: State<'_, AuthState>,
+    video_stream_state: State<'_, VideoStreamState>,
     app_handle: AppHandle,
 ) -> Result<MatrixLogoutResponse, String> {
     let client = auth_state.client().ok();
@@ -266,15 +268,18 @@ pub async fn matrix_logout(
     clear_persisted_session(&app_handle)?;
     clear_app_cache(&app_handle)?;
     clear_matrix_sdk_store(&app_handle)?;
+    video_stream_state.clear()?;
 
     Ok(MatrixLogoutResponse { logged_out: true })
 }
 
 #[tauri::command]
 pub async fn matrix_clear_cache_except_auth(
+    video_stream_state: State<'_, VideoStreamState>,
     app_handle: AppHandle,
 ) -> Result<MatrixClearCacheExceptAuthResponse, String> {
     clear_app_cache_except_auth(&app_handle)?;
+    video_stream_state.clear()?;
 
     Ok(MatrixClearCacheExceptAuthResponse { cleared: true })
 }

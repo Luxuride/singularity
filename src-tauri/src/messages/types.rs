@@ -48,6 +48,13 @@ pub struct MatrixSendChatMessageRequest {
     pub body: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixPrepareVideoPlaybackRequest {
+    pub room_id: String,
+    pub event_id: String,
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixChatMessage {
@@ -57,6 +64,10 @@ pub struct MatrixChatMessage {
     pub body: String,
     pub message_type: Option<String>,
     pub image_url: Option<String>,
+    pub video_thumbnail_url: Option<String>,
+    pub video_mime_type: Option<String>,
+    pub video_size_bytes: Option<u64>,
+    pub video_duration_ms: Option<u64>,
     pub encrypted: bool,
     pub decryption_status: MatrixMessageDecryptionStatus,
     pub verification_status: MatrixMessageVerificationStatus,
@@ -81,6 +92,12 @@ pub struct MatrixStreamChatMessagesResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MatrixSendChatMessageResponse {
     pub event_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixPrepareVideoPlaybackResponse {
+    pub stream_url: String,
 }
 
 #[derive(Clone, Serialize)]
