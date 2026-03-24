@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
+  import { page } from "$app/state";
   import { onMount, tick } from "svelte";
 
   import {
@@ -6,7 +8,12 @@
     matrixStreamChatMessages,
   } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
-  import { shellChats, shellCurrentUserId, shellSelectedRoomId } from "$lib/chats/shell";
+  import {
+    shellChats,
+    shellCurrentUserId,
+    shellSelectedRootSpaceId,
+    shellSelectedRoomId,
+  } from "$lib/chats/shell";
   import type {
     MatrixChatMessage,
     MatrixChatMessageStreamEvent,
@@ -16,6 +23,9 @@
   } from "$lib/chats/types";
   import MessageTimeline from "$lib/components/messaging/MessageTimeline.svelte";
   import MessageComposer from "$lib/components/messaging/MessageComposer.svelte";
+  import RoomList from "$lib/components/navigation/RoomList.svelte";
+
+  const VIRTUAL_DMS_ROOT_ID = "virtual:dms";
 
   let loadingMessages = $state(false);
   let errorMessage = $state("");
@@ -681,33 +691,137 @@
     const selectedRoom = $shellChats.find((chat) => chat.roomId === selectedRoomId);
     return selectedRoom?.encrypted ?? false;
   }
+
+  const selectedRootSpaceName = $derived(
+    $shellSelectedRootSpaceId === VIRTUAL_DMS_ROOT_ID
+      ? "DMs"
+      : $shellChats.find((room) => room.roomId === $shellSelectedRootSpaceId)?.displayName ?? "Server",
+  );
+
+  const selectedRootScopedRooms = $derived.by(() => {
+    const rootSpaceId = $shellSelectedRootSpaceId;
+    if (!rootSpaceId) {
+      return [];
+    }
+
+    const rooms = $shellChats;
+    if (rootSpaceId === VIRTUAL_DMS_ROOT_ID) {
+      return rooms
+        .filter((room) => room.kind === "room" && room.isDirect)
+        .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" }));
+    }
+
+    const childrenByParent = new Map<string, typeof rooms>();
+
+    for (const room of rooms) {
+      if (!room.parentRoomId || room.parentRoomId === room.roomId) {
+        continue;
+      }
+
+      const siblings = childrenByParent.get(room.parentRoomId) ?? [];
+      siblings.push(room);
+      childrenByParent.set(room.parentRoomId, siblings);
+    }
+
+    const descendants: typeof rooms = [];
+    const seen = new Set<string>();
+    const stack = [...(childrenByParent.get(rootSpaceId) ?? [])];
+
+    while (stack.length > 0) {
+      const candidate = stack.pop();
+      if (!candidate || seen.has(candidate.roomId)) {
+        continue;
+      }
+
+      seen.add(candidate.roomId);
+      descendants.push(candidate);
+
+      for (const child of childrenByParent.get(candidate.roomId) ?? []) {
+        stack.push(child);
+      }
+    }
+
+    return descendants;
+  });
+
+  async function selectRoomFromOverview(roomId: string) {
+    const room = $shellChats.find((candidate) => candidate.roomId === roomId);
+    if (!room || room.kind !== "room") {
+      return;
+    }
+
+    shellSelectedRoomId.set(roomId);
+
+    const params = new URLSearchParams(page.url.searchParams);
+    if ($shellSelectedRootSpaceId) {
+      params.set("rootSpaceId", $shellSelectedRootSpaceId);
+    }
+    params.set("roomId", roomId);
+
+    const search = params.toString();
+    await goto(search ? `/chats?${search}` : "/chats", {
+      replaceState: true,
+      noScroll: true,
+      keepFocus: true,
+    });
+  }
 </script>
 
-<div class="flex flex-col h-full">
-  <MessageTimeline
-    {messages}
-    roomId={$shellSelectedRoomId || ""}
-    selectedRoomId={$shellSelectedRoomId}
-    roomEncrypted={selectedRoomEncrypted()}
-    roomName={$shellChats.find((chat) => chat.roomId === $shellSelectedRoomId)?.displayName ?? ""}
-    {loadingMessages}
-    {activeLoadKind}
-    {streamMessageCount}
-    error={errorMessage}
-    {nextFrom}
-    isSending={sendingMessage}
-    onScroll={handleTimelineScroll}
-    onLoadOlder={loadOlder}
-    onRetryMessage={retryMessage}
-  />
+{#if !$shellSelectedRoomId}
+  <section class="card p-6 preset-outlined-surface-200-800 bg-surface-100-900 h-full overflow-y-auto space-y-5">
+    <header>
+      <p class="text-xs uppercase tracking-wide text-surface-700-300">Server</p>
+      <h1 class="text-2xl font-semibold">{selectedRootSpaceName}</h1>
+      <p class="text-sm text-surface-700-300 mt-1">
+        Spaces and rooms are shown as one mixed tree. Expand sub-spaces and select a room to open chat.
+      </p>
+    </header>
 
-  <MessageComposer
-    draft={messageDraft}
-    error={composerErrorMessage}
-    isSending={sendingMessage}
-    isDisabled={!$shellSelectedRoomId}
-    placeholder={$shellSelectedRoomId ? "Write a message..." : "Select a room to compose"}
-    onSubmit={sendDraftMessage}
-    onDraftChange={(d) => messageDraft = d}
-  />
-</div>
+    {#if !$shellSelectedRootSpaceId}
+      <p class="text-sm text-surface-700-300">Select a root space from the left column to browse its hierarchy.</p>
+    {:else}
+      <section class="space-y-2">
+        <h2 class="text-sm font-medium">{selectedRootSpaceName} Hierarchy</h2>
+        {#if selectedRootScopedRooms.length === 0}
+          <p class="text-sm text-surface-700-300">No spaces or rooms found under this root space.</p>
+        {:else}
+          <RoomList
+            rooms={selectedRootScopedRooms}
+            selectedRoomId={$shellSelectedRoomId}
+            onSelectRoom={selectRoomFromOverview}
+            emptyMessage="No spaces or rooms found under this root space."
+          />
+        {/if}
+      </section>
+    {/if}
+  </section>
+{:else}
+  <div class="flex flex-col h-full">
+    <MessageTimeline
+      {messages}
+      roomId={$shellSelectedRoomId || ""}
+      selectedRoomId={$shellSelectedRoomId}
+      roomEncrypted={selectedRoomEncrypted()}
+      roomName={$shellChats.find((chat) => chat.roomId === $shellSelectedRoomId)?.displayName ?? ""}
+      {loadingMessages}
+      {activeLoadKind}
+      {streamMessageCount}
+      error={errorMessage}
+      {nextFrom}
+      isSending={sendingMessage}
+      onScroll={handleTimelineScroll}
+      onLoadOlder={loadOlder}
+      onRetryMessage={retryMessage}
+    />
+
+    <MessageComposer
+      draft={messageDraft}
+      error={composerErrorMessage}
+      isSending={sendingMessage}
+      isDisabled={!$shellSelectedRoomId}
+      placeholder={$shellSelectedRoomId ? "Write a message..." : "Select a room to compose"}
+      onSubmit={sendDraftMessage}
+      onDraftChange={(d) => messageDraft = d}
+    />
+  </div>
+{/if}

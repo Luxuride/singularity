@@ -10,4 +10,5 @@ export const shellCurrentUserId = writable("");
 export const shellRecoveryState = writable<MatrixRecoveryState | null>(null);
 
 export const shellChats = writable<MatrixChatSummary[]>([]);
+export const shellSelectedRootSpaceId = writable("");
 export const shellSelectedRoomId = writable("");

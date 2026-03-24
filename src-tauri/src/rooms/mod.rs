@@ -11,7 +11,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::messages::MatrixChatMessage;
 use crate::protocol::event_paths;
 
-pub use types::MatrixChatSummary;
+pub use types::{MatrixChatSummary, MatrixRoomKind};
 pub use workers::start_room_update_worker;
 
 #[derive(Copy, Clone)]

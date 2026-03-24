@@ -1,8 +1,14 @@
+export type MatrixRoomKind = "room" | "space";
+
 export interface MatrixChatSummary {
   roomId: string;
   displayName: string;
   encrypted: boolean;
   joinedMembers: number;
+  kind: MatrixRoomKind;
+  joined: boolean;
+  isDirect: boolean;
+  parentRoomId: string | null;
 }
 
 export interface MatrixGetChatsResponse {

@@ -11,7 +11,7 @@ use crate::messages::{
     MatrixMessageVerificationStatus,
 };
 use crate::protocol::storage_keys;
-use crate::rooms::MatrixChatSummary;
+use crate::rooms::{MatrixChatSummary, MatrixRoomKind};
 use crate::storage;
 
 const SINGLETON_ROW_ID: i64 = 1;
@@ -69,6 +69,10 @@ impl AppDb {
                     display_name TEXT NOT NULL,
                     encrypted INTEGER NOT NULL,
                     joined_members INTEGER NOT NULL,
+                    room_kind TEXT NOT NULL DEFAULT 'room',
+                    joined INTEGER NOT NULL DEFAULT 1,
+                    is_direct INTEGER NOT NULL DEFAULT 0,
+                    parent_room_id TEXT,
                     updated_at INTEGER NOT NULL
                 );
 
@@ -94,6 +98,8 @@ impl AppDb {
                 ",
             )
             .map_err(|error| format!("Failed to initialize app database schema: {error}"))?;
+
+        Self::ensure_chats_cache_columns(&connection)?;
 
         Ok(Self {
             connection: Mutex::new(connection),
@@ -126,6 +132,83 @@ impl AppDb {
             .map_err(|error| format!("Failed to verify encrypted app database access: {error}"))?;
 
         Ok(connection)
+    }
+
+    fn ensure_chats_cache_columns(connection: &Connection) -> Result<(), String> {
+        let mut statement = connection
+            .prepare("PRAGMA table_info(chats_cache)")
+            .map_err(|error| format!("Failed to inspect chats cache schema: {error}"))?;
+
+        let mut rows = statement
+            .query([])
+            .map_err(|error| format!("Failed to query chats cache schema: {error}"))?;
+
+        let mut has_room_kind = false;
+        let mut has_joined = false;
+        let mut has_is_direct = false;
+        let mut has_parent_room_id = false;
+
+        while let Some(row) = rows
+            .next()
+            .map_err(|error| format!("Failed to read chats cache schema row: {error}"))?
+        {
+            let column_name: String = row
+                .get(1)
+                .map_err(|error| format!("Failed to decode chats cache column name: {error}"))?;
+
+            if column_name == "room_kind" {
+                has_room_kind = true;
+            }
+
+            if column_name == "joined" {
+                has_joined = true;
+            }
+
+            if column_name == "is_direct" {
+                has_is_direct = true;
+            }
+
+            if column_name == "parent_room_id" {
+                has_parent_room_id = true;
+            }
+        }
+
+        if !has_room_kind {
+            connection
+                .execute(
+                    "ALTER TABLE chats_cache ADD COLUMN room_kind TEXT NOT NULL DEFAULT 'room'",
+                    [],
+                )
+                .map_err(|error| format!("Failed to add chats cache room_kind column: {error}"))?;
+        }
+
+        if !has_parent_room_id {
+            connection
+                .execute("ALTER TABLE chats_cache ADD COLUMN parent_room_id TEXT", [])
+                .map_err(|error| {
+                    format!("Failed to add chats cache parent_room_id column: {error}")
+                })?;
+        }
+
+        if !has_joined {
+            connection
+                .execute(
+                    "ALTER TABLE chats_cache ADD COLUMN joined INTEGER NOT NULL DEFAULT 1",
+                    [],
+                )
+                .map_err(|error| format!("Failed to add chats cache joined column: {error}"))?;
+        }
+
+        if !has_is_direct {
+            connection
+                .execute(
+                    "ALTER TABLE chats_cache ADD COLUMN is_direct INTEGER NOT NULL DEFAULT 0",
+                    [],
+                )
+                .map_err(|error| format!("Failed to add chats cache is_direct column: {error}"))?;
+        }
+
+        Ok(())
     }
 
     pub(crate) fn lock(&self) -> Result<MutexGuard<'_, Connection>, String> {
@@ -207,19 +290,38 @@ impl AppDb {
             let mut statement = tx
                 .prepare(
                     "
-                    INSERT INTO chats_cache (room_id, display_name, encrypted, joined_members, updated_at)
-                    VALUES (?1, ?2, ?3, ?4, unixepoch())
+                    INSERT INTO chats_cache (
+                        room_id,
+                        display_name,
+                        encrypted,
+                        joined_members,
+                        room_kind,
+                        joined,
+                        is_direct,
+                        parent_room_id,
+                        updated_at
+                    )
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch())
                     ",
                 )
                 .map_err(|error| format!("Failed to prepare chats cache insert: {error}"))?;
 
             for chat in chats {
+                let room_kind = match chat.kind {
+                    MatrixRoomKind::Space => "space",
+                    MatrixRoomKind::Room => "room",
+                };
+
                 statement
                     .execute(params![
                         chat.room_id,
                         chat.display_name,
                         if chat.encrypted { 1_i64 } else { 0_i64 },
                         chat.joined_members as i64,
+                        room_kind,
+                        if chat.joined { 1_i64 } else { 0_i64 },
+                        if chat.is_direct { 1_i64 } else { 0_i64 },
+                        chat.parent_room_id,
                     ])
                     .map_err(|error| format!("Failed to insert chats cache row: {error}"))?;
             }
@@ -236,7 +338,7 @@ impl AppDb {
         let mut statement = connection
             .prepare(
                 "
-                SELECT room_id, display_name, encrypted, joined_members
+                SELECT room_id, display_name, encrypted, joined_members, room_kind, joined, is_direct, parent_room_id
                 FROM chats_cache
                 ORDER BY updated_at DESC, room_id ASC
                 ",
@@ -258,6 +360,20 @@ impl AppDb {
             let joined_members_raw: i64 = row
                 .get(3)
                 .map_err(|error| format!("Failed to decode chats cache joined members: {error}"))?;
+            let room_kind_raw: String = row
+                .get(4)
+                .map_err(|error| format!("Failed to decode chats cache room kind: {error}"))?;
+            let joined_flag: i64 = row
+                .get(5)
+                .map_err(|error| format!("Failed to decode chats cache joined flag: {error}"))?;
+            let is_direct_flag: i64 = row
+                .get(6)
+                .map_err(|error| format!("Failed to decode chats cache is_direct flag: {error}"))?;
+
+            let kind = match room_kind_raw.as_str() {
+                "space" => MatrixRoomKind::Space,
+                _ => MatrixRoomKind::Room,
+            };
 
             chats.push(MatrixChatSummary {
                 room_id: row
@@ -268,6 +384,12 @@ impl AppDb {
                 })?,
                 encrypted: encrypted_flag != 0,
                 joined_members: joined_members_raw.max(0) as u64,
+                kind,
+                joined: joined_flag != 0,
+                is_direct: is_direct_flag != 0,
+                parent_room_id: row
+                    .get::<_, Option<String>>(7)
+                    .map_err(|error| format!("Failed to decode chats cache parent room id: {error}"))?,
             });
         }
 
