@@ -1,5 +1,9 @@
 import { listen } from "@tauri-apps/api/event";
 
+import {
+  normalizeChatMessageStreamEvent,
+  normalizeSelectedRoomMessagesEvent,
+} from "./media";
 import type {
   MatrixChatSummary,
   MatrixChatMessageStreamEvent,
@@ -30,10 +34,10 @@ export async function subscribeToRoomUpdates(handlers: RoomUpdateHandlers): Prom
     listen<MatrixChatSummary>(EVENT_ROOM_UPDATED, (event) => handlers.onRoomUpdated(event.payload)),
     listen<MatrixRoomRemovedEvent>(EVENT_ROOM_REMOVED, (event) => handlers.onRoomRemoved(event.payload)),
     listen<MatrixSelectedRoomMessagesEvent>(EVENT_SELECTED_ROOM_MESSAGES, (event) =>
-      handlers.onSelectedRoomMessages(event.payload),
+      handlers.onSelectedRoomMessages(normalizeSelectedRoomMessagesEvent(event.payload)),
     ),
     listen<MatrixChatMessageStreamEvent>(EVENT_CHAT_MESSAGES_STREAM, (event) =>
-      handlers.onChatMessagesStream(event.payload),
+      handlers.onChatMessagesStream(normalizeChatMessageStreamEvent(event.payload)),
     ),
     listen<MatrixVerificationStateChangedEvent>(EVENT_VERIFICATION_STATE_CHANGED, (event) => {
       handlers.onVerificationStateChanged?.(event.payload);
