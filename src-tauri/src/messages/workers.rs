@@ -11,11 +11,11 @@ use matrix_sdk::deserialized_responses::{TimelineEvent, VerificationState};
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
 use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::api::Direction;
-use matrix_sdk::ruma::events::{GlobalAccountDataEventType, StateEventType};
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
 use matrix_sdk::ruma::events::room::MediaSource;
+use matrix_sdk::ruma::events::{GlobalAccountDataEventType, StateEventType};
 use matrix_sdk::ruma::uint;
 use serde_json::Value;
 use url::Url;
@@ -23,8 +23,9 @@ use url::Url;
 use crate::protocol::events_schema::{parse_reaction_event, parse_timeline_message};
 
 use super::types::{
-    MatrixChatMessage, MatrixCustomEmoji, MatrixGetChatMessagesResponse, MatrixPickerCustomEmoji,
-    MatrixMessageDecryptionStatus, MatrixMessageVerificationStatus, MatrixReactionSummary,
+    MatrixChatMessage, MatrixCustomEmoji, MatrixGetChatMessagesResponse,
+    MatrixMessageDecryptionStatus, MatrixMessageVerificationStatus, MatrixPickerCustomEmoji,
+    MatrixReactionSummary,
 };
 
 static MEDIA_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -173,6 +174,12 @@ fn to_in_memory_media_url(media_key: &str) -> String {
     format!("matrix-media://localhost/{media_key}")
 }
 
+struct EmojiPackAccumulator {
+    collected_custom_emoji: Vec<MatrixPickerCustomEmoji>,
+    seen_custom_emoji: BTreeSet<String>,
+    used_custom_emoji_names: BTreeSet<String>,
+}
+
 pub(crate) async fn fetch_room_messages_from_client(
     client: &matrix_sdk::Client,
     room_id_raw: &str,
@@ -246,7 +253,10 @@ pub(crate) async fn send_room_message_from_client(
         .get_room(&room_id)
         .ok_or_else(|| String::from("Room is not available in current session"))?;
 
-    let content = if let Some(formatted_body) = formatted_body.map(str::trim).filter(|value| !value.is_empty()) {
+    let content = if let Some(formatted_body) = formatted_body
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         RoomMessageEventContent::text_html(trimmed_body, formatted_body)
     } else {
         RoomMessageEventContent::text_plain(trimmed_body)
@@ -299,7 +309,8 @@ pub(crate) async fn toggle_reaction_from_client(
         return Ok((false, Some(existing_event_id)));
     }
 
-    let content = ReactionEventContent::new(Annotation::new(target_event_id, reaction_key.to_owned()));
+    let content =
+        ReactionEventContent::new(Annotation::new(target_event_id, reaction_key.to_owned()));
     let response = room
         .send(content)
         .await
@@ -351,9 +362,11 @@ async fn find_matching_own_reaction_event_id(
 pub(crate) async fn load_picker_assets_from_client(
     client: &matrix_sdk::Client,
 ) -> Result<Vec<MatrixPickerCustomEmoji>, String> {
-    let mut collected_custom_emoji = Vec::<MatrixPickerCustomEmoji>::new();
-    let mut seen_custom_emoji = BTreeSet::<String>::new();
-    let mut used_custom_emoji_names = BTreeSet::<String>::new();
+    let mut accumulator = EmojiPackAccumulator {
+        collected_custom_emoji: Vec::new(),
+        seen_custom_emoji: BTreeSet::new(),
+        used_custom_emoji_names: BTreeSet::new(),
+    };
 
     for room in client.joined_rooms() {
         for event_type in [
@@ -367,7 +380,10 @@ pub(crate) async fn load_picker_assets_from_client(
                 .get_state_events(StateEventType::from(event_type))
                 .await
                 .map_err(|error| {
-                    format!("Failed to load room emoji packs for {}: {error}", room.room_id())
+                    format!(
+                        "Failed to load room emoji packs for {}: {error}",
+                        room.room_id()
+                    )
                 })?;
 
             for raw_event in state_events {
@@ -385,9 +401,7 @@ pub(crate) async fn load_picker_assets_from_client(
                     Some(room.room_id().to_string()),
                     fallback_usage,
                     true,
-                    &mut collected_custom_emoji,
-                    &mut seen_custom_emoji,
-                    &mut used_custom_emoji_names,
+                    &mut accumulator,
                 )
                 .await;
             }
@@ -421,14 +435,12 @@ pub(crate) async fn load_picker_assets_from_client(
             Some(String::from("Global")),
             fallback_usage,
             true,
-            &mut collected_custom_emoji,
-            &mut seen_custom_emoji,
-            &mut used_custom_emoji_names,
+            &mut accumulator,
         )
         .await;
     }
 
-    Ok(collected_custom_emoji)
+    Ok(accumulator.collected_custom_emoji)
 }
 
 async fn merge_pack_content(
@@ -437,9 +449,7 @@ async fn merge_pack_content(
     fallback_category: Option<String>,
     fallback_usage: Option<&'static str>,
     resolve_references: bool,
-    collected_custom_emoji: &mut Vec<MatrixPickerCustomEmoji>,
-    seen_custom_emoji: &mut BTreeSet<String>,
-    used_custom_emoji_names: &mut BTreeSet<String>,
+    accumulator: &mut EmojiPackAccumulator,
 ) {
     let root_category = content
         .get("pack")
@@ -456,9 +466,7 @@ async fn merge_pack_content(
             images,
             root_category.clone(),
             fallback_usage,
-            collected_custom_emoji,
-            seen_custom_emoji,
-            used_custom_emoji_names,
+            accumulator,
         )
         .await;
     }
@@ -476,9 +484,7 @@ async fn merge_pack_content(
                     pack_id,
                     root_category.clone(),
                     fallback_usage,
-                    collected_custom_emoji,
-                    seen_custom_emoji,
-                    used_custom_emoji_names,
+                    accumulator,
                 )
                 .await;
             }
@@ -507,9 +513,7 @@ async fn merge_pack_content(
             images,
             nested_category,
             fallback_usage,
-            collected_custom_emoji,
-            seen_custom_emoji,
-            used_custom_emoji_names,
+            accumulator,
         )
         .await;
     }
@@ -549,9 +553,7 @@ async fn merge_pack_content(
             images,
             nested_category,
             fallback_usage,
-            collected_custom_emoji,
-            seen_custom_emoji,
-            used_custom_emoji_names,
+            accumulator,
         )
         .await;
     }
@@ -563,9 +565,7 @@ async fn merge_pack_reference(
     pack_id: &str,
     root_category: Option<String>,
     fallback_usage: Option<&'static str>,
-    collected_custom_emoji: &mut Vec<MatrixPickerCustomEmoji>,
-    seen_custom_emoji: &mut BTreeSet<String>,
-    used_custom_emoji_names: &mut BTreeSet<String>,
+    accumulator: &mut EmojiPackAccumulator,
 ) {
     let Some(room_id_raw) = pack_reference.get("room_id").and_then(Value::as_str) else {
         return;
@@ -603,7 +603,10 @@ async fn merge_pack_reference(
         "im.ponies.room_packs",
         "org.matrix.msc2545.room_packs",
     ] {
-        let events = match room.get_state_events(StateEventType::from(event_type)).await {
+        let events = match room
+            .get_state_events(StateEventType::from(event_type))
+            .await
+        {
             Ok(events) => events,
             Err(_) => continue,
         };
@@ -632,9 +635,7 @@ async fn merge_pack_reference(
                 content,
                 category.clone(),
                 fallback_usage_from_event_type(event_type).or(fallback_usage),
-                collected_custom_emoji,
-                seen_custom_emoji,
-                used_custom_emoji_names,
+                accumulator,
             )
             .await;
         }
@@ -646,9 +647,7 @@ async fn merge_pack_content_non_recursive(
     content: &Value,
     fallback_category: Option<String>,
     fallback_usage: Option<&'static str>,
-    collected_custom_emoji: &mut Vec<MatrixPickerCustomEmoji>,
-    seen_custom_emoji: &mut BTreeSet<String>,
-    used_custom_emoji_names: &mut BTreeSet<String>,
+    accumulator: &mut EmojiPackAccumulator,
 ) {
     let root_category = content
         .get("pack")
@@ -665,9 +664,7 @@ async fn merge_pack_content_non_recursive(
             images,
             root_category.clone(),
             fallback_usage,
-            collected_custom_emoji,
-            seen_custom_emoji,
-            used_custom_emoji_names,
+            accumulator,
         )
         .await;
     }
@@ -700,9 +697,7 @@ async fn merge_pack_content_non_recursive(
                 images,
                 nested_category,
                 fallback_usage,
-                collected_custom_emoji,
-                seen_custom_emoji,
-                used_custom_emoji_names,
+                accumulator,
             )
             .await;
         }
@@ -740,9 +735,7 @@ async fn merge_pack_content_non_recursive(
                 images,
                 nested_category,
                 fallback_usage,
-                collected_custom_emoji,
-                seen_custom_emoji,
-                used_custom_emoji_names,
+                accumulator,
             )
             .await;
         }
@@ -755,9 +748,7 @@ async fn merge_pack_images(
     images: &serde_json::Map<String, Value>,
     category: Option<String>,
     fallback_usage: Option<&'static str>,
-    collected_custom_emoji: &mut Vec<MatrixPickerCustomEmoji>,
-    seen_custom_emoji: &mut BTreeSet<String>,
-    used_custom_emoji_names: &mut BTreeSet<String>,
+    accumulator: &mut EmojiPackAccumulator,
 ) {
     for (raw_shortcode, image) in images {
         let shortcode = raw_shortcode.trim_matches(':').trim();
@@ -797,18 +788,24 @@ async fn merge_pack_images(
 
         if is_emoticon {
             let dedupe_key = format!("{}|{}", shortcode.to_lowercase(), url);
-            if !seen_custom_emoji.contains(&dedupe_key) {
-                seen_custom_emoji.insert(dedupe_key);
+            if !accumulator.seen_custom_emoji.contains(&dedupe_key) {
+                accumulator.seen_custom_emoji.insert(dedupe_key);
 
-                let name = unique_picker_name(used_custom_emoji_names, &display_name, shortcode);
+                let name = unique_picker_name(
+                    &mut accumulator.used_custom_emoji_names,
+                    &display_name,
+                    shortcode,
+                );
                 let source_url = canonical_pack_source_url(raw_url);
-                collected_custom_emoji.push(MatrixPickerCustomEmoji {
-                    name,
-                    shortcodes: vec![shortcode.to_owned()],
-                    url: url.clone(),
-                    source_url,
-                    category: category.clone(),
-                });
+                accumulator
+                    .collected_custom_emoji
+                    .push(MatrixPickerCustomEmoji {
+                        name,
+                        shortcodes: vec![shortcode.to_owned()],
+                        url: url.clone(),
+                        source_url,
+                        category: category.clone(),
+                    });
             }
         }
     }
@@ -857,9 +854,7 @@ fn image_usage<'a>(content: &'a Value, image: &'a Value) -> BTreeSet<&'a str> {
 fn usage_has_kind(usage: &BTreeSet<&str>, kind: &str) -> bool {
     usage.iter().any(|entry| {
         let normalized = entry.trim().to_ascii_lowercase();
-        normalized == kind
-            || normalized.ends_with(&format!(".{kind}"))
-            || normalized.contains(kind)
+        normalized == kind || normalized.ends_with(&format!(".{kind}")) || normalized.contains(kind)
     })
 }
 
@@ -878,7 +873,11 @@ fn unique_picker_name(
     shortcode: &str,
 ) -> String {
     let trimmed = display_name.trim();
-    let base = if trimmed.is_empty() { shortcode } else { trimmed };
+    let base = if trimmed.is_empty() {
+        shortcode
+    } else {
+        trimmed
+    };
     let mut candidate = if trimmed.is_empty() {
         shortcode.to_owned()
     } else {
@@ -903,15 +902,12 @@ fn unique_picker_name(
 }
 
 fn pack_media_url(image: &Value) -> Option<&str> {
-    image
-        .get("url")
-        .and_then(Value::as_str)
-        .or_else(|| {
-            image
-                .get("file")
-                .and_then(|value| value.get("url"))
-                .and_then(Value::as_str)
-        })
+    image.get("url").and_then(Value::as_str).or_else(|| {
+        image
+            .get("file")
+            .and_then(|value| value.get("url"))
+            .and_then(Value::as_str)
+    })
 }
 
 async fn resolve_pack_media_url(client: &matrix_sdk::Client, raw_url: &str) -> Option<String> {
@@ -1075,10 +1071,7 @@ async fn parse_message_chunk(
                 });
             }
 
-            let image_url = if matches!(
-                parsed.message_type.as_deref(),
-                Some("m.image")
-            ) {
+            let image_url = if matches!(parsed.message_type.as_deref(), Some("m.image")) {
                 resolve_image_cache_path(client, &event)
                     .await
                     .or(parsed.image_url)

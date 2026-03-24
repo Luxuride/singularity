@@ -17,8 +17,8 @@ use super::types::{
     MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest, MatrixToggleReactionResponse,
 };
 use super::workers::{
-    fetch_room_messages_from_client, load_picker_assets_from_client,
-    send_room_message_from_client, toggle_reaction_from_client,
+    fetch_room_messages_from_client, load_picker_assets_from_client, send_room_message_from_client,
+    toggle_reaction_from_client,
 };
 
 #[tauri::command]
@@ -35,9 +35,7 @@ pub async fn matrix_get_emoji_packs(
 
     let custom_emoji = load_picker_assets_from_client(&client).await?;
 
-    Ok(MatrixGetEmojiPacksResponse {
-        custom_emoji,
-    })
+    Ok(MatrixGetEmojiPacksResponse { custom_emoji })
 }
 
 #[tauri::command]
@@ -310,4 +308,3 @@ pub async fn matrix_toggle_reaction(
 
     Ok(MatrixToggleReactionResponse { added, event_id })
 }
-
