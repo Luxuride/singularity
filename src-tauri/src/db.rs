@@ -64,6 +64,12 @@ impl AppDb {
                     updated_at INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS chats_cache (
                     room_id TEXT PRIMARY KEY,
                     display_name TEXT NOT NULL,
@@ -286,6 +292,36 @@ impl AppDb {
                 [SINGLETON_ROW_ID],
             )
             .map_err(|error| format!("Failed to delete session cache entry: {error}"))?;
+        Ok(())
+    }
+
+    pub(crate) fn get_setting(&self, key: &str) -> Result<Option<String>, String> {
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT value FROM app_settings WHERE key = ?1",
+                [key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| format!("Failed to read app setting '{key}': {error}"))
+    }
+
+    pub(crate) fn set_setting(&self, key: &str, value: &str) -> Result<(), String> {
+        let connection = self.lock()?;
+        connection
+            .execute(
+                "
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES (?1, ?2, unixepoch())
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = unixepoch()
+                ",
+                params![key, value],
+            )
+            .map_err(|error| format!("Failed to persist app setting '{key}': {error}"))?;
+
         Ok(())
     }
 

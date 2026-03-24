@@ -28,6 +28,7 @@ function normalizeImageUrl(imageUrl: string | null): string | null {
     imageUrl.startsWith("data:") ||
     imageUrl.startsWith("http://") ||
     imageUrl.startsWith("https://") ||
+    imageUrl.startsWith("matrix-media://") ||
     imageUrl.startsWith("asset:") ||
     imageUrl.startsWith("tauri://")
   ) {

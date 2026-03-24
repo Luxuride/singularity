@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
+	import { onMount } from "svelte";
 	import { get } from "svelte/store";
 
 	import { matrixLogout, matrixRecoveryStatus } from "$lib/auth/api";
 	import { matrixTriggerRoomUpdate } from "$lib/chats/api";
+	import { matrixGetMediaSettings, matrixSetMediaSettings } from "$lib/settings/api";
 	import {
 		shellChats,
 		shellCurrentUserId,
@@ -16,6 +18,70 @@
 
 	let loggingOut = $state(false);
 	let settingsMessage = $state("");
+	let useAssetStorage = $state(false);
+	let mediaSettingsPending = $state(false);
+	let mediaSettingsLoaded = $state(false);
+	let mediaSettingsMessage = $state("");
+
+	onMount(() => {
+		void loadMediaSettings();
+	});
+
+	async function loadMediaSettings() {
+		mediaSettingsPending = true;
+		mediaSettingsMessage = "";
+
+		try {
+			const response = await matrixGetMediaSettings();
+			useAssetStorage = response.useAssetStorage;
+			mediaSettingsLoaded = true;
+		} catch (error) {
+			mediaSettingsMessage =
+				error instanceof Error ? error.message : "Failed to load media settings";
+		} finally {
+			mediaSettingsPending = false;
+		}
+	}
+
+	async function updateMediaStorageMode(event: Event) {
+		if (!(event.currentTarget instanceof HTMLInputElement)) {
+			return;
+		}
+
+		if (!mediaSettingsLoaded || mediaSettingsPending) {
+			event.currentTarget.checked = useAssetStorage;
+			return;
+		}
+
+		const previous = useAssetStorage;
+		const next = event.currentTarget.checked;
+
+		mediaSettingsPending = true;
+		mediaSettingsMessage = "";
+
+		try {
+			const response = await matrixSetMediaSettings({
+				useAssetStorage: next,
+			});
+
+			useAssetStorage = response.useAssetStorage;
+			mediaSettingsMessage = response.useAssetStorage
+				? "Asset storage enabled for chat images."
+				: "In-memory media protocol enabled for chat images.";
+
+			await matrixTriggerRoomUpdate({
+				selectedRoomId: get(shellSelectedRoomId) || undefined,
+				includeSelectedMessages: true,
+			});
+		} catch (error) {
+			useAssetStorage = previous;
+			event.currentTarget.checked = previous;
+			mediaSettingsMessage =
+				error instanceof Error ? error.message : "Failed to update media settings";
+		} finally {
+			mediaSettingsPending = false;
+		}
+	}
 
 	async function refreshRooms() {
 		if (get(shellRefreshing)) {
@@ -92,6 +158,27 @@
 		>
 			{#if $shellRefreshing}Refreshing...{:else}Refresh{/if}
 		</button>
+	</section>
+
+	<section class="card p-3 preset-outlined-surface-300-700 bg-surface-50-950 space-y-2">
+		<h3 class="h6">Media Storage</h3>
+		<p class="text-xs text-surface-700-300">
+			Use in-memory image handling with the app protocol by default. Enable asset storage to use
+			disk-backed media cache paths.
+		</p>
+		<label class="flex items-start gap-2 text-sm text-surface-700-300">
+			<input
+				type="checkbox"
+				checked={useAssetStorage}
+				onchange={updateMediaStorageMode}
+				disabled={mediaSettingsPending}
+			/>
+			<span>Use asset storage for images</span>
+		</label>
+
+		{#if mediaSettingsMessage}
+			<p class="text-xs text-surface-700-300">{mediaSettingsMessage}</p>
+		{/if}
 	</section>
 
 	<section class="card p-3 preset-outlined-surface-300-700 bg-surface-50-950 space-y-2">
