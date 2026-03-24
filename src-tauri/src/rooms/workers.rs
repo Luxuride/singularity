@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use log::{error, warn};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
@@ -11,16 +12,22 @@ use crate::messages::{fetch_room_messages_from_client, store_initial_room_messag
 use crate::protocol::config;
 
 use super::persistence::refresh_room_snapshot;
-use super::types::MatrixChatSummary;
+use super::types::{MatrixChatSummary, MatrixRoomKind};
 use super::{
     MatrixRoomRemovedEvent, MatrixSelectedRoomMessagesEvent, RoomRefreshTrigger, RoomSnapshot,
     RoomUpdateEvent, RoomUpdateTriggerState,
 };
 
 pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixChatSummary> {
+    let joined_rooms = client.joined_rooms();
     let mut chats = Vec::new();
+    let joined_room_ids = joined_rooms
+        .iter()
+        .map(|room| room.room_id().to_string())
+        .collect::<std::collections::HashSet<_>>();
+    let mut unjoined_parent_space_ids = std::collections::HashSet::new();
 
-    for room in client.joined_rooms() {
+    for room in joined_rooms {
         let display_name = room
             .display_name()
             .await
@@ -33,12 +40,42 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
             .map(|state| state.is_encrypted())
             .unwrap_or(false);
         let joined_members = room.joined_members_count();
+        let is_direct = room.is_direct().await.unwrap_or(false);
+        let kind = if room.is_space() {
+            MatrixRoomKind::Space
+        } else {
+            MatrixRoomKind::Room
+        };
+        let parent_room_id = primary_parent_space_id(&room).await;
+
+        if let Some(parent_room_id) = &parent_room_id {
+            if !joined_room_ids.contains(parent_room_id) {
+                unjoined_parent_space_ids.insert(parent_room_id.clone());
+            }
+        }
 
         chats.push(MatrixChatSummary {
             room_id: room.room_id().to_string(),
             display_name,
             encrypted,
             joined_members,
+            kind,
+            joined: true,
+            is_direct,
+            parent_room_id,
+        });
+    }
+
+    for space_id in unjoined_parent_space_ids {
+        chats.push(MatrixChatSummary {
+            room_id: space_id.clone(),
+            display_name: space_id,
+            encrypted: false,
+            joined_members: 0,
+            kind: MatrixRoomKind::Space,
+            joined: false,
+            is_direct: false,
+            parent_room_id: None,
         });
     }
 
@@ -48,6 +85,50 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
             .cmp(&b.display_name.to_lowercase())
     });
     chats
+}
+
+async fn primary_parent_space_id(room: &matrix_sdk::Room) -> Option<String> {
+    let mut parent_spaces = match room.parent_spaces().await {
+        Ok(parent_spaces) => parent_spaces,
+        Err(_) => return None,
+    };
+
+    let mut best_candidate = None::<(u8, String)>;
+
+    while let Some(parent_result) = parent_spaces.next().await {
+        let Ok(parent_space) = parent_result else {
+            continue;
+        };
+
+        let candidate = match parent_space {
+            matrix_sdk::room::ParentSpace::Reciprocal(parent_room) => {
+                Some((0_u8, parent_room.room_id().to_string()))
+            }
+            matrix_sdk::room::ParentSpace::WithPowerlevel(parent_room) => {
+                Some((1_u8, parent_room.room_id().to_string()))
+            }
+            matrix_sdk::room::ParentSpace::Unverifiable(parent_room_id) => {
+                Some((2_u8, parent_room_id.to_string()))
+            }
+            matrix_sdk::room::ParentSpace::Illegitimate(_) => None,
+        };
+
+        let Some((rank, parent_room_id)) = candidate else {
+            continue;
+        };
+
+        match &best_candidate {
+            Some((best_rank, _)) if *best_rank <= rank => {}
+            _ => {
+                best_candidate = Some((rank, parent_room_id));
+                if rank == 0 {
+                    break;
+                }
+            }
+        }
+    }
+
+    best_candidate.map(|(_, room_id)| room_id)
 }
 
 pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
