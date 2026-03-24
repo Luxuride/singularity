@@ -1,5 +1,6 @@
 pub const ROOM_MESSAGE: &str = "m.room.message";
 pub const ROOM_ENCRYPTED: &str = "m.room.encrypted";
+pub const REACTION: &str = "m.reaction";
 
 pub mod message_types {
     pub const TEXT: &str = "m.text";

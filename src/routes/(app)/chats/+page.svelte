@@ -6,11 +6,13 @@
   import {
     matrixSendChatMessage,
     matrixStreamChatMessages,
+    matrixToggleReaction,
   } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
   import {
     shellChats,
     shellCurrentUserId,
+    shellPickerCustomEmoji,
     shellSelectedRootSpaceId,
     shellSelectedRoomId,
   } from "$lib/chats/shell";
@@ -20,7 +22,13 @@
     MatrixSelectedRoomMessagesEvent,
     MatrixSendChatMessageRequest,
     MatrixMessageLoadKind,
+    MatrixReactionSummary,
   } from "$lib/chats/types";
+  import {
+    buildMessageForSend,
+    normalizeReactionKey,
+    normalizeShortcodesToEmoji,
+  } from "$lib/emoji/picker";
   import MessageTimeline from "$lib/components/messaging/MessageTimeline.svelte";
   import MessageComposer from "$lib/components/messaging/MessageComposer.svelte";
   import RoomList from "$lib/components/navigation/RoomList.svelte";
@@ -403,6 +411,25 @@
       return;
     }
 
+    for (const { message } of indexed) {
+      if (!message.eventId || !seenEventIds.has(message.eventId)) {
+        continue;
+      }
+
+      messages = messages.map((candidate) => {
+        if (candidate.eventId !== message.eventId) {
+          return candidate;
+        }
+
+        return {
+          ...candidate,
+          ...message,
+          localId: candidate.localId,
+          sendState: candidate.sendState,
+        };
+      });
+    }
+
     const seenIndexes = indexed
       .filter(({ message }) => Boolean(message.eventId && seenEventIds.has(message.eventId)))
       .map(({ index }) => index);
@@ -487,8 +514,11 @@
       sender: $shellCurrentUserId || "You",
       timestamp: Date.now(),
       body,
+      formattedBody: null,
       messageType: "m.text",
       imageUrl: null,
+      customEmojis: [],
+      reactions: [],
       encrypted: encryptedRoom,
       decryptionStatus: encryptedRoom ? "decrypted" : "plaintext",
       verificationStatus: "unknown",
@@ -549,11 +579,14 @@
       return;
     }
 
-    const body = messageDraft.trim();
-    if (!body) {
+    const rawBody = messageDraft.trim();
+    if (!rawBody) {
       composerErrorMessage = "Message cannot be empty";
       return;
     }
+
+    const messageForSend = await buildMessageForSend(rawBody, $shellPickerCustomEmoji);
+    const body = messageForSend.body;
 
     composerErrorMessage = "";
     messageDraft = "";
@@ -573,9 +606,144 @@
       {
         roomId,
         body,
+        formattedBody: messageForSend.formattedBody,
       },
       localId,
     );
+  }
+
+  function updateReactionSummary(
+    existing: MatrixReactionSummary[],
+    key: string,
+    userId: string,
+    added: boolean,
+  ): MatrixReactionSummary[] {
+    const next = existing.map((reaction) => ({
+      ...reaction,
+      senders: [...reaction.senders],
+    }));
+
+    const index = next.findIndex((reaction) => reaction.key === key);
+    if (index < 0) {
+      if (!added) {
+        return next;
+      }
+
+      next.push({ key, count: 1, senders: [userId] });
+      return next;
+    }
+
+    const reaction = next[index];
+    const senderSet = new Set(reaction.senders);
+    if (added) {
+      senderSet.add(userId);
+    } else {
+      senderSet.delete(userId);
+    }
+
+    const senders = [...senderSet];
+    if (senders.length === 0) {
+      next.splice(index, 1);
+      return next;
+    }
+
+    next[index] = {
+      ...reaction,
+      senders,
+      count: senders.length,
+    };
+
+    return next;
+  }
+
+  async function handleToggleReaction(message: TimelineMessage, key: string) {
+    const roomId = $shellSelectedRoomId;
+    if (!roomId || !message.eventId) {
+      return;
+    }
+
+    const normalizedKey = await normalizeReactionKey(key, $shellPickerCustomEmoji);
+    const reactionKey = normalizedKey.trim();
+    if (!reactionKey) {
+      return;
+    }
+
+    const userId = $shellCurrentUserId;
+    const targetEventId = message.eventId;
+    let snapshot: TimelineMessage | null = null;
+
+    if (userId) {
+      const current = messages.find((candidate) => candidate.eventId === targetEventId);
+      if (current) {
+        snapshot = {
+          ...current,
+          reactions: current.reactions.map((reaction) => ({
+            ...reaction,
+            senders: [...reaction.senders],
+          })),
+        };
+
+        const alreadyReacted = current.reactions.some(
+          (reaction) => reaction.key === reactionKey && reaction.senders.includes(userId),
+        );
+
+        messages = messages.map((candidate) => {
+          if (candidate.eventId !== targetEventId) {
+            return candidate;
+          }
+
+          return {
+            ...candidate,
+            reactions: updateReactionSummary(
+              candidate.reactions,
+              reactionKey,
+              userId,
+              !alreadyReacted,
+            ),
+          };
+        });
+      }
+    }
+
+    try {
+      const response = await matrixToggleReaction({
+        roomId,
+        targetEventId,
+        key: reactionKey,
+      });
+
+      if (!userId) {
+        return;
+      }
+
+      messages = messages.map((candidate) => {
+        if (candidate.eventId !== targetEventId) {
+          return candidate;
+        }
+
+        return {
+          ...candidate,
+          reactions: updateReactionSummary(
+            candidate.reactions,
+            reactionKey,
+            userId,
+            response.added,
+          ),
+        };
+      });
+    } catch (error) {
+      if (snapshot) {
+        messages = messages.map((candidate) => {
+          if (candidate.eventId !== targetEventId) {
+            return candidate;
+          }
+
+          return snapshot as TimelineMessage;
+        });
+      }
+
+      composerErrorMessage = error instanceof Error ? error.message : "Failed to toggle reaction";
+    }
   }
 
   async function retryMessage(message: TimelineMessage) {
@@ -801,6 +969,8 @@
       {messages}
       roomId={$shellSelectedRoomId || ""}
       selectedRoomId={$shellSelectedRoomId}
+      currentUserId={$shellCurrentUserId || null}
+      pickerCustomEmoji={$shellPickerCustomEmoji}
       roomEncrypted={selectedRoomEncrypted()}
       roomName={$shellChats.find((chat) => chat.roomId === $shellSelectedRoomId)?.displayName ?? ""}
       {loadingMessages}
@@ -812,6 +982,7 @@
       onScroll={handleTimelineScroll}
       onLoadOlder={loadOlder}
       onRetryMessage={retryMessage}
+      onToggleReaction={handleToggleReaction}
     />
 
     <MessageComposer
@@ -819,6 +990,7 @@
       error={composerErrorMessage}
       isSending={sendingMessage}
       isDisabled={!$shellSelectedRoomId}
+      pickerCustomEmoji={$shellPickerCustomEmoji}
       placeholder={$shellSelectedRoomId ? "Write a message..." : "Select a room to compose"}
       onSubmit={sendDraftMessage}
       onDraftChange={(d) => messageDraft = d}

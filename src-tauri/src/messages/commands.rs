@@ -12,10 +12,33 @@ use super::persistence::{
 };
 use super::types::{
     MatrixChatMessageStreamEvent, MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse,
-    MatrixMessageLoadKind, MatrixSendChatMessageRequest, MatrixSendChatMessageResponse,
-    MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
+    MatrixGetEmojiPacksResponse, MatrixMessageLoadKind, MatrixSendChatMessageRequest,
+    MatrixSendChatMessageResponse, MatrixStreamChatMessagesRequest,
+    MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest, MatrixToggleReactionResponse,
 };
-use super::workers::{fetch_room_messages_from_client, send_room_message_from_client};
+use super::workers::{
+    fetch_room_messages_from_client, load_picker_assets_from_client,
+    send_room_message_from_client, toggle_reaction_from_client,
+};
+
+#[tauri::command]
+pub async fn matrix_get_emoji_packs(
+    auth_state: State<'_, AuthState>,
+    app_handle: AppHandle,
+) -> Result<MatrixGetEmojiPacksResponse, String> {
+    info!("matrix_get_emoji_packs requested");
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
+
+    sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
+        .await
+        .map_err(|error| format!("Failed to sync Matrix before loading emoji packs: {error}"))?;
+
+    let custom_emoji = load_picker_assets_from_client(&client).await?;
+
+    Ok(MatrixGetEmojiPacksResponse {
+        custom_emoji,
+    })
+}
 
 #[tauri::command]
 pub async fn matrix_get_chat_messages(
@@ -241,8 +264,13 @@ pub async fn matrix_send_chat_message(
         .map_err(|error| format!("Failed to sync Matrix before send: {error}"))?;
 
     let room_id = request.room_id;
-    let event_id =
-        send_room_message_from_client(&client, room_id.as_str(), request.body.as_str()).await?;
+    let event_id = send_room_message_from_client(
+        &client,
+        room_id.as_str(),
+        request.body.as_str(),
+        request.formatted_body.as_deref(),
+    )
+    .await?;
 
     let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
         selected_room_id: Some(room_id),
@@ -251,3 +279,35 @@ pub async fn matrix_send_chat_message(
 
     Ok(MatrixSendChatMessageResponse { event_id })
 }
+
+#[tauri::command]
+pub async fn matrix_toggle_reaction(
+    request: MatrixToggleReactionRequest,
+    auth_state: State<'_, AuthState>,
+    room_update_trigger_state: State<'_, RoomUpdateTriggerState>,
+    app_handle: AppHandle,
+) -> Result<MatrixToggleReactionResponse, String> {
+    info!("matrix_toggle_reaction requested");
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
+
+    sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
+        .await
+        .map_err(|error| format!("Failed to sync Matrix before reaction toggle: {error}"))?;
+
+    let room_id = request.room_id;
+    let (added, event_id) = toggle_reaction_from_client(
+        &client,
+        room_id.as_str(),
+        request.target_event_id.as_str(),
+        request.key.as_str(),
+    )
+    .await?;
+
+    let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
+        selected_room_id: Some(room_id),
+        include_selected_messages: true,
+    });
+
+    Ok(MatrixToggleReactionResponse { added, event_id })
+}
+

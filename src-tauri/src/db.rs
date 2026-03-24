@@ -96,6 +96,8 @@ impl AppDb {
                     sender TEXT NOT NULL,
                     timestamp INTEGER,
                     body TEXT NOT NULL,
+                    message_type TEXT,
+                    image_url TEXT,
                     encrypted INTEGER NOT NULL,
                     decryption_status TEXT NOT NULL,
                     verification_status TEXT NOT NULL,
@@ -107,6 +109,7 @@ impl AppDb {
             .map_err(|error| format!("Failed to initialize app database schema: {error}"))?;
 
         Self::ensure_chats_cache_columns(&connection)?;
+        Self::ensure_message_cache_columns(&connection)?;
 
         Ok(Self {
             connection: Mutex::new(connection),
@@ -224,6 +227,52 @@ impl AppDb {
             connection
                 .execute("ALTER TABLE chats_cache ADD COLUMN image_url TEXT", [])
                 .map_err(|error| format!("Failed to add chats cache image_url column: {error}"))?;
+        }
+
+        Ok(())
+    }
+
+    fn ensure_message_cache_columns(connection: &Connection) -> Result<(), String> {
+        let mut statement = connection
+            .prepare("PRAGMA table_info(message_cache)")
+            .map_err(|error| format!("Failed to inspect message cache schema: {error}"))?;
+
+        let mut rows = statement
+            .query([])
+            .map_err(|error| format!("Failed to query message cache schema: {error}"))?;
+
+        let mut has_message_type = false;
+        let mut has_image_url = false;
+
+        while let Some(row) = rows
+            .next()
+            .map_err(|error| format!("Failed to read message cache schema row: {error}"))?
+        {
+            let column_name: String = row
+                .get(1)
+                .map_err(|error| format!("Failed to decode message cache column name: {error}"))?;
+
+            if column_name == "message_type" {
+                has_message_type = true;
+            }
+
+            if column_name == "image_url" {
+                has_image_url = true;
+            }
+        }
+
+        if !has_message_type {
+            connection
+                .execute("ALTER TABLE message_cache ADD COLUMN message_type TEXT", [])
+                .map_err(|error| {
+                    format!("Failed to add message cache message_type column: {error}")
+                })?;
+        }
+
+        if !has_image_url {
+            connection
+                .execute("ALTER TABLE message_cache ADD COLUMN image_url TEXT", [])
+                .map_err(|error| format!("Failed to add message cache image_url column: {error}"))?;
         }
 
         Ok(())
@@ -490,12 +539,14 @@ impl AppDb {
                         sender,
                         timestamp,
                         body,
+                        message_type,
+                        image_url,
                         encrypted,
                         decryption_status,
                         verification_status,
                         updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, unixepoch())
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, unixepoch())
                     ",
                 )
                 .map_err(|error| format!("Failed to prepare message cache insert: {error}"))?;
@@ -509,6 +560,8 @@ impl AppDb {
                         message.sender,
                         message.timestamp.map(|value| value as i64),
                         message.body,
+                        message.message_type.as_deref(),
+                        message.image_url.as_deref(),
                         if message.encrypted { 1_i64 } else { 0_i64 },
                         decryption_status_to_db(message.decryption_status),
                         verification_status_to_db(message.verification_status),
@@ -544,7 +597,7 @@ impl AppDb {
         let mut statement = connection
             .prepare(
                 "
-                SELECT event_id, sender, timestamp, body, encrypted, decryption_status, verification_status
+                SELECT event_id, sender, timestamp, body, message_type, image_url, encrypted, decryption_status, verification_status
                 FROM message_cache
                 WHERE room_id = ?1
                 ORDER BY sequence ASC
@@ -565,13 +618,13 @@ impl AppDb {
                 .get(2)
                 .map_err(|error| format!("Failed to decode cached timestamp: {error}"))?;
             let encrypted_flag: i64 = row
-                .get(4)
+                .get(6)
                 .map_err(|error| format!("Failed to decode cached encrypted flag: {error}"))?;
             let decryption_status_raw: String = row
-                .get(5)
+                .get(7)
                 .map_err(|error| format!("Failed to decode cached decryption status: {error}"))?;
             let verification_status_raw: String = row
-                .get(6)
+                .get(8)
                 .map_err(|error| format!("Failed to decode cached verification status: {error}"))?;
 
             messages.push(MatrixChatMessage {
@@ -585,8 +638,15 @@ impl AppDb {
                 body: row
                     .get::<_, String>(3)
                     .map_err(|error| format!("Failed to decode cached body: {error}"))?,
-                message_type: None,
-                image_url: None,
+                formatted_body: None,
+                message_type: row
+                    .get::<_, Option<String>>(4)
+                    .map_err(|error| format!("Failed to decode cached message type: {error}"))?,
+                image_url: row
+                    .get::<_, Option<String>>(5)
+                    .map_err(|error| format!("Failed to decode cached image url: {error}"))?,
+                custom_emojis: Vec::new(),
+                reactions: Vec::new(),
                 encrypted: encrypted_flag != 0,
                 decryption_status: decryption_status_from_db(&decryption_status_raw)?,
                 verification_status: verification_status_from_db(&verification_status_raw)?,

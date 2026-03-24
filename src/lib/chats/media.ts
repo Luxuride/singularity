@@ -46,6 +46,10 @@ export function normalizeMessageImageUrl(message: MatrixChatMessage): MatrixChat
   return {
     ...message,
     imageUrl: normalizeImageUrl(message.imageUrl),
+    customEmojis: message.customEmojis.map((emoji) => ({
+      ...emoji,
+      url: normalizeImageUrl(emoji.url) ?? emoji.url,
+    })),
   };
 }
 

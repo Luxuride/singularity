@@ -54,19 +54,52 @@ export interface MatrixStreamChatMessagesRequest {
 export interface MatrixSendChatMessageRequest {
   roomId: string;
   body: string;
+  formattedBody?: string;
+}
+
+export interface MatrixToggleReactionRequest {
+  roomId: string;
+  targetEventId: string;
+  key: string;
 }
 
 export type MatrixMessageDecryptionStatus = "plaintext" | "decrypted" | "unableToDecrypt";
 
 export type MatrixMessageVerificationStatus = "unknown" | "verified" | "unverified";
 
+export interface MatrixCustomEmoji {
+  shortcode: string;
+  url: string;
+}
+
+export interface MatrixPickerCustomEmoji {
+  name: string;
+  shortcodes: string[];
+  url: string;
+  sourceUrl: string;
+  category?: string;
+}
+
+export interface MatrixGetEmojiPacksResponse {
+  customEmoji: MatrixPickerCustomEmoji[];
+}
+
+export interface MatrixReactionSummary {
+  key: string;
+  count: number;
+  senders: string[];
+}
+
 export interface MatrixChatMessage {
   eventId: string | null;
   sender: string;
   timestamp: number | null;
   body: string;
+  formattedBody: string | null;
   messageType: string | null;
   imageUrl: string | null;
+  customEmojis: MatrixCustomEmoji[];
+  reactions: MatrixReactionSummary[];
   encrypted: boolean;
   decryptionStatus: MatrixMessageDecryptionStatus;
   verificationStatus: MatrixMessageVerificationStatus;
@@ -85,6 +118,11 @@ export interface MatrixStreamChatMessagesResponse {
 
 export interface MatrixSendChatMessageResponse {
   eventId: string;
+}
+
+export interface MatrixToggleReactionResponse {
+  added: boolean;
+  eventId: string | null;
 }
 
 export interface MatrixChatMessageStreamEvent {
