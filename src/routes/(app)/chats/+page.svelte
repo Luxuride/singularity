@@ -4,7 +4,6 @@
   import {
     matrixSendChatMessage,
     matrixStreamChatMessages,
-    matrixTriggerRoomUpdate,
   } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
   import { shellChats, shellCurrentUserId, shellSelectedRoomId } from "$lib/chats/shell";
@@ -125,16 +124,6 @@
 
   $effect(() => {
     const selectedRoomId = $shellSelectedRoomId;
-    if (!selectedRoomId) {
-      return;
-    }
-
-    void matrixTriggerRoomUpdate({ selectedRoomId });
-  });
-
-  $effect(() => {
-    const selectedRoomId = $shellSelectedRoomId;
-
     if (
       !selectedRoomId ||
       !timelineElement ||

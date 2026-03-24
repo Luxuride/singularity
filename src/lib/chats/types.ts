@@ -11,6 +11,7 @@ export interface MatrixGetChatsResponse {
 
 export interface MatrixTriggerRoomUpdateRequest {
   selectedRoomId?: string;
+  includeSelectedMessages?: boolean;
 }
 
 export interface MatrixTriggerRoomUpdateResponse {

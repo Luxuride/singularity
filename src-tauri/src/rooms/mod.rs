@@ -36,6 +36,7 @@ impl RoomUpdateEvent {
 #[derive(Clone)]
 pub(crate) struct RoomRefreshTrigger {
     pub(crate) selected_room_id: Option<String>,
+    pub(crate) include_selected_messages: bool,
 }
 
 pub struct RoomUpdateTriggerState {
@@ -58,6 +59,8 @@ impl RoomUpdateTriggerState {
 #[serde(rename_all = "camelCase")]
 pub struct MatrixTriggerRoomUpdateRequest {
     pub selected_room_id: Option<String>,
+    #[serde(default)]
+    pub include_selected_messages: bool,
 }
 
 #[derive(Serialize)]
