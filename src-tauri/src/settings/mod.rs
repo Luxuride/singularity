@@ -27,7 +27,10 @@ pub(crate) fn load_media_storage_mode(app_db: &AppDb) -> Result<MediaStorageMode
     }
 }
 
-pub(crate) fn persist_media_storage_mode(app_db: &AppDb, mode: MediaStorageMode) -> Result<(), String> {
+pub(crate) fn persist_media_storage_mode(
+    app_db: &AppDb,
+    mode: MediaStorageMode,
+) -> Result<(), String> {
     let serialized = match mode {
         MediaStorageMode::InMemory => "memory",
         MediaStorageMode::AssetStorage => "asset",
