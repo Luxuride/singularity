@@ -5,7 +5,11 @@
   import { get } from "svelte/store";
 
   import { matrixLogout, matrixRecoveryStatus, matrixSessionStatus } from "$lib/auth/api";
-  import { matrixGetChats, matrixTriggerRoomUpdate } from "$lib/chats/api";
+  import {
+    matrixGetChats,
+    matrixGetPickerAssets,
+    matrixTriggerRoomUpdate,
+  } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
   import {
     shellChats,
@@ -14,6 +18,7 @@
     shellLoading,
     shellRecoveryState,
     shellRefreshing,
+    shellPickerCustomEmoji,
     shellSelectedRootSpaceId,
     shellSelectedRoomId,
   } from "$lib/chats/shell";
@@ -107,6 +112,13 @@
 
       const rooms = await matrixGetChats();
       shellChats.set(rooms);
+
+      try {
+        const { customEmoji: pickerCustomEmoji } = await matrixGetPickerAssets();
+        shellPickerCustomEmoji.set(pickerCustomEmoji);
+      } catch {
+        shellPickerCustomEmoji.set([]);
+      }
 
       const queryRootSpaceId = page.url.searchParams.get("rootSpaceId") ?? "";
       const queryRoomId = page.url.searchParams.get("roomId") ?? "";
@@ -362,6 +374,7 @@
       shellSelectedRootSpaceId.set("");
       shellSelectedRoomId.set("");
       shellCurrentUserId.set("");
+      shellPickerCustomEmoji.set([]);
       await goto("/");
     } catch (error) {
       shellErrorMessage.set(error instanceof Error ? error.message : "Failed to log out");

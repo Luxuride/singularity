@@ -46,6 +46,40 @@ pub struct MatrixStreamChatMessagesRequest {
 pub struct MatrixSendChatMessageRequest {
     pub room_id: String,
     pub body: String,
+    pub formatted_body: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixToggleReactionRequest {
+    pub room_id: String,
+    pub target_event_id: String,
+    pub key: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixCustomEmoji {
+    pub shortcode: String,
+    pub url: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixPickerCustomEmoji {
+    pub name: String,
+    pub shortcodes: Vec<String>,
+    pub url: String,
+    pub source_url: String,
+    pub category: Option<String>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixReactionSummary {
+    pub key: String,
+    pub count: u32,
+    pub senders: Vec<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -55,8 +89,13 @@ pub struct MatrixChatMessage {
     pub sender: String,
     pub timestamp: Option<u64>,
     pub body: String,
+    pub formatted_body: Option<String>,
     pub message_type: Option<String>,
     pub image_url: Option<String>,
+    #[serde(default)]
+    pub custom_emojis: Vec<MatrixCustomEmoji>,
+    #[serde(default)]
+    pub reactions: Vec<MatrixReactionSummary>,
     pub encrypted: bool,
     pub decryption_status: MatrixMessageDecryptionStatus,
     pub verification_status: MatrixMessageVerificationStatus,
@@ -81,6 +120,19 @@ pub struct MatrixStreamChatMessagesResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MatrixSendChatMessageResponse {
     pub event_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixToggleReactionResponse {
+    pub added: bool,
+    pub event_id: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetEmojiPacksResponse {
+    pub custom_emoji: Vec<MatrixPickerCustomEmoji>,
 }
 
 #[derive(Clone, Serialize)]

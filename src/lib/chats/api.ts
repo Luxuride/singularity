@@ -3,13 +3,17 @@ import { toMessage } from "../errors";
 import { normalizeChatSummaryImageUrl, normalizeMessageImageUrl } from "./media";
 import type {
   MatrixChatSummary,
+  MatrixGetEmojiPacksResponse,
   MatrixGetChatsResponse,
   MatrixGetChatMessagesRequest,
   MatrixGetChatMessagesResponse,
+  MatrixPickerCustomEmoji,
   MatrixSendChatMessageRequest,
   MatrixSendChatMessageResponse,
   MatrixStreamChatMessagesRequest,
   MatrixStreamChatMessagesResponse,
+  MatrixToggleReactionRequest,
+  MatrixToggleReactionResponse,
   MatrixGetUserDevicesResponse,
   MatrixOwnVerificationStatus,
   MatrixRequestVerificationResponse,
@@ -17,6 +21,21 @@ import type {
   MatrixTriggerRoomUpdateRequest,
   MatrixTriggerRoomUpdateResponse,
 } from "./types";
+
+type PickerAssets = {
+  customEmoji: MatrixPickerCustomEmoji[];
+};
+
+export async function matrixGetPickerAssets(): Promise<PickerAssets> {
+  const response = await invoke<MatrixGetEmojiPacksResponse>("matrix_get_emoji_packs");
+
+  return {
+    customEmoji: response.customEmoji.map((emoji) => ({
+      ...emoji,
+      category: emoji.category ?? undefined,
+    })),
+  };
+}
 
 export async function matrixGetChats(): Promise<MatrixChatSummary[]> {
   try {
@@ -61,6 +80,18 @@ export async function matrixSendChatMessage(
 ): Promise<MatrixSendChatMessageResponse> {
   try {
     return await invoke<MatrixSendChatMessageResponse>("matrix_send_chat_message", {
+      request: input,
+    });
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixToggleReaction(
+  input: MatrixToggleReactionRequest,
+): Promise<MatrixToggleReactionResponse> {
+  try {
+    return await invoke<MatrixToggleReactionResponse>("matrix_toggle_reaction", {
       request: input,
     });
   } catch (error) {

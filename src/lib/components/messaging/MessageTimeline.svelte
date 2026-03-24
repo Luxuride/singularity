@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { MatrixChatMessage } from "$lib/chats/types";
+  import type { PickerCustomEmoji } from "$lib/emoji/picker";
   import MessageItem from "./MessageItem.svelte";
   import { streamStatusLabel } from "./helpers";
 
@@ -12,6 +13,8 @@
     messages: TimelineMessage[];
     roomId: string;
     selectedRoomId: string | null;
+    currentUserId: string | null;
+    pickerCustomEmoji: PickerCustomEmoji[];
     roomEncrypted: boolean;
     roomName: string;
     loadingMessages: boolean;
@@ -23,12 +26,15 @@
     onScroll?: (event: Event) => void;
     onLoadOlder?: () => void;
     onRetryMessage?: (message: TimelineMessage) => void;
+    onToggleReaction?: (message: TimelineMessage, key: string) => void;
   }
 
   let { 
     messages, 
     roomId, 
     selectedRoomId, 
+    currentUserId,
+    pickerCustomEmoji,
     roomEncrypted, 
     roomName, 
     loadingMessages, 
@@ -39,7 +45,8 @@
     isSending,
     onScroll,
     onLoadOlder,
-    onRetryMessage 
+    onRetryMessage,
+    onToggleReaction
   }: Props = $props();
 
   let timelineElement: HTMLElement | null = $state(null);
@@ -89,6 +96,9 @@
             <MessageItem
               {message}
               onRetry={onRetryMessage}
+              {currentUserId}
+              {pickerCustomEmoji}
+              onToggleReaction={onToggleReaction}
               isSending={isSending}
             />
           {/each}
