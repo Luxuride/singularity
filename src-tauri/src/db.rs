@@ -387,9 +387,9 @@ impl AppDb {
                 kind,
                 joined: joined_flag != 0,
                 is_direct: is_direct_flag != 0,
-                parent_room_id: row
-                    .get::<_, Option<String>>(7)
-                    .map_err(|error| format!("Failed to decode chats cache parent room id: {error}"))?,
+                parent_room_id: row.get::<_, Option<String>>(7).map_err(|error| {
+                    format!("Failed to decode chats cache parent room id: {error}")
+                })?,
             });
         }
 
