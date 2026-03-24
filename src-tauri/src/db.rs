@@ -432,9 +432,9 @@ impl AppDb {
                 display_name: row.get::<_, String>(1).map_err(|error| {
                     format!("Failed to decode chats cache display name: {error}")
                 })?,
-                image_url: row.get::<_, Option<String>>(2).map_err(|error| {
-                    format!("Failed to decode chats cache image url: {error}")
-                })?,
+                image_url: row
+                    .get::<_, Option<String>>(2)
+                    .map_err(|error| format!("Failed to decode chats cache image url: {error}"))?,
                 encrypted: encrypted_flag != 0,
                 joined_members: joined_members_raw.max(0) as u64,
                 kind,

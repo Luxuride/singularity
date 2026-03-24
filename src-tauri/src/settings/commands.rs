@@ -9,7 +9,9 @@ use super::{
 };
 
 #[tauri::command]
-pub fn matrix_get_media_settings(app_db: State<'_, AppDb>) -> Result<MatrixGetMediaSettingsResponse, String> {
+pub fn matrix_get_media_settings(
+    app_db: State<'_, AppDb>,
+) -> Result<MatrixGetMediaSettingsResponse, String> {
     let mode = load_media_storage_mode(&app_db)?;
     persist_media_storage_mode(&app_db, mode)?;
     Ok(current_media_settings())

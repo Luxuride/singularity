@@ -358,7 +358,7 @@ pub(crate) async fn cache_mxc_media_to_local_path(
         return None;
     }
 
-    let mxc_uri = matrix_sdk::ruma::OwnedMxcUri::try_from(raw_url).ok()?;
+    let mxc_uri = matrix_sdk::ruma::OwnedMxcUri::from(raw_url);
     let request = MediaRequestParameters {
         source: MediaSource::Plain(mxc_uri),
         format: MediaFormat::File,
