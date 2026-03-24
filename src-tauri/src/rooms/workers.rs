@@ -267,25 +267,25 @@ async fn run_refresh_pass(
 
     if include_selected_messages {
         if let Some(room_id) = selected_room_id {
-        if current_snapshot.contains_key(&room_id) {
-            if let Ok(response) =
-                fetch_room_messages_from_client(&client, &room_id, None, Some(50)).await
-            {
-                let app_db = app.state::<AppDb>();
-                if let Err(error) = store_initial_room_messages(&app_db, &response) {
-                    warn!("Failed to persist selected-room message cache: {error}");
-                }
+            if current_snapshot.contains_key(&room_id) {
+                if let Ok(response) =
+                    fetch_room_messages_from_client(&client, &room_id, None, Some(50)).await
+                {
+                    let app_db = app.state::<AppDb>();
+                    if let Err(error) = store_initial_room_messages(&app_db, &response) {
+                        warn!("Failed to persist selected-room message cache: {error}");
+                    }
 
-                let _ = app.emit(
-                    RoomUpdateEvent::SelectedRoomMessages.as_str(),
-                    MatrixSelectedRoomMessagesEvent {
-                        room_id: response.room_id,
-                        next_from: response.next_from,
-                        messages: response.messages,
-                    },
-                );
+                    let _ = app.emit(
+                        RoomUpdateEvent::SelectedRoomMessages.as_str(),
+                        MatrixSelectedRoomMessagesEvent {
+                            room_id: response.room_id,
+                            next_from: response.next_from,
+                            messages: response.messages,
+                        },
+                    );
+                }
             }
-        }
         }
     }
 

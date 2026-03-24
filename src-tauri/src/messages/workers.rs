@@ -258,7 +258,10 @@ fn image_extension_from_mime(mime_type: &str) -> &'static str {
 
 fn image_cache_key(event: &Value, mime_type: &str, bytes: &[u8]) -> String {
     let mut hasher = DefaultHasher::new();
-    event.get("event_id").and_then(Value::as_str).hash(&mut hasher);
+    event
+        .get("event_id")
+        .and_then(Value::as_str)
+        .hash(&mut hasher);
     event
         .get("origin_server_ts")
         .and_then(Value::as_u64)
