@@ -137,9 +137,7 @@
     shellErrorMessage.set("");
 
     try {
-      await matrixTriggerRoomUpdate({
-        selectedRoomId: get(shellSelectedRoomId) || undefined,
-      });
+      await matrixTriggerRoomUpdate();
     } catch (error) {
       shellErrorMessage.set(
         error instanceof Error ? error.message : "Failed to trigger room refresh",

@@ -61,22 +61,29 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
     tauri::async_runtime::spawn(async move {
         let mut previous_snapshot = RoomSnapshot::new();
         let mut selected_room_id = None::<String>;
+        let mut include_selected_messages = false;
         let mut retry_delay = None::<Duration>;
 
         loop {
             while let Ok(trigger) = receiver.try_recv() {
-                apply_trigger(trigger, &mut selected_room_id);
+                apply_trigger(
+                    trigger,
+                    &mut selected_room_id,
+                    &mut include_selected_messages,
+                );
             }
 
             match run_refresh_pass(
                 &task_app,
                 &mut previous_snapshot,
                 selected_room_id.clone(),
+                include_selected_messages,
                 sync_timeout,
             )
             .await
             {
                 Ok(refresh_completed) => {
+                    include_selected_messages = false;
                     retry_delay = None;
 
                     if !refresh_completed {
@@ -86,12 +93,17 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
                                 let Some(trigger) = maybe_trigger else {
                                     break;
                                 };
-                                apply_trigger(trigger, &mut selected_room_id);
+                                apply_trigger(
+                                    trigger,
+                                    &mut selected_room_id,
+                                    &mut include_selected_messages,
+                                );
                             }
                         }
                     }
                 }
                 Err(error) => {
+                    include_selected_messages = false;
                     error!("Room update pass failed: {error}");
 
                     let next_delay = retry_delay
@@ -106,7 +118,11 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
                             let Some(trigger) = maybe_trigger else {
                                 break;
                             };
-                            apply_trigger(trigger, &mut selected_room_id);
+                            apply_trigger(
+                                trigger,
+                                &mut selected_room_id,
+                                &mut include_selected_messages,
+                            );
                         }
                     }
                 }
@@ -121,6 +137,7 @@ async fn run_refresh_pass(
     app: &AppHandle,
     previous_snapshot: &mut RoomSnapshot,
     selected_room_id: Option<String>,
+    include_selected_messages: bool,
     sync_timeout: Duration,
 ) -> Result<bool, String> {
     let auth_state = app.state::<AuthState>();
@@ -167,7 +184,8 @@ async fn run_refresh_pass(
         }
     }
 
-    if let Some(room_id) = selected_room_id {
+    if include_selected_messages {
+        if let Some(room_id) = selected_room_id {
         if current_snapshot.contains_key(&room_id) {
             if let Ok(response) =
                 fetch_room_messages_from_client(&client, &room_id, None, Some(50)).await
@@ -187,6 +205,7 @@ async fn run_refresh_pass(
                 );
             }
         }
+        }
     }
 
     *previous_snapshot = current_snapshot;
@@ -199,12 +218,20 @@ fn is_unknown_token_error(error: &str) -> bool {
         || error.contains("refresh token isn't valid anymore")
 }
 
-fn apply_trigger(trigger: RoomRefreshTrigger, selected: &mut Option<String>) {
+fn apply_trigger(
+    trigger: RoomRefreshTrigger,
+    selected: &mut Option<String>,
+    include_selected_messages: &mut bool,
+) {
     if let Some(room_id) = trigger.selected_room_id {
         *selected = if room_id.is_empty() {
             None
         } else {
             Some(room_id)
         };
+    }
+
+    if trigger.include_selected_messages {
+        *include_selected_messages = true;
     }
 }

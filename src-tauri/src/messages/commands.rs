@@ -37,6 +37,7 @@ pub async fn matrix_get_chat_messages(
     {
         let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
             selected_room_id: Some(request.room_id.clone()),
+            include_selected_messages: false,
         });
         return Ok(cached);
     }
@@ -122,6 +123,7 @@ pub async fn matrix_stream_chat_messages(
 
             let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
                 selected_room_id: Some(room_id),
+                include_selected_messages: false,
             });
 
             return Ok(MatrixStreamChatMessagesResponse {
@@ -244,6 +246,7 @@ pub async fn matrix_send_chat_message(
 
     let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
         selected_room_id: Some(room_id),
+        include_selected_messages: false,
     });
 
     Ok(MatrixSendChatMessageResponse { event_id })

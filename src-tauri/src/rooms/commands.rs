@@ -22,6 +22,7 @@ pub async fn matrix_get_chats(
     if let Some(cached_chats) = load_cached_chats(&app_handle)? {
         let _ = trigger_state.enqueue(RoomRefreshTrigger {
             selected_room_id: None,
+            include_selected_messages: false,
         });
 
         return Ok(MatrixGetChatsResponse {
@@ -36,6 +37,7 @@ pub async fn matrix_get_chats(
         let _ = store_cached_chats(&app_handle, &local_chats);
         let _ = trigger_state.enqueue(RoomRefreshTrigger {
             selected_room_id: None,
+            include_selected_messages: false,
         });
 
         return Ok(MatrixGetChatsResponse { chats: local_chats });
@@ -55,6 +57,7 @@ pub async fn matrix_get_chats(
 
     let _ = trigger_state.enqueue(RoomRefreshTrigger {
         selected_room_id: None,
+        include_selected_messages: false,
     });
 
     Ok(MatrixGetChatsResponse { chats })
@@ -69,6 +72,7 @@ pub async fn matrix_trigger_room_update(
 
     trigger_state.enqueue(RoomRefreshTrigger {
         selected_room_id: payload.selected_room_id,
+        include_selected_messages: payload.include_selected_messages,
     })?;
 
     Ok(MatrixTriggerRoomUpdateResponse { queued: true })
