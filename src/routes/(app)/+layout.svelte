@@ -222,6 +222,7 @@
     const dmsRoot: MatrixChatSummary = {
       roomId: VIRTUAL_DMS_ROOT_ID,
       displayName: "DMs",
+      imageUrl: null,
       encrypted: false,
       joinedMembers: directRooms.length,
       kind: "space",

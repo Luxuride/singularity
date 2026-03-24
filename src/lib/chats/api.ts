@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { toMessage } from "../errors";
-import { normalizeMessageImageUrl } from "./media";
+import { normalizeChatSummaryImageUrl, normalizeMessageImageUrl } from "./media";
 import type {
   MatrixChatSummary,
   MatrixGetChatsResponse,
@@ -21,7 +21,7 @@ import type {
 export async function matrixGetChats(): Promise<MatrixChatSummary[]> {
   try {
     const response = await invoke<MatrixGetChatsResponse>("matrix_get_chats");
-    return response.chats;
+    return response.chats.map(normalizeChatSummaryImageUrl);
   } catch (error) {
     throw new Error(toMessage(error));
   }

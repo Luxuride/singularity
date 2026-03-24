@@ -104,7 +104,6 @@ pub async fn matrix_complete_oauth(
         .matrix_auth()
         .session()
         .ok_or_else(|| String::from("Missing Matrix session after login"))?;
-
     persist_session(
         &app_handle,
         &PersistedMatrixSession::new(homeserver_url.clone(), persisted_matrix_session),

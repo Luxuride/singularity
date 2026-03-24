@@ -67,6 +67,7 @@ impl AppDb {
                 CREATE TABLE IF NOT EXISTS chats_cache (
                     room_id TEXT PRIMARY KEY,
                     display_name TEXT NOT NULL,
+                    image_url TEXT,
                     encrypted INTEGER NOT NULL,
                     joined_members INTEGER NOT NULL,
                     room_kind TEXT NOT NULL DEFAULT 'room',
@@ -147,6 +148,7 @@ impl AppDb {
         let mut has_joined = false;
         let mut has_is_direct = false;
         let mut has_parent_room_id = false;
+        let mut has_image_url = false;
 
         while let Some(row) = rows
             .next()
@@ -170,6 +172,10 @@ impl AppDb {
 
             if column_name == "parent_room_id" {
                 has_parent_room_id = true;
+            }
+
+            if column_name == "image_url" {
+                has_image_url = true;
             }
         }
 
@@ -206,6 +212,12 @@ impl AppDb {
                     [],
                 )
                 .map_err(|error| format!("Failed to add chats cache is_direct column: {error}"))?;
+        }
+
+        if !has_image_url {
+            connection
+                .execute("ALTER TABLE chats_cache ADD COLUMN image_url TEXT", [])
+                .map_err(|error| format!("Failed to add chats cache image_url column: {error}"))?;
         }
 
         Ok(())
@@ -293,6 +305,7 @@ impl AppDb {
                     INSERT INTO chats_cache (
                         room_id,
                         display_name,
+                        image_url,
                         encrypted,
                         joined_members,
                         room_kind,
@@ -301,7 +314,7 @@ impl AppDb {
                         parent_room_id,
                         updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch())
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, unixepoch())
                     ",
                 )
                 .map_err(|error| format!("Failed to prepare chats cache insert: {error}"))?;
@@ -316,6 +329,7 @@ impl AppDb {
                     .execute(params![
                         chat.room_id,
                         chat.display_name,
+                        chat.image_url,
                         if chat.encrypted { 1_i64 } else { 0_i64 },
                         chat.joined_members as i64,
                         room_kind,
@@ -338,7 +352,7 @@ impl AppDb {
         let mut statement = connection
             .prepare(
                 "
-                SELECT room_id, display_name, encrypted, joined_members, room_kind, joined, is_direct, parent_room_id
+                SELECT room_id, display_name, image_url, encrypted, joined_members, room_kind, joined, is_direct, parent_room_id
                 FROM chats_cache
                 ORDER BY updated_at DESC, room_id ASC
                 ",
@@ -355,19 +369,19 @@ impl AppDb {
             .map_err(|error| format!("Failed to read chats cache row: {error}"))?
         {
             let encrypted_flag: i64 = row
-                .get(2)
+                .get(3)
                 .map_err(|error| format!("Failed to decode chats cache encrypted flag: {error}"))?;
             let joined_members_raw: i64 = row
-                .get(3)
+                .get(4)
                 .map_err(|error| format!("Failed to decode chats cache joined members: {error}"))?;
             let room_kind_raw: String = row
-                .get(4)
+                .get(5)
                 .map_err(|error| format!("Failed to decode chats cache room kind: {error}"))?;
             let joined_flag: i64 = row
-                .get(5)
+                .get(6)
                 .map_err(|error| format!("Failed to decode chats cache joined flag: {error}"))?;
             let is_direct_flag: i64 = row
-                .get(6)
+                .get(7)
                 .map_err(|error| format!("Failed to decode chats cache is_direct flag: {error}"))?;
 
             let kind = match room_kind_raw.as_str() {
@@ -382,12 +396,15 @@ impl AppDb {
                 display_name: row.get::<_, String>(1).map_err(|error| {
                     format!("Failed to decode chats cache display name: {error}")
                 })?,
+                image_url: row.get::<_, Option<String>>(2).map_err(|error| {
+                    format!("Failed to decode chats cache image url: {error}")
+                })?,
                 encrypted: encrypted_flag != 0,
                 joined_members: joined_members_raw.max(0) as u64,
                 kind,
                 joined: joined_flag != 0,
                 is_direct: is_direct_flag != 0,
-                parent_room_id: row.get::<_, Option<String>>(7).map_err(|error| {
+                parent_room_id: row.get::<_, Option<String>>(8).map_err(|error| {
                     format!("Failed to decode chats cache parent room id: {error}")
                 })?,
             });

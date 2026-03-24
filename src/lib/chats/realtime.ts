@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 
 import {
+  normalizeChatSummaryImageUrl,
   normalizeChatMessageStreamEvent,
   normalizeSelectedRoomMessagesEvent,
 } from "./media";
@@ -30,8 +31,12 @@ export interface RoomUpdateHandlers {
 
 export async function subscribeToRoomUpdates(handlers: RoomUpdateHandlers): Promise<() => void> {
   const unlisteners = await Promise.all([
-    listen<MatrixChatSummary>(EVENT_ROOM_ADDED, (event) => handlers.onRoomAdded(event.payload)),
-    listen<MatrixChatSummary>(EVENT_ROOM_UPDATED, (event) => handlers.onRoomUpdated(event.payload)),
+    listen<MatrixChatSummary>(EVENT_ROOM_ADDED, (event) =>
+      handlers.onRoomAdded(normalizeChatSummaryImageUrl(event.payload)),
+    ),
+    listen<MatrixChatSummary>(EVENT_ROOM_UPDATED, (event) =>
+      handlers.onRoomUpdated(normalizeChatSummaryImageUrl(event.payload)),
+    ),
     listen<MatrixRoomRemovedEvent>(EVENT_ROOM_REMOVED, (event) => handlers.onRoomRemoved(event.payload)),
     listen<MatrixSelectedRoomMessagesEvent>(EVENT_SELECTED_ROOM_MESSAGES, (event) =>
       handlers.onSelectedRoomMessages(normalizeSelectedRoomMessagesEvent(event.payload)),
