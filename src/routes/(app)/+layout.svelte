@@ -194,8 +194,8 @@
       <p class="card p-3 text-sm preset-filled-error-500 mx-4 md:mx-6 mt-4">{$shellErrorMessage}</p>
     {/if}
 
-    <div class="grid gap-4 lg:grid-cols-[280px_1fr] p-4 md:p-6">
-      <div class="space-y-4">
+    <div class="grid gap-4 lg:grid-cols-[280px_1fr] p-4 md:p-6 min-h-0 h-full">
+      <div class="flex flex-col min-h-0 h-full gap-4">
         <AppHeader userId={$shellCurrentUserId} />
         <RoomList
           rooms={$shellChats}
@@ -207,7 +207,7 @@
         </section>
       </div>
 
-      <section class="min-h-[60vh]">
+      <section class="lg:min-h-[60vh] h-full">
         {@render children()}
       </section>
     </div>

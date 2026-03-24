@@ -46,7 +46,7 @@
 </script>
 
 <section
-  class="card preset-outlined-surface-200-800 bg-surface-100-900 space-y-3 max-h-[70vh] flex flex-col flex-grow"
+  class="card preset-outlined-surface-200-800 bg-surface-100-900 flex flex-col flex-grow min-h-0 gap-3"
 >
   {#if error}
     <p class="card p-3 text-sm preset-filled-error-500">{error}</p>
@@ -77,7 +77,7 @@
     </header>
 
     <div
-      class="flex-grow overflow-y-auto px-4 pb-3"
+      class="flex-1 overflow-y-auto px-4 pb-3 min-h-0"
       bind:this={timelineElement}
       onscroll={onScroll}
     >
