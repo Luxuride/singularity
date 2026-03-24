@@ -199,14 +199,46 @@ async fn resolve_image_cache_path(client: &matrix_sdk::Client, event: &Value) ->
 }
 
 fn persist_image_cache(bytes: &[u8], mime_type: &str, event: &Value) -> Option<String> {
+    let extension = image_extension_from_mime(mime_type);
+    let file_stem = image_cache_key(event, mime_type, bytes);
+    persist_cached_media(bytes, &file_stem, extension)
+}
+
+pub(crate) async fn cache_mxc_media_to_local_path(
+    client: &matrix_sdk::Client,
+    raw_url: &str,
+) -> Option<String> {
+    if !raw_url.starts_with("mxc://") {
+        return None;
+    }
+
+    let mxc_uri = matrix_sdk::ruma::OwnedMxcUri::try_from(raw_url).ok()?;
+    let request = MediaRequestParameters {
+        source: MediaSource::Plain(mxc_uri),
+        format: MediaFormat::File,
+    };
+
+    let bytes = match client.media().get_media_content(&request, true).await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            warn!("Failed to fetch MXC image media content: {error}");
+            return None;
+        }
+    };
+
+    let file_stem = mxc_image_cache_key(raw_url, &bytes);
+    let extension = image_extension_from_raw_url(raw_url);
+
+    persist_cached_media(&bytes, &file_stem, extension)
+}
+
+fn persist_cached_media(bytes: &[u8], file_stem: &str, extension: &str) -> Option<String> {
     let cache_dir = media_cache_dir();
     if let Err(error) = fs::create_dir_all(&cache_dir) {
         warn!("Failed to initialize media cache directory: {error}");
         return None;
     }
 
-    let extension = image_extension_from_mime(mime_type);
-    let file_stem = image_cache_key(event, mime_type, bytes);
     let file_name = format!("{file_stem}.{extension}");
     let final_path = cache_dir.join(file_name);
 
@@ -230,6 +262,34 @@ fn persist_image_cache(bytes: &[u8], mime_type: &str, event: &Value) -> Option<S
     }
 
     Some(final_path.to_string_lossy().to_string())
+}
+
+fn mxc_image_cache_key(raw_url: &str, bytes: &[u8]) -> String {
+    let mut hasher = DefaultHasher::new();
+    raw_url.hash(&mut hasher);
+    bytes.len().hash(&mut hasher);
+    format!("img-{:016x}", hasher.finish())
+}
+
+fn image_extension_from_raw_url(raw_url: &str) -> &'static str {
+    let file_name = raw_url
+        .trim_start_matches("mxc://")
+        .rsplit('/')
+        .next()
+        .unwrap_or_default();
+
+    let extension = file_name.rsplit('.').next().unwrap_or_default();
+
+    match extension.to_ascii_lowercase().as_str() {
+        "jpg" | "jpeg" => "jpg",
+        "png" => "png",
+        "gif" => "gif",
+        "webp" => "webp",
+        "avif" => "avif",
+        "bmp" => "bmp",
+        "svg" => "svg",
+        _ => "bin",
+    }
 }
 
 fn media_cache_dir() -> PathBuf {

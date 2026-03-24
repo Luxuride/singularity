@@ -3,6 +3,7 @@ export type MatrixRoomKind = "room" | "space";
 export interface MatrixChatSummary {
   roomId: string;
   displayName: string;
+  imageUrl: string | null;
   encrypted: boolean;
   joinedMembers: number;
   kind: MatrixRoomKind;

@@ -12,6 +12,7 @@ pub enum MatrixRoomKind {
 pub struct MatrixChatSummary {
     pub room_id: String,
     pub display_name: String,
+    pub image_url: Option<String>,
     pub encrypted: bool,
     pub joined_members: u64,
     pub kind: MatrixRoomKind,

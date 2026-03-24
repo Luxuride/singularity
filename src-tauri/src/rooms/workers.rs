@@ -8,7 +8,9 @@ use tokio::sync::mpsc;
 use crate::auth::handle_unknown_token_error;
 use crate::auth::AuthState;
 use crate::db::AppDb;
-use crate::messages::{fetch_room_messages_from_client, store_initial_room_messages};
+use crate::messages::{
+    cache_mxc_media_to_local_path, fetch_room_messages_from_client, store_initial_room_messages,
+};
 use crate::protocol::config;
 
 use super::persistence::refresh_room_snapshot;
@@ -47,6 +49,18 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
             MatrixRoomKind::Room
         };
         let parent_room_id = primary_parent_space_id(&room).await;
+        let room_avatar_image_url = match room.avatar_url() {
+            Some(mxc) => cache_mxc_media_to_local_path(client, mxc.as_str()).await,
+            None => None,
+        };
+        let image_url = if is_direct && matches!(kind, MatrixRoomKind::Room) {
+            match room_avatar_image_url {
+                Some(room_avatar) => Some(room_avatar),
+                None => direct_room_counterparty_avatar_url(client, &room).await,
+            }
+        } else {
+            room_avatar_image_url
+        };
 
         if let Some(parent_room_id) = &parent_room_id {
             if !joined_room_ids.contains(parent_room_id) {
@@ -57,6 +71,7 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
         chats.push(MatrixChatSummary {
             room_id: room.room_id().to_string(),
             display_name,
+            image_url,
             encrypted,
             joined_members,
             kind,
@@ -70,6 +85,7 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
         chats.push(MatrixChatSummary {
             room_id: space_id.clone(),
             display_name: space_id,
+            image_url: None,
             encrypted: false,
             joined_members: 0,
             kind: MatrixRoomKind::Space,
@@ -85,6 +101,28 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
             .cmp(&b.display_name.to_lowercase())
     });
     chats
+}
+
+async fn direct_room_counterparty_avatar_url(
+    client: &matrix_sdk::Client,
+    room: &matrix_sdk::Room,
+) -> Option<String> {
+    let own_user_id = client.user_id()?.to_owned();
+    let members = room
+        .members(matrix_sdk::RoomMemberships::JOIN | matrix_sdk::RoomMemberships::INVITE)
+        .await
+        .ok()?;
+
+    for member in members {
+        if member.user_id().as_str() == own_user_id.as_str() {
+            continue;
+        }
+
+        let avatar_url = member.avatar_url()?;
+        return cache_mxc_media_to_local_path(client, avatar_url.as_str()).await;
+    }
+
+    None
 }
 
 async fn primary_parent_space_id(room: &matrix_sdk::Room) -> Option<String> {

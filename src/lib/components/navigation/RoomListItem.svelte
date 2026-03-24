@@ -25,6 +25,8 @@
 
   const indentation = $derived(`${Math.max(0, depth) * 0.9}rem`);
 
+  const avatarLabel = $derived(room.displayName.trim().charAt(0).toUpperCase() || "#");
+
   function handleClick() {
     if (isSpace) {
       if (hasChildren) {
@@ -50,12 +52,25 @@
     onclick={handleClick}
   >
     <div class="flex items-start justify-between gap-2">
-      <p class="font-medium truncate">
-        {#if isSpace}
-          {isExpanded ? "▼" : "▶"}
-        {/if}
-        {room.displayName}
-      </p>
+      <div class="flex items-start gap-2 min-w-0">
+        <div
+          class="mt-0.5 h-8 w-8 shrink-0 rounded-full bg-surface-200-800 overflow-hidden grid place-items-center text-xs font-semibold text-surface-800-200"
+        >
+          {#if room.imageUrl}
+            <img src={room.imageUrl} alt="" class="h-full w-full object-cover" loading="lazy" />
+          {:else}
+            <span>{avatarLabel}</span>
+          {/if}
+        </div>
+
+        <p class="font-medium truncate">
+          {#if isSpace}
+            {isExpanded ? "▼" : "▶"}
+          {/if}
+          {room.displayName}
+        </p>
+      </div>
+
       {#if room.kind === "space"}
         <span class="text-[10px] uppercase tracking-wide text-surface-700-300">Space</span>
       {/if}
