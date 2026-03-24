@@ -8,4 +8,7 @@ pub(crate) use types::{
     MatrixChatMessage, MatrixGetChatMessagesResponse, MatrixMessageDecryptionStatus,
     MatrixMessageVerificationStatus,
 };
-pub(crate) use workers::{cache_mxc_media_to_local_path, fetch_room_messages_from_client};
+pub(crate) use workers::{
+    cache_mxc_media_to_local_path, fetch_room_messages_from_client, handle_media_protocol_request,
+    media_storage_mode, set_media_storage_mode, MediaStorageMode,
+};

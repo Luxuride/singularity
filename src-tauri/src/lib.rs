@@ -5,15 +5,20 @@ mod db;
 mod messages;
 mod protocol;
 mod rooms;
+mod settings;
 mod storage;
 mod verification;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .register_uri_scheme_protocol("matrix-media", |_ctx, request| {
+            messages::handle_media_protocol_request(request)
+        })
         .manage(auth::AuthState::default())
         .setup(|app| {
             let app_db = db::AppDb::initialize(app.handle())?;
+            settings::initialize_media_storage_mode(&app_db)?;
             app.manage(app_db);
 
             let trigger_state = rooms::start_room_update_worker(app.handle().clone());
@@ -39,6 +44,8 @@ pub fn run() {
             messages::commands::matrix_get_chat_messages,
             messages::commands::matrix_stream_chat_messages,
             messages::commands::matrix_send_chat_message,
+            settings::commands::matrix_get_media_settings,
+            settings::commands::matrix_set_media_settings,
             verification::commands::matrix_own_verification_status,
             verification::commands::matrix_get_user_devices,
             verification::commands::matrix_request_device_verification,

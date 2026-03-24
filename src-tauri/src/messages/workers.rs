@@ -1,8 +1,10 @@
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use log::{debug, warn};
 use matrix_sdk::deserialized_responses::{TimelineEvent, VerificationState};
@@ -22,6 +24,150 @@ use super::types::{
 };
 
 static MEDIA_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
+static IN_MEMORY_MEDIA_CACHE: OnceLock<Mutex<InMemoryMediaCache>> = OnceLock::new();
+static MEDIA_STORAGE_MODE: AtomicU8 = AtomicU8::new(MediaStorageMode::InMemory as u8);
+
+const MAX_IN_MEMORY_MEDIA_ITEMS: usize = 512;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MediaStorageMode {
+    InMemory = 0,
+    AssetStorage = 1,
+}
+
+impl MediaStorageMode {
+    fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::AssetStorage,
+            _ => Self::InMemory,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct InMemoryMediaValue {
+    bytes: Vec<u8>,
+    mime_type: String,
+}
+
+#[derive(Default)]
+struct InMemoryMediaCache {
+    values: HashMap<String, InMemoryMediaValue>,
+    order: VecDeque<String>,
+}
+
+impl InMemoryMediaCache {
+    fn insert(&mut self, key: String, value: InMemoryMediaValue) {
+        if self.values.contains_key(&key) {
+            self.values.insert(key.clone(), value);
+            self.touch(&key);
+            return;
+        }
+
+        self.values.insert(key.clone(), value);
+        self.order.push_back(key);
+
+        while self.values.len() > MAX_IN_MEMORY_MEDIA_ITEMS {
+            if let Some(evicted) = self.order.pop_front() {
+                self.values.remove(&evicted);
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn get(&mut self, key: &str) -> Option<InMemoryMediaValue> {
+        let value = self.values.get(key)?.clone();
+        self.touch(key);
+        Some(value)
+    }
+
+    fn clear(&mut self) {
+        self.values.clear();
+        self.order.clear();
+    }
+
+    fn touch(&mut self, key: &str) {
+        if let Some(position) = self.order.iter().position(|entry| entry == key) {
+            self.order.remove(position);
+        }
+        self.order.push_back(key.to_owned());
+    }
+}
+
+pub(crate) fn media_storage_mode() -> MediaStorageMode {
+    MediaStorageMode::from_u8(MEDIA_STORAGE_MODE.load(Ordering::Relaxed))
+}
+
+pub(crate) fn set_media_storage_mode(mode: MediaStorageMode) {
+    MEDIA_STORAGE_MODE.store(mode as u8, Ordering::Relaxed);
+    if matches!(mode, MediaStorageMode::AssetStorage) {
+        clear_in_memory_media_cache();
+    }
+}
+
+pub(crate) fn handle_media_protocol_request(
+    request: tauri::http::Request<Vec<u8>>,
+) -> tauri::http::Response<Vec<u8>> {
+    let media_key = request.uri().path().trim_start_matches('/');
+    if media_key.is_empty() {
+        return build_protocol_response(
+            tauri::http::StatusCode::BAD_REQUEST,
+            "text/plain; charset=utf-8",
+            b"missing media key".to_vec(),
+        );
+    }
+
+    let Some((bytes, mime_type)) = load_cached_media_from_memory(media_key) else {
+        return build_protocol_response(
+            tauri::http::StatusCode::NOT_FOUND,
+            "text/plain; charset=utf-8",
+            b"media not found".to_vec(),
+        );
+    };
+
+    build_protocol_response(tauri::http::StatusCode::OK, &mime_type, bytes)
+}
+
+fn build_protocol_response(
+    status: tauri::http::StatusCode,
+    mime_type: &str,
+    body: Vec<u8>,
+) -> tauri::http::Response<Vec<u8>> {
+    match tauri::http::Response::builder()
+        .status(status)
+        .header(tauri::http::header::CONTENT_TYPE, mime_type)
+        .body(body)
+    {
+        Ok(response) => response,
+        Err(_) => tauri::http::Response::new(Vec::new()),
+    }
+}
+
+fn load_cached_media_from_memory(media_key: &str) -> Option<(Vec<u8>, String)> {
+    let cache = in_memory_media_cache();
+    let mut lock = match cache.lock() {
+        Ok(guard) => guard,
+        Err(_) => return None,
+    };
+
+    let entry = lock.get(media_key)?;
+    Some((entry.bytes, entry.mime_type))
+}
+
+fn clear_in_memory_media_cache() {
+    if let Ok(mut cache) = in_memory_media_cache().lock() {
+        cache.clear();
+    }
+}
+
+fn in_memory_media_cache() -> &'static Mutex<InMemoryMediaCache> {
+    IN_MEMORY_MEDIA_CACHE.get_or_init(|| Mutex::new(InMemoryMediaCache::default()))
+}
+
+fn to_in_memory_media_url(media_key: &str) -> String {
+    format!("matrix-media://localhost/{media_key}")
+}
 
 pub(crate) async fn fetch_room_messages_from_client(
     client: &matrix_sdk::Client,
@@ -201,7 +347,7 @@ async fn resolve_image_cache_path(client: &matrix_sdk::Client, event: &Value) ->
 fn persist_image_cache(bytes: &[u8], mime_type: &str, event: &Value) -> Option<String> {
     let extension = image_extension_from_mime(mime_type);
     let file_stem = image_cache_key(event, mime_type, bytes);
-    persist_cached_media(bytes, &file_stem, extension)
+    persist_cached_media(bytes, &file_stem, extension, mime_type)
 }
 
 pub(crate) async fn cache_mxc_media_to_local_path(
@@ -228,11 +374,50 @@ pub(crate) async fn cache_mxc_media_to_local_path(
 
     let file_stem = mxc_image_cache_key(raw_url, &bytes);
     let extension = image_extension_from_raw_url(raw_url);
+    let mime_type = mime_type_from_extension(extension);
 
-    persist_cached_media(&bytes, &file_stem, extension)
+    persist_cached_media(&bytes, &file_stem, extension, mime_type)
 }
 
-fn persist_cached_media(bytes: &[u8], file_stem: &str, extension: &str) -> Option<String> {
+fn persist_cached_media(
+    bytes: &[u8],
+    file_stem: &str,
+    extension: &str,
+    mime_type: &str,
+) -> Option<String> {
+    if matches!(media_storage_mode(), MediaStorageMode::InMemory) {
+        return persist_cached_media_in_memory(bytes, file_stem, extension, mime_type);
+    }
+
+    persist_cached_media_asset(bytes, file_stem, extension)
+}
+
+fn persist_cached_media_in_memory(
+    bytes: &[u8],
+    file_stem: &str,
+    extension: &str,
+    mime_type: &str,
+) -> Option<String> {
+    let media_key = format!("{file_stem}.{extension}");
+
+    let cache = in_memory_media_cache();
+    let mut lock = match cache.lock() {
+        Ok(guard) => guard,
+        Err(_) => return None,
+    };
+
+    lock.insert(
+        media_key.clone(),
+        InMemoryMediaValue {
+            bytes: bytes.to_vec(),
+            mime_type: mime_type.to_owned(),
+        },
+    );
+
+    Some(to_in_memory_media_url(&media_key))
+}
+
+fn persist_cached_media_asset(bytes: &[u8], file_stem: &str, extension: &str) -> Option<String> {
     let cache_dir = media_cache_dir();
     if let Err(error) = fs::create_dir_all(&cache_dir) {
         warn!("Failed to initialize media cache directory: {error}");
@@ -313,6 +498,19 @@ fn image_extension_from_mime(mime_type: &str) -> &'static str {
         "image/bmp" => "bmp",
         "image/svg+xml" => "svg",
         _ => "bin",
+    }
+}
+
+fn mime_type_from_extension(extension: &str) -> &'static str {
+    match extension {
+        "jpg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        _ => "application/octet-stream",
     }
 }
 
