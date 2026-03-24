@@ -694,7 +694,7 @@
   }
 </script>
 
-<div class="flex flex-col">
+<div class="flex flex-col h-full">
   <MessageTimeline
     {messages}
     roomId={$shellSelectedRoomId || ""}

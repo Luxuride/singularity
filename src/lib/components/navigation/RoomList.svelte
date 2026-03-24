@@ -11,7 +11,7 @@
   let { rooms, selectedRoomId, onSelectRoom }: Props = $props();
 </script>
 
-<aside class="card p-2 preset-outlined-surface-200-800 bg-surface-100-900 max-h-[70vh] flex flex-col gap-3">
+<aside class="card p-2 preset-outlined-surface-200-800 bg-surface-100-900 flex flex-col flex-1 min-h-0 gap-3">
   <div class="min-h-0 flex-1 overflow-y-auto">
     {#if rooms.length === 0}
       <p class="p-2 text-sm text-surface-700-300">No joined rooms found.</p>
