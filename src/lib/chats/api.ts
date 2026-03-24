@@ -1,8 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { toMessage } from "../errors";
+import { normalizeMessageImageUrl } from "./media";
 import type {
   MatrixChatSummary,
   MatrixGetChatsResponse,
+  MatrixGetChatMessagesRequest,
+  MatrixGetChatMessagesResponse,
   MatrixSendChatMessageRequest,
   MatrixSendChatMessageResponse,
   MatrixStreamChatMessagesRequest,
@@ -19,6 +22,23 @@ export async function matrixGetChats(): Promise<MatrixChatSummary[]> {
   try {
     const response = await invoke<MatrixGetChatsResponse>("matrix_get_chats");
     return response.chats;
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixGetChatMessages(
+  input: MatrixGetChatMessagesRequest,
+): Promise<MatrixGetChatMessagesResponse> {
+  try {
+    const response = await invoke<MatrixGetChatMessagesResponse>("matrix_get_chat_messages", {
+      request: input,
+    });
+
+    return {
+      ...response,
+      messages: response.messages.map(normalizeMessageImageUrl),
+    };
   } catch (error) {
     throw new Error(toMessage(error));
   }

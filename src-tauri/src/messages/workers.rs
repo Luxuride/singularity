@@ -1,5 +1,9 @@
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use base64::Engine as _;
+use std::collections::hash_map::DefaultHasher;
+use std::fs;
+use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
+use std::sync::OnceLock;
+
 use log::{debug, warn};
 use matrix_sdk::deserialized_responses::{TimelineEvent, VerificationState};
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
@@ -16,6 +20,8 @@ use super::types::{
     MatrixChatMessage, MatrixGetChatMessagesResponse, MatrixMessageDecryptionStatus,
     MatrixMessageVerificationStatus,
 };
+
+static MEDIA_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 pub(crate) async fn fetch_room_messages_from_client(
     client: &matrix_sdk::Client,
@@ -146,7 +152,7 @@ async fn parse_message_chunk(
             verification_status,
         ) {
             let image_url = if parsed.message_type.as_deref() == Some("m.image") {
-                resolve_image_data_url(client, &event)
+                resolve_image_cache_path(client, &event)
                     .await
                     .or(parsed.image_url)
             } else {
@@ -170,7 +176,7 @@ async fn parse_message_chunk(
     (messages, had_utd)
 }
 
-async fn resolve_image_data_url(client: &matrix_sdk::Client, event: &Value) -> Option<String> {
+async fn resolve_image_cache_path(client: &matrix_sdk::Client, event: &Value) -> Option<String> {
     let media_source = image_media_source_from_event(event)?;
     let mime_type = image_mime_type_from_event(event)
         .filter(|value| !value.trim().is_empty())
@@ -189,8 +195,106 @@ async fn resolve_image_data_url(client: &matrix_sdk::Client, event: &Value) -> O
         }
     };
 
-    let encoded = BASE64_STANDARD.encode(bytes);
-    Some(format!("data:{mime_type};base64,{encoded}"))
+    persist_image_cache(&bytes, &mime_type, event)
+}
+
+fn persist_image_cache(bytes: &[u8], mime_type: &str, event: &Value) -> Option<String> {
+    let cache_dir = media_cache_dir();
+    if let Err(error) = fs::create_dir_all(&cache_dir) {
+        warn!("Failed to initialize media cache directory: {error}");
+        return None;
+    }
+
+    let extension = image_extension_from_mime(mime_type);
+    let file_stem = image_cache_key(event, mime_type, bytes);
+    let file_name = format!("{file_stem}.{extension}");
+    let final_path = cache_dir.join(file_name);
+
+    if final_path.exists() {
+        return Some(final_path.to_string_lossy().to_string());
+    }
+
+    let temp_path = cache_dir.join(format!("{file_stem}.tmp"));
+    if let Err(error) = fs::write(&temp_path, bytes) {
+        warn!("Failed to write cached media file: {error}");
+        return None;
+    }
+
+    if let Err(error) = fs::rename(&temp_path, &final_path) {
+        let _ = fs::remove_file(&temp_path);
+        if final_path.exists() {
+            return Some(final_path.to_string_lossy().to_string());
+        }
+        warn!("Failed to finalize cached media file: {error}");
+        return None;
+    }
+
+    Some(final_path.to_string_lossy().to_string())
+}
+
+fn media_cache_dir() -> PathBuf {
+    MEDIA_CACHE_DIR
+        .get_or_init(|| {
+            let mut dir = std::env::temp_dir();
+            dir.push("singularity");
+            dir.push("media-cache");
+            dir
+        })
+        .clone()
+}
+
+fn image_extension_from_mime(mime_type: &str) -> &'static str {
+    match mime_type {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/avif" => "avif",
+        "image/bmp" => "bmp",
+        "image/svg+xml" => "svg",
+        _ => "bin",
+    }
+}
+
+fn image_cache_key(event: &Value, mime_type: &str, bytes: &[u8]) -> String {
+    let mut hasher = DefaultHasher::new();
+    event.get("event_id").and_then(Value::as_str).hash(&mut hasher);
+    event
+        .get("origin_server_ts")
+        .and_then(Value::as_u64)
+        .hash(&mut hasher);
+    event
+        .get("room_id")
+        .and_then(Value::as_str)
+        .hash(&mut hasher);
+    image_source_key(event).hash(&mut hasher);
+    mime_type.hash(&mut hasher);
+
+    // Include content size so messages without event_id still get stable keys per content.
+    bytes.len().hash(&mut hasher);
+
+    format!("img-{:016x}", hasher.finish())
+}
+
+fn image_source_key(event: &Value) -> Option<&str> {
+    event
+        .get("content")
+        .and_then(|content| content.get("url"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            event
+                .get("content")
+                .and_then(|content| content.get("file"))
+                .and_then(|file| file.get("url"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            event
+                .get("content")
+                .and_then(|content| content.get("info"))
+                .and_then(|info| info.get("thumbnail_url"))
+                .and_then(Value::as_str)
+        })
 }
 
 fn image_media_source_from_event(event: &Value) -> Option<MediaSource> {
