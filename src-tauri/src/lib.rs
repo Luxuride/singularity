@@ -43,7 +43,7 @@ pub fn run() {
             rooms::commands::matrix_trigger_room_update,
             messages::commands::matrix_get_chat_messages,
             messages::commands::matrix_stream_chat_messages,
-               messages::commands::matrix_get_emoji_packs,
+            messages::commands::matrix_get_emoji_packs,
             messages::commands::matrix_send_chat_message,
             messages::commands::matrix_toggle_reaction,
             settings::commands::matrix_get_media_settings,

@@ -272,7 +272,9 @@ impl AppDb {
         if !has_image_url {
             connection
                 .execute("ALTER TABLE message_cache ADD COLUMN image_url TEXT", [])
-                .map_err(|error| format!("Failed to add message cache image_url column: {error}"))?;
+                .map_err(|error| {
+                    format!("Failed to add message cache image_url column: {error}")
+                })?;
         }
 
         Ok(())
