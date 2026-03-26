@@ -289,10 +289,7 @@ impl<M: MediaResolver> MessageReceiver for MatrixMessageReceiver<M> {
                         include_selected_messages: true,
                     });
                 } else {
-                    let mut cached_messages = cached.messages;
-                    if matches!(load_kind, MatrixMessageLoadKind::Initial) {
-                        cached_messages.reverse();
-                    }
+                    let cached_messages = cached.messages;
                     let mut sequence = 0_u32;
 
                     for message in cached_messages {
@@ -348,6 +345,7 @@ impl<M: MediaResolver> MessageReceiver for MatrixMessageReceiver<M> {
 
         let mut scan_from = from;
         let mut cache_messages = Vec::with_capacity(target_message_count);
+        let mut initial_messages = Vec::with_capacity(target_message_count);
         let mut final_next_from = None;
         let mut request_count = 0_usize;
         let mut same_cursor_count = 0_usize;
@@ -381,16 +379,55 @@ impl<M: MediaResolver> MessageReceiver for MatrixMessageReceiver<M> {
                 same_cursor_count = 0;
             }
 
-            let mut batch_messages = response.messages;
-            if matches!(load_kind, MatrixMessageLoadKind::Initial) {
-                batch_messages.reverse();
-            }
-
-            for message in batch_messages {
+            for message in response.messages {
                 if sequence >= target_message_count as u32 {
                     break;
                 }
 
+                if matches!(load_kind, MatrixMessageLoadKind::Initial) {
+                    // Matrix backward pagination yields newest->older. Buffer initial
+                    // batches and emit once in reverse so the timeline receives
+                    // consistent oldest->newest order.
+                    initial_messages.push(message);
+                } else {
+                    app_handle
+                        .emit(
+                            event_paths::CHAT_MESSAGES_STREAM,
+                            MatrixChatMessageStreamEvent {
+                                room_id: room_id.clone(),
+                                stream_id: stream_id.clone(),
+                                load_kind,
+                                sequence,
+                                message: Some(message),
+                                next_from: None,
+                                done: false,
+                            },
+                        )
+                        .map_err(|error| {
+                            format!("Failed to emit chat message stream event: {error}")
+                        })?;
+                }
+
+                sequence = sequence.saturating_add(1);
+            }
+
+            if scan_from.is_none() {
+                break;
+            }
+
+            if message_count == 0 {
+                break;
+            }
+
+            if same_cursor_count >= 2 {
+                break;
+            }
+        }
+
+        if matches!(load_kind, MatrixMessageLoadKind::Initial) {
+            sequence = 0;
+
+            for message in initial_messages.into_iter().rev() {
                 if cacheable_initial_request {
                     cache_messages.push(message.clone());
                 }
@@ -413,18 +450,6 @@ impl<M: MediaResolver> MessageReceiver for MatrixMessageReceiver<M> {
                     })?;
 
                 sequence = sequence.saturating_add(1);
-            }
-
-            if scan_from.is_none() {
-                break;
-            }
-
-            if message_count == 0 {
-                break;
-            }
-
-            if same_cursor_count >= 2 {
-                break;
             }
         }
 
