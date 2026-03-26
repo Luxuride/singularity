@@ -386,8 +386,13 @@
 
     streamMessageCount = payload.sequence + 1;
 
-    // Backend streams newest -> older for immediate delivery; prepend keeps timeline ordered.
-    messages = [payload.message, ...messages];
+    if (payload.loadKind === "older") {
+      // Older pagination keeps newest->older stream order; prepend preserves chronology.
+      messages = [payload.message, ...messages];
+    } else {
+      // Initial streaming emits oldest->newest so appending keeps timeline ascending.
+      messages = [...messages, payload.message];
+    }
 
     if (payload.loadKind === "initial") {
       queuePinTimelineToBottom(payload.roomId);
@@ -979,6 +984,7 @@
       error={errorMessage}
       {nextFrom}
       isSending={sendingMessage}
+      onTimelineElementChange={(element) => timelineElement = element}
       onScroll={handleTimelineScroll}
       onLoadOlder={loadOlder}
       onRetryMessage={retryMessage}
