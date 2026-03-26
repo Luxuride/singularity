@@ -41,6 +41,7 @@ pub fn run() {
             auth::commands::matrix_logout,
             auth::commands::matrix_clear_cache_except_auth,
             rooms::commands::matrix_get_chats,
+            rooms::commands::matrix_get_chat_navigation,
             rooms::commands::matrix_trigger_room_update,
             messages::commands::matrix_get_chat_messages,
             messages::commands::matrix_stream_chat_messages,

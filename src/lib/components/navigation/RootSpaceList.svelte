@@ -9,13 +9,25 @@
 
   let { spaces, selectedRootSpaceId, onSelectRootSpace }: Props = $props();
 
+  const VIRTUAL_DMS_ROOT_ID = "virtual:dms";
+  const VIRTUAL_UNSPACED_ROOT_ID = "virtual:unspaced";
+
   const sortedSpaces = $derived.by(() =>
     [...spaces].sort((a, b) => {
-      if (a.roomId === "virtual:dms") {
-        return -1;
-      }
-      if (b.roomId === "virtual:dms") {
-        return 1;
+      const rank = (spaceId: string) => {
+        if (spaceId === VIRTUAL_DMS_ROOT_ID) {
+          return 0;
+        }
+        if (spaceId === VIRTUAL_UNSPACED_ROOT_ID) {
+          return 1;
+        }
+
+        return 2;
+      };
+
+      const rankDiff = rank(a.roomId) - rank(b.roomId);
+      if (rankDiff !== 0) {
+        return rankDiff;
       }
 
       return a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" });

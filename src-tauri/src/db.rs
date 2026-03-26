@@ -80,6 +80,7 @@ impl AppDb {
                     joined INTEGER NOT NULL DEFAULT 1,
                     is_direct INTEGER NOT NULL DEFAULT 0,
                     parent_room_id TEXT,
+                    parent_room_ids TEXT NOT NULL DEFAULT '[]',
                     updated_at INTEGER NOT NULL
                 );
 
@@ -157,6 +158,7 @@ impl AppDb {
         let mut has_joined = false;
         let mut has_is_direct = false;
         let mut has_parent_room_id = false;
+        let mut has_parent_room_ids = false;
         let mut has_image_url = false;
 
         while let Some(row) = rows
@@ -183,6 +185,10 @@ impl AppDb {
                 has_parent_room_id = true;
             }
 
+            if column_name == "parent_room_ids" {
+                has_parent_room_ids = true;
+            }
+
             if column_name == "image_url" {
                 has_image_url = true;
             }
@@ -202,6 +208,17 @@ impl AppDb {
                 .execute("ALTER TABLE chats_cache ADD COLUMN parent_room_id TEXT", [])
                 .map_err(|error| {
                     format!("Failed to add chats cache parent_room_id column: {error}")
+                })?;
+        }
+
+        if !has_parent_room_ids {
+            connection
+                .execute(
+                    "ALTER TABLE chats_cache ADD COLUMN parent_room_ids TEXT NOT NULL DEFAULT '[]'",
+                    [],
+                )
+                .map_err(|error| {
+                    format!("Failed to add chats cache parent_room_ids column: {error}")
                 })?;
         }
 
@@ -399,9 +416,10 @@ impl AppDb {
                         joined,
                         is_direct,
                         parent_room_id,
+                        parent_room_ids,
                         updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, unixepoch())
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, unixepoch())
                     ",
                 )
                 .map_err(|error| format!("Failed to prepare chats cache insert: {error}"))?;
@@ -411,6 +429,9 @@ impl AppDb {
                     MatrixRoomKind::Space => "space",
                     MatrixRoomKind::Room => "room",
                 };
+
+                let encoded_parent_room_ids = serde_json::to_string(&chat.parent_room_ids)
+                    .map_err(|error| format!("Failed to encode parent room ids: {error}"))?;
 
                 statement
                     .execute(params![
@@ -423,6 +444,7 @@ impl AppDb {
                         if chat.joined { 1_i64 } else { 0_i64 },
                         if chat.is_direct { 1_i64 } else { 0_i64 },
                         chat.parent_room_id,
+                        encoded_parent_room_ids,
                     ])
                     .map_err(|error| format!("Failed to insert chats cache row: {error}"))?;
             }
@@ -439,7 +461,7 @@ impl AppDb {
         let mut statement = connection
             .prepare(
                 "
-                SELECT room_id, display_name, image_url, encrypted, joined_members, room_kind, joined, is_direct, parent_room_id
+                SELECT room_id, display_name, image_url, encrypted, joined_members, room_kind, joined, is_direct, parent_room_id, parent_room_ids
                 FROM chats_cache
                 ORDER BY updated_at DESC, room_id ASC
                 ",
@@ -494,6 +516,30 @@ impl AppDb {
                 parent_room_id: row.get::<_, Option<String>>(8).map_err(|error| {
                     format!("Failed to decode chats cache parent room id: {error}")
                 })?,
+                parent_room_ids: {
+                    let raw_parent_room_ids = row.get::<_, Option<String>>(9).map_err(|error| {
+                        format!("Failed to decode chats cache parent room ids: {error}")
+                    })?;
+
+                    let mut parent_room_ids = raw_parent_room_ids
+                        .as_deref()
+                        .and_then(|encoded| serde_json::from_str::<Vec<String>>(encoded).ok())
+                        .unwrap_or_default();
+
+                    if parent_room_ids.is_empty() {
+                        if let Some(parent_room_id) =
+                            row.get::<_, Option<String>>(8).map_err(|error| {
+                                format!(
+                                    "Failed to decode chats cache parent room id fallback: {error}"
+                                )
+                            })?
+                        {
+                            parent_room_ids.push(parent_room_id);
+                        }
+                    }
+
+                    parent_room_ids
+                },
             });
         }
 

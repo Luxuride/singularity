@@ -4,6 +4,8 @@ import { normalizeChatSummaryImageUrl, normalizeImageUrl, normalizeMessageImageU
 import type {
   MatrixChatSummary,
   MatrixGetEmojiPacksResponse,
+  MatrixGetChatNavigationRequest,
+  MatrixGetChatNavigationResponse,
   MatrixGetChatsResponse,
   MatrixGetChatMessagesRequest,
   MatrixGetChatMessagesResponse,
@@ -42,6 +44,24 @@ export async function matrixGetChats(): Promise<MatrixChatSummary[]> {
   try {
     const response = await invoke<MatrixGetChatsResponse>("matrix_get_chats");
     return response.chats.map(normalizeChatSummaryImageUrl);
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixGetChatNavigation(
+  input?: MatrixGetChatNavigationRequest,
+): Promise<MatrixGetChatNavigationResponse> {
+  try {
+    const response = await invoke<MatrixGetChatNavigationResponse>("matrix_get_chat_navigation", {
+      request: input ?? null,
+    });
+
+    return {
+      ...response,
+      rootSpaces: response.rootSpaces.map(normalizeChatSummaryImageUrl),
+      rootScopedRooms: response.rootScopedRooms.map(normalizeChatSummaryImageUrl),
+    };
   } catch (error) {
     throw new Error(toMessage(error));
   }
