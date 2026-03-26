@@ -223,12 +223,18 @@
   </div>
   {#if message.messageType === "m.image"}
     <figure class="space-y-2">
-      <img
-        src={message.imageUrl}
-        alt={message.body || "Image"}
-        loading="lazy"
-        class="max-h-[28rem] w-full rounded preset-outlined-surface-300-700 object-contain bg-surface-100-900"
-      />
+      {#if message.imageUrl}
+        <img
+          src={message.imageUrl}
+          alt={message.body || "Image"}
+          loading="lazy"
+          class="max-h-[28rem] w-full rounded preset-outlined-surface-300-700 object-contain bg-surface-100-900"
+        />
+      {:else}
+        <div class="rounded preset-outlined-surface-300-700 bg-surface-100-900 p-4 text-sm text-surface-700-300">
+          Image unavailable
+        </div>
+      {/if}
       {#if message.body}
         <figcaption class="text-base whitespace-pre-wrap break-words text-surface-700-300">
           {message.body}

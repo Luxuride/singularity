@@ -23,7 +23,7 @@ pub enum MatrixMessageVerificationStatus {
     Unverified,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixGetChatMessagesRequest {
     pub room_id: String,
@@ -31,7 +31,7 @@ pub struct MatrixGetChatMessagesRequest {
     pub limit: Option<u32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixStreamChatMessagesRequest {
     pub room_id: String,

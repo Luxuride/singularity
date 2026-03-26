@@ -798,7 +798,7 @@
     try {
       await matrixStreamChatMessages({
         roomId,
-        limit: 20,
+        limit: 50,
         streamId,
         loadKind: "initial",
       });

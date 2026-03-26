@@ -92,7 +92,7 @@
         <p class="text-sm text-surface-700-300">No messages yet.</p>
       {:else}
         <ul class="space-y-2">
-          {#each messages as message, index (`${message.eventId ?? index}-${message.timestamp ?? 0}`)}
+          {#each messages as message, index (`${message.eventId ?? message.localId ?? `${index}-${message.timestamp ?? 0}`}`)}
             <MessageItem
               {message}
               onRetry={onRetryMessage}

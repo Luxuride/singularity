@@ -9,8 +9,6 @@ use std::sync::{Mutex, OnceLock};
 use log::warn;
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
 use matrix_sdk::ruma::events::room::MediaSource;
-use url::Url;
-
 static MEDIA_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
 static IN_MEMORY_MEDIA_CACHE: OnceLock<Mutex<InMemoryMediaCache>> = OnceLock::new();
 static MEDIA_STORAGE_MODE: AtomicU8 = AtomicU8::new(MediaStorageMode::InMemory as u8);
@@ -296,61 +294,6 @@ pub(crate) async fn cache_mxc_media_to_local_path(
     persist_normalized_image(&request)
 }
 
-pub(crate) async fn cache_http_media_to_local_path(raw_url: &str) -> Option<String> {
-    if !(raw_url.starts_with("http://") || raw_url.starts_with("https://")) {
-        return None;
-    }
-
-    let response = match reqwest::get(raw_url).await {
-        Ok(response) => response,
-        Err(error) => {
-            warn!("Failed to fetch HTTP image media content: {error}");
-            return None;
-        }
-    };
-
-    if !response.status().is_success() {
-        warn!(
-            "Failed to fetch HTTP image media content with status: {}",
-            response.status()
-        );
-        return None;
-    }
-
-    let mime_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| {
-            value
-                .split(';')
-                .next()
-                .unwrap_or(value)
-                .trim()
-                .to_ascii_lowercase()
-        })
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| String::from("application/octet-stream"));
-
-    let bytes = match response.bytes().await {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            warn!("Failed to read HTTP image media bytes: {error}");
-            return None;
-        }
-    };
-
-    let extension = extension_for_http_media(raw_url, &mime_type);
-    let request = NormalizedImageLoad::builder()
-        .bytes(&bytes)
-        .file_stem(http_image_cache_key(raw_url, bytes.len()))
-        .extension(extension)
-        .mime_type(mime_type)
-        .build()?;
-
-    persist_normalized_image(&request)
-}
-
 pub(crate) fn cache_event_image(bytes: &[u8], key_parts: ImageCacheKeyParts) -> Option<String> {
     let extension = image_extension_from_mime(&key_parts.mime_type);
     let file_stem = image_cache_key(&key_parts);
@@ -471,13 +414,6 @@ fn mxc_image_cache_key(raw_url: &str, bytes: &[u8]) -> String {
     format!("img-{:016x}", hasher.finish())
 }
 
-fn http_image_cache_key(raw_url: &str, bytes_len: usize) -> String {
-    let mut hasher = DefaultHasher::new();
-    raw_url.hash(&mut hasher);
-    bytes_len.hash(&mut hasher);
-    format!("img-{:016x}", hasher.finish())
-}
-
 fn image_cache_key(parts: &ImageCacheKeyParts) -> String {
     let mut hasher = DefaultHasher::new();
     parts.event_id.hash(&mut hasher);
@@ -496,35 +432,6 @@ fn image_extension_from_raw_url(raw_url: &str) -> &'static str {
         .next()
         .unwrap_or_default();
 
-    let extension = file_name.rsplit('.').next().unwrap_or_default();
-
-    match extension.to_ascii_lowercase().as_str() {
-        "jpg" | "jpeg" => "jpg",
-        "png" => "png",
-        "gif" => "gif",
-        "webp" => "webp",
-        "avif" => "avif",
-        "bmp" => "bmp",
-        "svg" => "svg",
-        _ => "bin",
-    }
-}
-
-fn extension_for_http_media(raw_url: &str, mime_type: &str) -> &'static str {
-    let by_mime = image_extension_from_mime(mime_type);
-    if by_mime != "bin" {
-        return by_mime;
-    }
-
-    let parsed = match Url::parse(raw_url) {
-        Ok(parsed) => parsed,
-        Err(_) => return "bin",
-    };
-
-    let file_name = parsed
-        .path_segments()
-        .and_then(|mut segments| segments.next_back())
-        .unwrap_or_default();
     let extension = file_name.rsplit('.').next().unwrap_or_default();
 
     match extension.to_ascii_lowercase().as_str() {
