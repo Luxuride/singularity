@@ -14,10 +14,11 @@ use super::{
 };
 
 fn has_stale_in_memory_chat_media(chats: &MatrixGetChatsResponse) -> bool {
-    chats
-        .chats
-        .iter()
-        .any(|chat| chat.image_url.as_deref().is_some_and(|url| url.starts_with("matrix-media://")))
+    chats.chats.iter().any(|chat| {
+        chat.image_url
+            .as_deref()
+            .is_some_and(|url| url.starts_with("matrix-media://"))
+    })
 }
 
 #[tauri::command]
@@ -27,7 +28,9 @@ pub async fn matrix_get_chats(
     app_handle: AppHandle,
 ) -> Result<MatrixGetChatsResponse, String> {
     if let Some(cached_chats) = load_cached_chats(&app_handle)? {
-        let cached = MatrixGetChatsResponse { chats: cached_chats };
+        let cached = MatrixGetChatsResponse {
+            chats: cached_chats,
+        };
 
         if has_stale_in_memory_chat_media(&cached) {
             let client = auth_state.restore_client_and_get(&app_handle).await?;
@@ -122,7 +125,9 @@ mod tests {
     #[test]
     fn detects_stale_matrix_media_avatar_url() {
         let response = MatrixGetChatsResponse {
-            chats: vec![chat_with_image(Some("matrix-media://localhost/img-123.png"))],
+            chats: vec![chat_with_image(Some(
+                "matrix-media://localhost/img-123.png",
+            ))],
         };
 
         assert!(has_stale_in_memory_chat_media(&response));
