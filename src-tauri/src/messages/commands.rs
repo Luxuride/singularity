@@ -22,15 +22,12 @@ use super::types::{
 };
 
 fn has_stale_in_memory_media_urls(response: &MatrixGetChatMessagesResponse) -> bool {
-    response
-        .messages
-        .iter()
-        .any(|message| {
-            message
-                .image_url
-                .as_deref()
-                .is_some_and(|url| url.starts_with("matrix-media://"))
-        })
+    response.messages.iter().any(|message| {
+        message
+            .image_url
+            .as_deref()
+            .is_some_and(|url| url.starts_with("matrix-media://"))
+    })
 }
 
 fn is_room_unavailable_error(error: &str) -> bool {
@@ -252,7 +249,9 @@ mod tests {
         let response = MatrixGetChatMessagesResponse {
             room_id: String::from("!room:example.org"),
             next_from: None,
-            messages: vec![message_with_image(Some("matrix-media://localhost/img-123.png"))],
+            messages: vec![message_with_image(Some(
+                "matrix-media://localhost/img-123.png",
+            ))],
         };
 
         assert!(has_stale_in_memory_media_urls(&response));
