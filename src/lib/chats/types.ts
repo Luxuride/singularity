@@ -10,10 +10,22 @@ export interface MatrixChatSummary {
   joined: boolean;
   isDirect: boolean;
   parentRoomId: string | null;
+  parentRoomIds: string[];
 }
 
 export interface MatrixGetChatsResponse {
   chats: MatrixChatSummary[];
+}
+
+export interface MatrixGetChatNavigationRequest {
+  rootSpaceId?: string;
+  selectedRoomId?: string;
+}
+
+export interface MatrixGetChatNavigationResponse {
+  selectedRootSpaceId: string | null;
+  rootSpaces: MatrixChatSummary[];
+  rootScopedRooms: MatrixChatSummary[];
 }
 
 export interface MatrixTriggerRoomUpdateRequest {

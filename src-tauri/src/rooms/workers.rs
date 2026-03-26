@@ -1,7 +1,9 @@
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use log::{error, warn};
+use matrix_sdk::ruma::events::StateEventType;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 
@@ -22,12 +24,14 @@ use super::{
 
 pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixChatSummary> {
     let joined_rooms = client.joined_rooms();
+    let linked_parent_space_ids_by_child =
+        linked_parent_space_ids_by_child_room(&joined_rooms).await;
     let mut chats = Vec::new();
     let joined_room_ids = joined_rooms
         .iter()
         .map(|room| room.room_id().to_string())
-        .collect::<std::collections::HashSet<_>>();
-    let mut unjoined_parent_space_ids = std::collections::HashSet::new();
+        .collect::<HashSet<_>>();
+    let mut unjoined_parent_space_ids = HashSet::new();
 
     for room in joined_rooms {
         let display_name = room
@@ -48,7 +52,17 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
         } else {
             MatrixRoomKind::Room
         };
-        let parent_room_id = primary_parent_space_id(&room).await;
+        let mut parent_room_ids = parent_space_ids(&room).await;
+        if let Some(linked_parent_ids) =
+            linked_parent_space_ids_by_child.get(room.room_id().as_str())
+        {
+            for linked_parent_id in linked_parent_ids {
+                if !parent_room_ids.contains(linked_parent_id) {
+                    parent_room_ids.push(linked_parent_id.clone());
+                }
+            }
+        }
+        let parent_room_id = parent_room_ids.first().cloned();
         let room_avatar_image_url = match room.avatar_url() {
             Some(mxc) => cache_mxc_media_to_local_path(client, mxc.as_str()).await,
             None => None,
@@ -62,9 +76,9 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
             room_avatar_image_url
         };
 
-        if let Some(parent_room_id) = &parent_room_id {
-            if !joined_room_ids.contains(parent_room_id) {
-                unjoined_parent_space_ids.insert(parent_room_id.clone());
+        for parent_id in &parent_room_ids {
+            if !joined_room_ids.contains(parent_id) {
+                unjoined_parent_space_ids.insert(parent_id.clone());
             }
         }
 
@@ -78,6 +92,7 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
             joined: true,
             is_direct,
             parent_room_id,
+            parent_room_ids,
         });
     }
 
@@ -92,6 +107,7 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
             joined: false,
             is_direct: false,
             parent_room_id: None,
+            parent_room_ids: vec![],
         });
     }
 
@@ -101,6 +117,56 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
             .cmp(&b.display_name.to_lowercase())
     });
     chats
+}
+
+async fn linked_parent_space_ids_by_child_room(
+    joined_rooms: &[matrix_sdk::Room],
+) -> HashMap<String, Vec<String>> {
+    let mut linked_parents_by_child = HashMap::<String, HashSet<String>>::new();
+
+    for room in joined_rooms {
+        if !room.is_space() {
+            continue;
+        }
+
+        let parent_space_id = room.room_id().to_string();
+        let state_events = match room
+            .get_state_events(StateEventType::from("m.space.child"))
+            .await
+        {
+            Ok(state_events) => state_events,
+            Err(_) => continue,
+        };
+
+        for raw_event in state_events {
+            let Ok(event) = serde_json::to_value(&raw_event) else {
+                continue;
+            };
+
+            let Some(child_room_id) = event.get("state_key").and_then(|value| value.as_str())
+            else {
+                continue;
+            };
+
+            if child_room_id.is_empty() {
+                continue;
+            }
+
+            linked_parents_by_child
+                .entry(child_room_id.to_string())
+                .or_default()
+                .insert(parent_space_id.clone());
+        }
+    }
+
+    linked_parents_by_child
+        .into_iter()
+        .map(|(child_room_id, parent_ids)| {
+            let mut parent_ids = parent_ids.into_iter().collect::<Vec<_>>();
+            parent_ids.sort();
+            (child_room_id, parent_ids)
+        })
+        .collect()
 }
 
 async fn direct_room_counterparty_avatar_url(
@@ -125,13 +191,13 @@ async fn direct_room_counterparty_avatar_url(
     None
 }
 
-async fn primary_parent_space_id(room: &matrix_sdk::Room) -> Option<String> {
+async fn parent_space_ids(room: &matrix_sdk::Room) -> Vec<String> {
     let mut parent_spaces = match room.parent_spaces().await {
         Ok(parent_spaces) => parent_spaces,
-        Err(_) => return None,
+        Err(_) => return vec![],
     };
 
-    let mut best_candidate = None::<(u8, String)>;
+    let mut candidates = Vec::<(u8, String)>::new();
 
     while let Some(parent_result) = parent_spaces.next().await {
         let Ok(parent_space) = parent_result else {
@@ -155,18 +221,19 @@ async fn primary_parent_space_id(room: &matrix_sdk::Room) -> Option<String> {
             continue;
         };
 
-        match &best_candidate {
-            Some((best_rank, _)) if *best_rank <= rank => {}
-            _ => {
-                best_candidate = Some((rank, parent_room_id));
-                if rank == 0 {
-                    break;
-                }
-            }
+        candidates.push((rank, parent_room_id));
+    }
+
+    candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+
+    let mut unique_parent_ids = Vec::<String>::new();
+    for (_, parent_room_id) in candidates {
+        if !unique_parent_ids.contains(&parent_room_id) {
+            unique_parent_ids.push(parent_room_id);
         }
     }
 
-    best_candidate.map(|(_, room_id)| room_id)
+    unique_parent_ids
 }
 
 pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {

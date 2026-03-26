@@ -13,6 +13,8 @@
     shellChats,
     shellCurrentUserId,
     shellPickerCustomEmoji,
+    shellRootScopedRooms,
+    shellRootSpaces,
     shellSelectedRootSpaceId,
     shellSelectedRoomId,
   } from "$lib/chats/shell";
@@ -32,8 +34,6 @@
   import MessageTimeline from "$lib/components/messaging/MessageTimeline.svelte";
   import MessageComposer from "$lib/components/messaging/MessageComposer.svelte";
   import RoomList from "$lib/components/navigation/RoomList.svelte";
-
-  const VIRTUAL_DMS_ROOT_ID = "virtual:dms";
 
   let loadingMessages = $state(false);
   let errorMessage = $state("");
@@ -866,56 +866,8 @@
   }
 
   const selectedRootSpaceName = $derived(
-    $shellSelectedRootSpaceId === VIRTUAL_DMS_ROOT_ID
-      ? "DMs"
-      : $shellChats.find((room) => room.roomId === $shellSelectedRootSpaceId)?.displayName ?? "Server",
+    $shellRootSpaces.find((room) => room.roomId === $shellSelectedRootSpaceId)?.displayName ?? "Server",
   );
-
-  const selectedRootScopedRooms = $derived.by(() => {
-    const rootSpaceId = $shellSelectedRootSpaceId;
-    if (!rootSpaceId) {
-      return [];
-    }
-
-    const rooms = $shellChats;
-    if (rootSpaceId === VIRTUAL_DMS_ROOT_ID) {
-      return rooms
-        .filter((room) => room.kind === "room" && room.isDirect)
-        .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" }));
-    }
-
-    const childrenByParent = new Map<string, typeof rooms>();
-
-    for (const room of rooms) {
-      if (!room.parentRoomId || room.parentRoomId === room.roomId) {
-        continue;
-      }
-
-      const siblings = childrenByParent.get(room.parentRoomId) ?? [];
-      siblings.push(room);
-      childrenByParent.set(room.parentRoomId, siblings);
-    }
-
-    const descendants: typeof rooms = [];
-    const seen = new Set<string>();
-    const stack = [...(childrenByParent.get(rootSpaceId) ?? [])];
-
-    while (stack.length > 0) {
-      const candidate = stack.pop();
-      if (!candidate || seen.has(candidate.roomId)) {
-        continue;
-      }
-
-      seen.add(candidate.roomId);
-      descendants.push(candidate);
-
-      for (const child of childrenByParent.get(candidate.roomId) ?? []) {
-        stack.push(child);
-      }
-    }
-
-    return descendants;
-  });
 
   async function selectRoomFromOverview(roomId: string) {
     const room = $shellChats.find((candidate) => candidate.roomId === roomId);
@@ -955,11 +907,11 @@
     {:else}
       <section class="space-y-2">
         <h2 class="text-sm font-medium">{selectedRootSpaceName} Hierarchy</h2>
-        {#if selectedRootScopedRooms.length === 0}
+        {#if $shellRootScopedRooms.length === 0}
           <p class="text-sm text-surface-700-300">No spaces or rooms found under this root space.</p>
         {:else}
           <RoomList
-            rooms={selectedRootScopedRooms}
+            rooms={$shellRootScopedRooms}
             selectedRoomId={$shellSelectedRoomId}
             onSelectRoom={selectRoomFromOverview}
             emptyMessage="No spaces or rooms found under this root space."

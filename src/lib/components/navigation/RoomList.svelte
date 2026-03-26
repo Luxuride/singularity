@@ -17,6 +17,7 @@
   }: Props = $props();
 
   type FlatEntry = {
+    key: string;
     room: MatrixChatSummary;
     depth: number;
     hasChildren: boolean;
@@ -69,15 +70,31 @@
     room: MatrixChatSummary,
     roomsById: Map<string, MatrixChatSummary>,
   ): string | null {
-    if (!room.parentRoomId || room.parentRoomId === room.roomId) {
-      return null;
+    const candidateParentIds: string[] = [];
+
+    if (room.parentRoomId) {
+      candidateParentIds.push(room.parentRoomId);
     }
 
-    if (!roomsById.has(room.parentRoomId)) {
-      return null;
+    for (const parentRoomId of room.parentRoomIds ?? []) {
+      if (!candidateParentIds.includes(parentRoomId)) {
+        candidateParentIds.push(parentRoomId);
+      }
     }
 
-    return room.parentRoomId;
+    for (const parentRoomId of candidateParentIds) {
+      if (!parentRoomId || parentRoomId === room.roomId) {
+        continue;
+      }
+
+      if (!roomsById.has(parentRoomId)) {
+        continue;
+      }
+
+      return parentRoomId;
+    }
+
+    return null;
   }
 
   function sortRooms(a: MatrixChatSummary, b: MatrixChatSummary): number {
@@ -96,10 +113,17 @@
     childrenByParent: Map<string, MatrixChatSummary[]>,
   ) {
     const children = childrenByParent.get(parentKey) ?? [];
+    let childIndex = 0;
 
     for (const room of children) {
       const hasChildren = (childrenByParent.get(room.roomId)?.length ?? 0) > 0;
-      entries.push({ room, depth, hasChildren });
+      entries.push({
+        key: `${parentKey}:${room.roomId}:${childIndex}`,
+        room,
+        depth,
+        hasChildren,
+      });
+      childIndex += 1;
 
       if (ancestry.has(room.roomId)) {
         continue;
@@ -133,7 +157,7 @@
       <p class="p-2 text-sm text-surface-700-300">{emptyMessage}</p>
     {:else}
       <ul class="space-y-1">
-        {#each flatEntries as entry (entry.room.roomId)}
+        {#each flatEntries as entry (entry.key)}
           <RoomListItem
             room={entry.room}
             depth={entry.depth}
