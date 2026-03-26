@@ -23,6 +23,7 @@
     error: string;
     nextFrom: string | null;
     isSending: boolean;
+    onTimelineElementChange?: (element: HTMLElement | null) => void;
     onScroll?: (event: Event) => void;
     onLoadOlder?: () => void;
     onRetryMessage?: (message: TimelineMessage) => void;
@@ -43,6 +44,7 @@
     error,
     nextFrom,
     isSending,
+    onTimelineElementChange,
     onScroll,
     onLoadOlder,
     onRetryMessage,
@@ -50,6 +52,10 @@
   }: Props = $props();
 
   let timelineElement: HTMLElement | null = $state(null);
+
+  $effect(() => {
+    onTimelineElementChange?.(timelineElement);
+  });
 </script>
 
 <section
@@ -84,7 +90,7 @@
     </header>
 
     <div
-      class="flex-1 overflow-y-auto px-4 pb-3 min-h-0"
+      class="timeline-scroll flex-1 overflow-y-auto px-4 pb-3 min-h-0"
       bind:this={timelineElement}
       onscroll={onScroll}
     >
@@ -107,3 +113,9 @@
     </div>
   {/if}
 </section>
+
+<style>
+  .timeline-scroll {
+    overflow-anchor: auto;
+  }
+</style>

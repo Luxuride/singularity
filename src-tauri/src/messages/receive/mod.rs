@@ -274,10 +274,13 @@ impl<M: MediaResolver> MessageReceiver for MatrixMessageReceiver<M> {
             if let Some(cached) =
                 load_initial_room_messages(app_db, room_id.as_str(), from.as_deref(), limit)?
             {
-                let iter = cached.messages.into_iter();
+                let mut cached_messages = cached.messages;
+                if matches!(load_kind, MatrixMessageLoadKind::Initial) {
+                    cached_messages.reverse();
+                }
                 let mut sequence = 0_u32;
 
-                for message in iter {
+                for message in cached_messages {
                     app_handle
                         .emit(
                             event_paths::CHAT_MESSAGES_STREAM,
@@ -362,7 +365,12 @@ impl<M: MediaResolver> MessageReceiver for MatrixMessageReceiver<M> {
                 same_cursor_count = 0;
             }
 
-            for message in response.messages {
+            let mut batch_messages = response.messages;
+            if matches!(load_kind, MatrixMessageLoadKind::Initial) {
+                batch_messages.reverse();
+            }
+
+            for message in batch_messages {
                 if sequence >= target_message_count as u32 {
                     break;
                 }
