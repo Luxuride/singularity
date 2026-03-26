@@ -47,7 +47,11 @@ impl MediaResolver for DefaultMediaResolver {
                 return None;
             }
 
-            return image::cache_http_media_to_local_path(raw_url).await;
+            warn!(
+                "Ignoring non-Matrix HTTP media URL because image fetching is Matrix SDK-only: {}",
+                raw_url
+            );
+            return None;
         }
 
         None

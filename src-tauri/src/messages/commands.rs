@@ -21,6 +21,10 @@ use super::types::{
     MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest, MatrixToggleReactionResponse,
 };
 
+fn is_room_unavailable_error(error: &str) -> bool {
+    error.contains("Room is not available in current session")
+}
+
 #[tauri::command]
 pub async fn matrix_get_emoji_packs(
     auth_state: State<'_, AuthState>,
@@ -63,12 +67,28 @@ pub async fn matrix_get_chat_messages(
         return Ok(cached);
     }
 
-    sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
-        .await
-        .map_err(|error| format!("Failed to sync Matrix room messages: {error}"))?;
+    let response = match fetch_room_messages_from_client(
+        &client,
+        request.room_id.as_str(),
+        from.clone(),
+        limit,
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(error) if is_room_unavailable_error(&error) => {
+            sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
+                .await
+                .map_err(|sync_error| {
+                    format!(
+                        "Failed to sync Matrix room messages after room-unavailable error: {sync_error}"
+                    )
+                })?;
 
-    let response =
-        fetch_room_messages_from_client(&client, request.room_id.as_str(), from, limit).await?;
+            fetch_room_messages_from_client(&client, request.room_id.as_str(), from, limit).await?
+        }
+        Err(error) => return Err(error),
+    };
 
     if cacheable_initial_request {
         store_initial_room_messages(&app_db, &response)?;
@@ -88,20 +108,41 @@ pub async fn matrix_stream_chat_messages(
     info!("matrix_stream_chat_messages requested");
     let client = auth_state.restore_client_and_get(&app_handle).await?;
 
-    sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
-        .await
-        .map_err(|error| format!("Failed to sync Matrix room messages: {error}"))?;
-
-    stream_room_messages_from_client(
+    let stream_result = stream_room_messages_from_client(
         StreamRoomMessagesContext {
             app_handle: &app_handle,
             app_db: &app_db,
             room_update_trigger_state: &room_update_trigger_state,
             client: &client,
         },
-        request,
+        request.clone(),
     )
-    .await
+    .await;
+
+    match stream_result {
+        Ok(response) => Ok(response),
+        Err(error) if is_room_unavailable_error(&error) => {
+            sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
+                .await
+                .map_err(|sync_error| {
+                    format!(
+                        "Failed to sync Matrix stream after room-unavailable error: {sync_error}"
+                    )
+                })?;
+
+            stream_room_messages_from_client(
+                StreamRoomMessagesContext {
+                    app_handle: &app_handle,
+                    app_db: &app_db,
+                    room_update_trigger_state: &room_update_trigger_state,
+                    client: &client,
+                },
+                request,
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    }
 }
 
 #[tauri::command]

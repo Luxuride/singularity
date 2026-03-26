@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use log::{debug, warn};
 use matrix_sdk::deserialized_responses::{TimelineEvent, VerificationState};
@@ -68,6 +68,7 @@ impl<M: MediaResolver> MatrixMessageReceiver<M> {
     ) -> (Vec<MatrixChatMessage>, bool) {
         let mut messages = Vec::new();
         let mut had_utd = false;
+        let mut resolved_emoji_urls: HashMap<String, Option<String>> = HashMap::new();
         let mut reactions_by_target: BTreeMap<String, BTreeMap<String, BTreeSet<String>>> =
             BTreeMap::new();
 
@@ -116,11 +117,19 @@ impl<M: MediaResolver> MatrixMessageReceiver<M> {
             ) {
                 let mut custom_emojis = Vec::with_capacity(parsed.custom_emojis.len());
                 for emoji in parsed.custom_emojis {
-                    let Some(resolved_url) = self
-                        .media_resolver
-                        .resolve_pack_media_url(client, emoji.url.as_str())
-                        .await
-                    else {
+                    let resolved_url = match resolved_emoji_urls.get(emoji.url.as_str()) {
+                        Some(cached) => cached.clone(),
+                        None => {
+                            let resolved = self
+                                .media_resolver
+                                .resolve_pack_media_url(client, emoji.url.as_str())
+                                .await;
+                            resolved_emoji_urls.insert(emoji.url.clone(), resolved.clone());
+                            resolved
+                        }
+                    };
+
+                    let Some(resolved_url) = resolved_url else {
                         continue;
                     };
 
@@ -322,12 +331,16 @@ impl<M: MediaResolver> MessageReceiver for MatrixMessageReceiver<M> {
         let mut cache_messages = Vec::with_capacity(target_message_count);
         let mut final_next_from = None;
         let mut request_count = 0_usize;
-        let max_request_count = target_message_count.saturating_mul(20);
+        let mut same_cursor_count = 0_usize;
+        let max_request_count = ((target_message_count.saturating_add(49)) / 50)
+            .saturating_mul(6)
+            .max(8);
         let mut sequence = 0_u32;
 
         while sequence < target_message_count as u32 && request_count < max_request_count {
             let remaining = target_message_count.saturating_sub(sequence as usize);
-            let batch_limit = remaining.min(10) as u32;
+            let batch_limit = remaining.min(50) as u32;
+            let previous_scan_from = scan_from.clone();
 
             let response = self
                 .fetch_room_messages(
@@ -340,7 +353,14 @@ impl<M: MediaResolver> MessageReceiver for MatrixMessageReceiver<M> {
 
             request_count = request_count.saturating_add(1);
             final_next_from = response.next_from.clone();
+            let message_count = response.messages.len();
             scan_from = response.next_from;
+
+            if scan_from == previous_scan_from {
+                same_cursor_count = same_cursor_count.saturating_add(1);
+            } else {
+                same_cursor_count = 0;
+            }
 
             for message in response.messages {
                 if sequence >= target_message_count as u32 {
@@ -372,6 +392,14 @@ impl<M: MediaResolver> MessageReceiver for MatrixMessageReceiver<M> {
             }
 
             if scan_from.is_none() {
+                break;
+            }
+
+            if message_count == 0 {
+                break;
+            }
+
+            if same_cursor_count >= 2 {
                 break;
             }
         }
