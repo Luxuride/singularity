@@ -1,5 +1,6 @@
 use tauri::Manager;
 
+mod assets;
 mod auth;
 mod db;
 mod messages;
@@ -13,7 +14,7 @@ mod verification;
 pub fn run() {
     tauri::Builder::default()
         .register_uri_scheme_protocol("matrix-media", |_ctx, request| {
-            messages::handle_media_protocol_request(request)
+            assets::image::handle_media_protocol_request(request)
         })
         .manage(auth::AuthState::default())
         .setup(|app| {
