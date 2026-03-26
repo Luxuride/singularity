@@ -19,7 +19,7 @@ function isLikelyAbsoluteFilePath(value: string): boolean {
   return /^[a-zA-Z]:[\\/]/.test(value);
 }
 
-function normalizeImageUrl(imageUrl: string | null): string | null {
+export function normalizeImageUrl(imageUrl: string | null): string | null {
   if (!imageUrl) {
     return imageUrl;
   }

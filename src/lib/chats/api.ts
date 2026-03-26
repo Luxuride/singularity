@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { toMessage } from "../errors";
-import { normalizeChatSummaryImageUrl, normalizeMessageImageUrl } from "./media";
+import { normalizeChatSummaryImageUrl, normalizeImageUrl, normalizeMessageImageUrl } from "./media";
 import type {
   MatrixChatSummary,
   MatrixGetEmojiPacksResponse,
@@ -32,6 +32,7 @@ export async function matrixGetPickerAssets(): Promise<PickerAssets> {
   return {
     customEmoji: response.customEmoji.map((emoji) => ({
       ...emoji,
+      url: normalizeImageUrl(emoji.url) ?? emoji.url,
       category: emoji.category ?? undefined,
     })),
   };
