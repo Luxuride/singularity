@@ -1,0 +1,623 @@
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, VecDeque};
+use std::fs;
+use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Mutex, OnceLock};
+
+use log::warn;
+use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
+use matrix_sdk::ruma::events::room::MediaSource;
+use url::Url;
+
+static MEDIA_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
+static IN_MEMORY_MEDIA_CACHE: OnceLock<Mutex<InMemoryMediaCache>> = OnceLock::new();
+static MEDIA_STORAGE_MODE: AtomicU8 = AtomicU8::new(MediaStorageMode::InMemory as u8);
+
+const MAX_IN_MEMORY_MEDIA_ITEMS: usize = 512;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MediaStorageMode {
+    InMemory = 0,
+    AssetStorage = 1,
+}
+
+impl MediaStorageMode {
+    pub(crate) fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::AssetStorage,
+            _ => Self::InMemory,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct InMemoryMediaValue {
+    bytes: Vec<u8>,
+    mime_type: String,
+}
+
+#[derive(Default)]
+struct InMemoryMediaCache {
+    values: HashMap<String, InMemoryMediaValue>,
+    order: VecDeque<String>,
+}
+
+impl InMemoryMediaCache {
+    fn insert(&mut self, key: String, value: InMemoryMediaValue) {
+        if self.values.contains_key(&key) {
+            self.values.insert(key.clone(), value);
+            self.touch(&key);
+            return;
+        }
+
+        self.values.insert(key.clone(), value);
+        self.order.push_back(key);
+
+        while self.values.len() > MAX_IN_MEMORY_MEDIA_ITEMS {
+            if let Some(evicted) = self.order.pop_front() {
+                self.values.remove(&evicted);
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn get(&mut self, key: &str) -> Option<InMemoryMediaValue> {
+        let value = self.values.get(key)?.clone();
+        self.touch(key);
+        Some(value)
+    }
+
+    fn clear(&mut self) {
+        self.values.clear();
+        self.order.clear();
+    }
+
+    fn touch(&mut self, key: &str) {
+        if let Some(position) = self.order.iter().position(|entry| entry == key) {
+            self.order.remove(position);
+        }
+        self.order.push_back(key.to_owned());
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ImageCacheKeyParts {
+    event_id: Option<String>,
+    origin_server_ts: Option<u64>,
+    room_id: Option<String>,
+    source_key: Option<String>,
+    mime_type: String,
+    bytes_len: usize,
+}
+
+impl ImageCacheKeyParts {
+    pub(crate) fn builder() -> ImageCacheKeyPartsBuilder {
+        ImageCacheKeyPartsBuilder::default()
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct ImageCacheKeyPartsBuilder {
+    event_id: Option<String>,
+    origin_server_ts: Option<u64>,
+    room_id: Option<String>,
+    source_key: Option<String>,
+    mime_type: Option<String>,
+    bytes_len: Option<usize>,
+}
+
+impl ImageCacheKeyPartsBuilder {
+    pub(crate) fn event_id<T>(mut self, event_id: Option<T>) -> Self
+    where
+        T: Into<String>,
+    {
+        self.event_id = event_id.map(Into::into);
+        self
+    }
+
+    pub(crate) fn origin_server_ts(mut self, origin_server_ts: Option<u64>) -> Self {
+        self.origin_server_ts = origin_server_ts;
+        self
+    }
+
+    pub(crate) fn room_id<T>(mut self, room_id: Option<T>) -> Self
+    where
+        T: Into<String>,
+    {
+        self.room_id = room_id.map(Into::into);
+        self
+    }
+
+    pub(crate) fn source_key<T>(mut self, source_key: Option<T>) -> Self
+    where
+        T: Into<String>,
+    {
+        self.source_key = source_key.map(Into::into);
+        self
+    }
+
+    pub(crate) fn mime_type<T>(mut self, mime_type: T) -> Self
+    where
+        T: Into<String>,
+    {
+        self.mime_type = Some(mime_type.into());
+        self
+    }
+
+    pub(crate) fn bytes_len(mut self, bytes_len: usize) -> Self {
+        self.bytes_len = Some(bytes_len);
+        self
+    }
+
+    pub(crate) fn build(self) -> Option<ImageCacheKeyParts> {
+        Some(ImageCacheKeyParts {
+            event_id: self.event_id,
+            origin_server_ts: self.origin_server_ts,
+            room_id: self.room_id,
+            source_key: self.source_key,
+            mime_type: self.mime_type?,
+            bytes_len: self.bytes_len?,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct NormalizedImageLoad {
+    bytes: Vec<u8>,
+    file_stem: String,
+    extension: String,
+    mime_type: String,
+}
+
+impl NormalizedImageLoad {
+    pub(crate) fn builder() -> NormalizedImageLoadBuilder {
+        NormalizedImageLoadBuilder::default()
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct NormalizedImageLoadBuilder {
+    bytes: Option<Vec<u8>>,
+    file_stem: Option<String>,
+    extension: Option<String>,
+    mime_type: Option<String>,
+}
+
+impl NormalizedImageLoadBuilder {
+    pub(crate) fn bytes(mut self, bytes: &[u8]) -> Self {
+        self.bytes = Some(bytes.to_vec());
+        self
+    }
+
+    pub(crate) fn file_stem<T>(mut self, file_stem: T) -> Self
+    where
+        T: Into<String>,
+    {
+        self.file_stem = Some(file_stem.into());
+        self
+    }
+
+    pub(crate) fn extension<T>(mut self, extension: T) -> Self
+    where
+        T: Into<String>,
+    {
+        self.extension = Some(extension.into());
+        self
+    }
+
+    pub(crate) fn mime_type<T>(mut self, mime_type: T) -> Self
+    where
+        T: Into<String>,
+    {
+        self.mime_type = Some(mime_type.into());
+        self
+    }
+
+    pub(crate) fn build(self) -> Option<NormalizedImageLoad> {
+        Some(NormalizedImageLoad {
+            bytes: self.bytes?,
+            file_stem: self.file_stem?,
+            extension: self.extension?,
+            mime_type: self.mime_type?,
+        })
+    }
+}
+
+pub(crate) fn media_storage_mode() -> MediaStorageMode {
+    MediaStorageMode::from_u8(MEDIA_STORAGE_MODE.load(Ordering::Relaxed))
+}
+
+pub(crate) fn set_media_storage_mode(mode: MediaStorageMode) {
+    MEDIA_STORAGE_MODE.store(mode as u8, Ordering::Relaxed);
+    if matches!(mode, MediaStorageMode::AssetStorage) {
+        clear_in_memory_media_cache();
+    }
+}
+
+pub(crate) fn handle_media_protocol_request(
+    request: tauri::http::Request<Vec<u8>>,
+) -> tauri::http::Response<Vec<u8>> {
+    let media_key = request.uri().path().trim_start_matches('/');
+    if media_key.is_empty() {
+        return build_protocol_response(
+            tauri::http::StatusCode::BAD_REQUEST,
+            "text/plain; charset=utf-8",
+            b"missing media key".to_vec(),
+        );
+    }
+
+    let Some((bytes, mime_type)) = load_cached_media_from_memory(media_key) else {
+        return build_protocol_response(
+            tauri::http::StatusCode::NOT_FOUND,
+            "text/plain; charset=utf-8",
+            b"media not found".to_vec(),
+        );
+    };
+
+    build_protocol_response(tauri::http::StatusCode::OK, &mime_type, bytes)
+}
+
+pub(crate) async fn cache_mxc_media_to_local_path(
+    client: &matrix_sdk::Client,
+    raw_url: &str,
+) -> Option<String> {
+    if !raw_url.starts_with("mxc://") {
+        return None;
+    }
+
+    let mxc_uri = matrix_sdk::ruma::OwnedMxcUri::from(raw_url);
+    let request = MediaRequestParameters {
+        source: MediaSource::Plain(mxc_uri),
+        format: MediaFormat::File,
+    };
+
+    let bytes = match client.media().get_media_content(&request, true).await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            warn!("Failed to fetch MXC image media content: {error}");
+            return None;
+        }
+    };
+
+    let file_stem = mxc_image_cache_key(raw_url, &bytes);
+    let extension = image_extension_from_raw_url(raw_url);
+    let mime_type = mime_type_from_extension(extension);
+
+    let request = NormalizedImageLoad::builder()
+        .bytes(&bytes)
+        .file_stem(file_stem)
+        .extension(extension)
+        .mime_type(mime_type)
+        .build()?;
+
+    persist_normalized_image(&request)
+}
+
+pub(crate) async fn cache_http_media_to_local_path(raw_url: &str) -> Option<String> {
+    if !(raw_url.starts_with("http://") || raw_url.starts_with("https://")) {
+        return None;
+    }
+
+    let response = match reqwest::get(raw_url).await {
+        Ok(response) => response,
+        Err(error) => {
+            warn!("Failed to fetch HTTP image media content: {error}");
+            return None;
+        }
+    };
+
+    if !response.status().is_success() {
+        warn!(
+            "Failed to fetch HTTP image media content with status: {}",
+            response.status()
+        );
+        return None;
+    }
+
+    let mime_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .split(';')
+                .next()
+                .unwrap_or(value)
+                .trim()
+                .to_ascii_lowercase()
+        })
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| String::from("application/octet-stream"));
+
+    let bytes = match response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            warn!("Failed to read HTTP image media bytes: {error}");
+            return None;
+        }
+    };
+
+    let extension = extension_for_http_media(raw_url, &mime_type);
+    let request = NormalizedImageLoad::builder()
+        .bytes(&bytes)
+        .file_stem(http_image_cache_key(raw_url, bytes.len()))
+        .extension(extension)
+        .mime_type(mime_type)
+        .build()?;
+
+    persist_normalized_image(&request)
+}
+
+pub(crate) fn cache_event_image(bytes: &[u8], key_parts: ImageCacheKeyParts) -> Option<String> {
+    let extension = image_extension_from_mime(&key_parts.mime_type);
+    let file_stem = image_cache_key(&key_parts);
+
+    let request = NormalizedImageLoad::builder()
+        .bytes(bytes)
+        .file_stem(file_stem)
+        .extension(extension)
+        .mime_type(key_parts.mime_type)
+        .build()?;
+
+    persist_normalized_image(&request)
+}
+
+pub(crate) fn image_extension_from_mime(mime_type: &str) -> &'static str {
+    match mime_type {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/avif" => "avif",
+        "image/bmp" => "bmp",
+        "image/svg+xml" => "svg",
+        _ => "bin",
+    }
+}
+
+fn build_protocol_response(
+    status: tauri::http::StatusCode,
+    mime_type: &str,
+    body: Vec<u8>,
+) -> tauri::http::Response<Vec<u8>> {
+    match tauri::http::Response::builder()
+        .status(status)
+        .header(tauri::http::header::CONTENT_TYPE, mime_type)
+        .body(body)
+    {
+        Ok(response) => response,
+        Err(_) => tauri::http::Response::new(Vec::new()),
+    }
+}
+
+fn load_cached_media_from_memory(media_key: &str) -> Option<(Vec<u8>, String)> {
+    let cache = in_memory_media_cache();
+    let mut lock = match cache.lock() {
+        Ok(guard) => guard,
+        Err(_) => return None,
+    };
+
+    let entry = lock.get(media_key)?;
+    Some((entry.bytes, entry.mime_type))
+}
+
+fn persist_normalized_image(request: &NormalizedImageLoad) -> Option<String> {
+    if matches!(media_storage_mode(), MediaStorageMode::InMemory) {
+        return persist_cached_media_in_memory(request);
+    }
+
+    persist_cached_media_asset(request)
+}
+
+fn persist_cached_media_in_memory(request: &NormalizedImageLoad) -> Option<String> {
+    let media_key = format!("{}.{}", request.file_stem, request.extension);
+
+    let cache = in_memory_media_cache();
+    let mut lock = match cache.lock() {
+        Ok(guard) => guard,
+        Err(_) => return None,
+    };
+
+    lock.insert(
+        media_key.clone(),
+        InMemoryMediaValue {
+            bytes: request.bytes.clone(),
+            mime_type: request.mime_type.clone(),
+        },
+    );
+
+    Some(to_in_memory_media_url(&media_key))
+}
+
+fn persist_cached_media_asset(request: &NormalizedImageLoad) -> Option<String> {
+    let cache_dir = media_cache_dir();
+    if let Err(error) = fs::create_dir_all(&cache_dir) {
+        warn!("Failed to initialize media cache directory: {error}");
+        return None;
+    }
+
+    let file_name = format!("{}.{}", request.file_stem, request.extension);
+    let final_path = cache_dir.join(file_name);
+
+    if final_path.exists() {
+        return Some(final_path.to_string_lossy().to_string());
+    }
+
+    let temp_path = cache_dir.join(format!("{}.tmp", request.file_stem));
+    if let Err(error) = fs::write(&temp_path, &request.bytes) {
+        warn!("Failed to write cached media file: {error}");
+        return None;
+    }
+
+    if let Err(error) = fs::rename(&temp_path, &final_path) {
+        let _ = fs::remove_file(&temp_path);
+        if final_path.exists() {
+            return Some(final_path.to_string_lossy().to_string());
+        }
+        warn!("Failed to finalize cached media file: {error}");
+        return None;
+    }
+
+    Some(final_path.to_string_lossy().to_string())
+}
+
+fn mxc_image_cache_key(raw_url: &str, bytes: &[u8]) -> String {
+    let mut hasher = DefaultHasher::new();
+    raw_url.hash(&mut hasher);
+    bytes.len().hash(&mut hasher);
+    format!("img-{:016x}", hasher.finish())
+}
+
+fn http_image_cache_key(raw_url: &str, bytes_len: usize) -> String {
+    let mut hasher = DefaultHasher::new();
+    raw_url.hash(&mut hasher);
+    bytes_len.hash(&mut hasher);
+    format!("img-{:016x}", hasher.finish())
+}
+
+fn image_cache_key(parts: &ImageCacheKeyParts) -> String {
+    let mut hasher = DefaultHasher::new();
+    parts.event_id.hash(&mut hasher);
+    parts.origin_server_ts.hash(&mut hasher);
+    parts.room_id.hash(&mut hasher);
+    parts.source_key.hash(&mut hasher);
+    parts.mime_type.hash(&mut hasher);
+    parts.bytes_len.hash(&mut hasher);
+    format!("img-{:016x}", hasher.finish())
+}
+
+fn image_extension_from_raw_url(raw_url: &str) -> &'static str {
+    let file_name = raw_url
+        .trim_start_matches("mxc://")
+        .rsplit('/')
+        .next()
+        .unwrap_or_default();
+
+    let extension = file_name.rsplit('.').next().unwrap_or_default();
+
+    match extension.to_ascii_lowercase().as_str() {
+        "jpg" | "jpeg" => "jpg",
+        "png" => "png",
+        "gif" => "gif",
+        "webp" => "webp",
+        "avif" => "avif",
+        "bmp" => "bmp",
+        "svg" => "svg",
+        _ => "bin",
+    }
+}
+
+fn extension_for_http_media(raw_url: &str, mime_type: &str) -> &'static str {
+    let by_mime = image_extension_from_mime(mime_type);
+    if by_mime != "bin" {
+        return by_mime;
+    }
+
+    let parsed = match Url::parse(raw_url) {
+        Ok(parsed) => parsed,
+        Err(_) => return "bin",
+    };
+
+    let file_name = parsed
+        .path_segments()
+        .and_then(|mut segments| segments.next_back())
+        .unwrap_or_default();
+    let extension = file_name.rsplit('.').next().unwrap_or_default();
+
+    match extension.to_ascii_lowercase().as_str() {
+        "jpg" | "jpeg" => "jpg",
+        "png" => "png",
+        "gif" => "gif",
+        "webp" => "webp",
+        "avif" => "avif",
+        "bmp" => "bmp",
+        "svg" => "svg",
+        _ => "bin",
+    }
+}
+
+fn mime_type_from_extension(extension: &str) -> &'static str {
+    match extension {
+        "jpg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        _ => "application/octet-stream",
+    }
+}
+
+fn clear_in_memory_media_cache() {
+    if let Ok(mut cache) = in_memory_media_cache().lock() {
+        cache.clear();
+    }
+}
+
+fn in_memory_media_cache() -> &'static Mutex<InMemoryMediaCache> {
+    IN_MEMORY_MEDIA_CACHE.get_or_init(|| Mutex::new(InMemoryMediaCache::default()))
+}
+
+fn to_in_memory_media_url(media_key: &str) -> String {
+    format!("matrix-media://localhost/{media_key}")
+}
+
+fn media_cache_dir() -> PathBuf {
+    MEDIA_CACHE_DIR
+        .get_or_init(|| {
+            let mut dir = std::env::temp_dir();
+            dir.push("singularity");
+            dir.push("media-cache");
+            dir
+        })
+        .clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        image_extension_from_mime, ImageCacheKeyParts, NormalizedImageLoad,
+        NormalizedImageLoadBuilder,
+    };
+
+    #[test]
+    fn image_extension_from_mime_is_stable() {
+        assert_eq!(image_extension_from_mime("image/jpeg"), "jpg");
+        assert_eq!(image_extension_from_mime("image/png"), "png");
+        assert_eq!(image_extension_from_mime("image/unknown"), "bin");
+    }
+
+    #[test]
+    fn image_cache_key_builder_requires_fields() {
+        let missing = ImageCacheKeyParts::builder().mime_type("image/png").build();
+        assert!(missing.is_none());
+
+        let complete = ImageCacheKeyParts::builder()
+            .event_id(Some("$abc"))
+            .origin_server_ts(Some(123))
+            .room_id(Some("!room:server"))
+            .source_key(Some("mxc://server/media"))
+            .mime_type("image/png")
+            .bytes_len(10)
+            .build();
+        assert!(complete.is_some());
+    }
+
+    #[test]
+    fn normalized_image_load_builder_requires_fields() {
+        let missing = NormalizedImageLoadBuilder::default().file_stem("x").build();
+        assert!(missing.is_none());
+
+        let complete = NormalizedImageLoad::builder()
+            .bytes(&[1, 2, 3])
+            .file_stem("img-1")
+            .extension("png")
+            .mime_type("image/png")
+            .build();
+        assert!(complete.is_some());
+    }
+}

@@ -1,7 +1,7 @@
 use tauri::State;
 
+use crate::assets::image::MediaStorageMode;
 use crate::db::AppDb;
-use crate::messages::MediaStorageMode;
 
 use super::{
     current_media_settings, load_media_storage_mode, persist_media_storage_mode,

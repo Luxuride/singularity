@@ -5,8 +5,8 @@ pub(crate) use types::{
     MatrixGetMediaSettingsResponse, MatrixSetMediaSettingsRequest, MatrixSetMediaSettingsResponse,
 };
 
+use crate::assets::image::{media_storage_mode, set_media_storage_mode, MediaStorageMode};
 use crate::db::AppDb;
-use crate::messages::{media_storage_mode, set_media_storage_mode, MediaStorageMode};
 use crate::protocol::storage_keys;
 
 pub(crate) fn initialize_media_storage_mode(app_db: &AppDb) -> Result<(), String> {
