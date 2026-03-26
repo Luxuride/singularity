@@ -13,6 +13,13 @@ use super::{
     RoomUpdateTriggerState,
 };
 
+fn has_stale_in_memory_chat_media(chats: &MatrixGetChatsResponse) -> bool {
+    chats
+        .chats
+        .iter()
+        .any(|chat| chat.image_url.as_deref().is_some_and(|url| url.starts_with("matrix-media://")))
+}
+
 #[tauri::command]
 pub async fn matrix_get_chats(
     auth_state: State<'_, AuthState>,
@@ -20,14 +27,29 @@ pub async fn matrix_get_chats(
     app_handle: AppHandle,
 ) -> Result<MatrixGetChatsResponse, String> {
     if let Some(cached_chats) = load_cached_chats(&app_handle)? {
+        let cached = MatrixGetChatsResponse { chats: cached_chats };
+
+        if has_stale_in_memory_chat_media(&cached) {
+            let client = auth_state.restore_client_and_get(&app_handle).await?;
+
+            let local_chats = collect_chat_summaries(&client).await;
+            if !local_chats.is_empty() {
+                let _ = store_cached_chats(&app_handle, &local_chats);
+                let _ = trigger_state.enqueue(RoomRefreshTrigger {
+                    selected_room_id: None,
+                    include_selected_messages: false,
+                });
+
+                return Ok(MatrixGetChatsResponse { chats: local_chats });
+            }
+        }
+
         let _ = trigger_state.enqueue(RoomRefreshTrigger {
             selected_room_id: None,
             include_selected_messages: false,
         });
 
-        return Ok(MatrixGetChatsResponse {
-            chats: cached_chats,
-        });
+        return Ok(cached);
     }
 
     let client = auth_state.restore_client_and_get(&app_handle).await?;
@@ -76,4 +98,46 @@ pub async fn matrix_trigger_room_update(
     })?;
 
     Ok(MatrixTriggerRoomUpdateResponse { queued: true })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_stale_in_memory_chat_media;
+    use crate::rooms::types::{MatrixChatSummary, MatrixGetChatsResponse, MatrixRoomKind};
+
+    fn chat_with_image(image_url: Option<&str>) -> MatrixChatSummary {
+        MatrixChatSummary {
+            room_id: String::from("!room:example.org"),
+            display_name: String::from("Example"),
+            image_url: image_url.map(ToOwned::to_owned),
+            encrypted: false,
+            joined_members: 2,
+            kind: MatrixRoomKind::Room,
+            joined: true,
+            is_direct: false,
+            parent_room_id: None,
+        }
+    }
+
+    #[test]
+    fn detects_stale_matrix_media_avatar_url() {
+        let response = MatrixGetChatsResponse {
+            chats: vec![chat_with_image(Some("matrix-media://localhost/img-123.png"))],
+        };
+
+        assert!(has_stale_in_memory_chat_media(&response));
+    }
+
+    #[test]
+    fn ignores_non_stale_avatar_urls() {
+        let response = MatrixGetChatsResponse {
+            chats: vec![
+                chat_with_image(None),
+                chat_with_image(Some("asset://localhost/tmp/img-123.png")),
+                chat_with_image(Some("https://example.org/avatar.png")),
+            ],
+        };
+
+        assert!(!has_stale_in_memory_chat_media(&response));
+    }
 }

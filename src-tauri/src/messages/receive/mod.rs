@@ -270,17 +270,52 @@ impl<M: MediaResolver> MessageReceiver for MatrixMessageReceiver<M> {
         let cacheable_initial_request = matches!(load_kind, MatrixMessageLoadKind::Initial)
             && is_cacheable_initial_request(from.as_deref(), limit);
 
+        let has_stale_in_memory_media_urls = |messages: &[MatrixChatMessage]| {
+            messages.iter().any(|message| {
+                message
+                    .image_url
+                    .as_deref()
+                    .is_some_and(|url| url.starts_with("matrix-media://"))
+            })
+        };
+
         if cacheable_initial_request {
             if let Some(cached) =
                 load_initial_room_messages(app_db, room_id.as_str(), from.as_deref(), limit)?
             {
-                let mut cached_messages = cached.messages;
-                if matches!(load_kind, MatrixMessageLoadKind::Initial) {
-                    cached_messages.reverse();
-                }
-                let mut sequence = 0_u32;
+                if has_stale_in_memory_media_urls(&cached.messages) {
+                    let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
+                        selected_room_id: Some(room_id.clone()),
+                        include_selected_messages: true,
+                    });
+                } else {
+                    let mut cached_messages = cached.messages;
+                    if matches!(load_kind, MatrixMessageLoadKind::Initial) {
+                        cached_messages.reverse();
+                    }
+                    let mut sequence = 0_u32;
 
-                for message in cached_messages {
+                    for message in cached_messages {
+                        app_handle
+                            .emit(
+                                event_paths::CHAT_MESSAGES_STREAM,
+                                MatrixChatMessageStreamEvent {
+                                    room_id: room_id.clone(),
+                                    stream_id: stream_id.clone(),
+                                    load_kind,
+                                    sequence,
+                                    message: Some(message),
+                                    next_from: None,
+                                    done: false,
+                                },
+                            )
+                            .map_err(|error| {
+                                format!("Failed to emit chat message stream event: {error}")
+                            })?;
+
+                        sequence = sequence.saturating_add(1);
+                    }
+
                     app_handle
                         .emit(
                             event_paths::CHAT_MESSAGES_STREAM,
@@ -289,44 +324,25 @@ impl<M: MediaResolver> MessageReceiver for MatrixMessageReceiver<M> {
                                 stream_id: stream_id.clone(),
                                 load_kind,
                                 sequence,
-                                message: Some(message),
-                                next_from: None,
-                                done: false,
+                                message: None,
+                                next_from: cached.next_from,
+                                done: true,
                             },
                         )
                         .map_err(|error| {
-                            format!("Failed to emit chat message stream event: {error}")
+                            format!("Failed to emit chat message stream completion: {error}")
                         })?;
 
-                    sequence = sequence.saturating_add(1);
+                    let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
+                        selected_room_id: Some(room_id),
+                        include_selected_messages: true,
+                    });
+
+                    return Ok(MatrixStreamChatMessagesResponse {
+                        stream_id,
+                        started: true,
+                    });
                 }
-
-                app_handle
-                    .emit(
-                        event_paths::CHAT_MESSAGES_STREAM,
-                        MatrixChatMessageStreamEvent {
-                            room_id: room_id.clone(),
-                            stream_id: stream_id.clone(),
-                            load_kind,
-                            sequence,
-                            message: None,
-                            next_from: cached.next_from,
-                            done: true,
-                        },
-                    )
-                    .map_err(|error| {
-                        format!("Failed to emit chat message stream completion: {error}")
-                    })?;
-
-                let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
-                    selected_room_id: Some(room_id),
-                    include_selected_messages: false,
-                });
-
-                return Ok(MatrixStreamChatMessagesResponse {
-                    stream_id,
-                    started: true,
-                });
             }
         }
 
