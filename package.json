@@ -15,7 +15,12 @@
   "dependencies": {
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
-    "emoji-picker-element": "^1.29.1"
+    "emoji-picker-element": "^1.29.1",
+    "prosemirror-commands": "^1.7.1",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-model": "^1.25.4",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-view": "^1.41.7"
   },
   "devDependencies": {
     "@skeletonlabs/skeleton": "^4.13.0",

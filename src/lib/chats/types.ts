@@ -66,7 +66,6 @@ export interface MatrixStreamChatMessagesRequest {
 export interface MatrixSendChatMessageRequest {
   roomId: string;
   body: string;
-  formattedBody?: string;
 }
 
 export interface MatrixToggleReactionRequest {

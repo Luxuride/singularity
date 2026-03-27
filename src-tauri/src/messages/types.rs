@@ -46,7 +46,6 @@ pub struct MatrixStreamChatMessagesRequest {
 pub struct MatrixSendChatMessageRequest {
     pub room_id: String,
     pub body: String,
-    pub formatted_body: Option<String>,
 }
 
 #[derive(Deserialize)]
