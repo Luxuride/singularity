@@ -27,7 +27,6 @@
     MatrixReactionSummary,
   } from "$lib/chats/types";
   import {
-    buildMessageForSend,
     normalizeReactionKey,
     normalizeShortcodesToEmoji,
   } from "$lib/emoji/picker";
@@ -590,8 +589,7 @@
       return;
     }
 
-    const messageForSend = await buildMessageForSend(rawBody, $shellPickerCustomEmoji);
-    const body = messageForSend.body;
+    const body = rawBody;
 
     composerErrorMessage = "";
     messageDraft = "";
@@ -611,7 +609,6 @@
       {
         roomId,
         body,
-        formattedBody: messageForSend.formattedBody,
       },
       localId,
     );

@@ -6,6 +6,14 @@ export type PickerCustomEmoji = {
   category?: string;
 };
 
+export type EmojiShortcodeSuggestion = {
+  shortcode: string;
+  token: string;
+  replacement: string;
+  kind: "unicode" | "custom";
+  previewUrl?: string;
+};
+
 // If/when custom categories are added, this defines their display priority.
 export const CUSTOM_PICKER_CATEGORY_ORDER: string[] = [];
 
@@ -20,6 +28,7 @@ type EmojiClickDetail = {
 };
 
 const SHORTCODE_PATTERN = /:([A-Za-z0-9_+\-]+):/g;
+const ACTIVE_SHORTCODE_PATTERN = /(^|\s):([A-Za-z0-9_+\-]{1,64})$/;
 
 function normalizeShortcode(value: string): string {
   return value.trim().replace(/^:+|:+$/g, "").toLowerCase();
@@ -52,6 +61,12 @@ type PickerDatabaseEmoji = {
 };
 
 let emojiDatabasePromise: Promise<{
+  getEmojiBySearchQuery: (query: string) => Promise<Array<{
+    unicode?: string;
+    shortcodes?: string[];
+    name?: string;
+    url?: string;
+  }>>;
   getEmojiByShortcode: (shortcode: string) => Promise<{ unicode?: string } | null>;
   customEmoji?: PickerDatabaseEmoji[];
 }> | null = null;
@@ -67,6 +82,12 @@ async function getEmojiDatabase(customEmoji: PickerCustomEmoji[]) {
   if (!emojiDatabasePromise) {
     emojiDatabasePromise = import("emoji-picker-element").then(({ Database }) => {
       return new Database({ customEmoji: dbCustomEmoji }) as {
+        getEmojiBySearchQuery: (query: string) => Promise<Array<{
+          unicode?: string;
+          shortcodes?: string[];
+          name?: string;
+          url?: string;
+        }>>;
         getEmojiByShortcode: (shortcode: string) => Promise<{ unicode?: string } | null>;
         customEmoji?: PickerDatabaseEmoji[];
       };
@@ -231,50 +252,86 @@ export async function normalizeReactionKey(
   return normalized.trim();
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-export async function buildMessageForSend(
+export function getActiveShortcodeRange(
   input: string,
-  customEmoji: PickerCustomEmoji[] = [],
-): Promise<{ body: string; formattedBody?: string }> {
-  const body = await normalizeShortcodesToEmoji(input, customEmoji);
-
-  if (!body.includes(":")) {
-    return { body };
+  cursorPosition: number,
+): { start: number; end: number; query: string } | null {
+  const safeCursor = Math.max(0, Math.min(cursorPosition, input.length));
+  const beforeCursor = input.slice(0, safeCursor);
+  const match = ACTIVE_SHORTCODE_PATTERN.exec(beforeCursor);
+  if (!match) {
+    return null;
   }
 
-  const sourceByShortcode = buildSourceByShortcode(customEmoji);
-
-  if (sourceByShortcode.size === 0) {
-    return { body };
-  }
-
-  let hasCustomEmoji = false;
-  const formattedBody = body.replace(SHORTCODE_PATTERN, (_fullMatch, shortcodeRaw: string) => {
-    const normalized = shortcodeRaw.trim().toLowerCase();
-    const sourceUrl = sourceByShortcode.get(normalized);
-    if (!sourceUrl) {
-      return `:${escapeHtml(shortcodeRaw)}:`;
-    }
-
-    hasCustomEmoji = true;
-    const token = `:${shortcodeRaw}:`;
-    return `<img data-mx-emoticon src="${escapeHtml(sourceUrl)}" alt="${escapeHtml(token)}" title="${escapeHtml(token)}" height="32" />`;
-  });
-
-  if (!hasCustomEmoji) {
-    return { body };
+  const query = match[2]?.trim().toLowerCase() ?? "";
+  if (!query) {
+    return null;
   }
 
   return {
-    body,
-    formattedBody: `<p>${formattedBody}</p>`,
+    start: safeCursor - query.length - 1,
+    end: safeCursor,
+    query,
+  };
+}
+
+export async function getShortcodeSuggestions(
+  input: string,
+  cursorPosition: number,
+  customEmoji: PickerCustomEmoji[] = [],
+) : Promise<{ start: number; end: number; query: string; suggestions: EmojiShortcodeSuggestion[] } | null> {
+  const active = getActiveShortcodeRange(input, cursorPosition);
+  if (!active) {
+    return null;
+  }
+
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const database = await getEmojiDatabase(customEmoji);
+  const results = await database.getEmojiBySearchQuery(active.query);
+
+  const suggestions: EmojiShortcodeSuggestion[] = [];
+  const seenTokens = new Set<string>();
+
+  for (const emoji of results) {
+    const shortcodes = emoji.shortcodes ?? (emoji.name ? [emoji.name] : []);
+    const matchedShortcode = shortcodes.find((entry) => {
+      const normalized = normalizeShortcode(entry);
+      return normalized.startsWith(active.query);
+    });
+
+    if (!matchedShortcode) {
+      continue;
+    }
+
+    const normalizedShortcode = normalizeShortcode(matchedShortcode);
+    const token = `:${normalizedShortcode}:`;
+    if (!normalizedShortcode || seenTokens.has(token)) {
+      continue;
+    }
+
+    suggestions.push({
+      shortcode: normalizedShortcode,
+      token,
+      replacement: emoji.unicode ?? token,
+      kind: emoji.unicode ? "unicode" : "custom",
+      previewUrl: emoji.unicode ? undefined : emoji.url,
+    });
+    seenTokens.add(token);
+
+    if (suggestions.length >= 6) {
+      break;
+    }
+  }
+
+  if (suggestions.length === 0) {
+    return null;
+  }
+
+  return {
+    ...active,
+    suggestions,
   };
 }

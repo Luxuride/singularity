@@ -148,6 +148,37 @@
     return emojiByShortcodeToken.get(normalizedToken) ?? null;
   }
 
+  function emojiName(value: string): string {
+    return value.trim().replace(/^:+|:+$/g, "");
+  }
+
+  function reactionDisplayName(key: string): string {
+    const trimmed = key.trim();
+    if (!trimmed) {
+      return "";
+    }
+
+    const isSourceKey =
+      trimmed.startsWith("mxc://") ||
+      trimmed.startsWith("http://") ||
+      trimmed.startsWith("https://");
+
+    if (isSourceKey) {
+      const fromMessageEmoji = (message.customEmojis ?? []).find((emoji) => emoji.url?.trim() === trimmed);
+      if (fromMessageEmoji?.shortcode) {
+        return emojiName(fromMessageEmoji.shortcode);
+      }
+
+      const fromPickerEmoji = pickerCustomEmoji.find((emoji) => emoji.sourceUrl?.trim() === trimmed);
+      const pickerShortcode = fromPickerEmoji?.shortcodes?.find((entry) => entry.trim().length > 0);
+      if (pickerShortcode) {
+        return emojiName(pickerShortcode);
+      }
+    }
+
+    return emojiName(trimmed);
+  }
+
   function buildMessageBodyParts(message: TimelineMessage): MessageBodyPart[] {
     if (!message.customEmojis?.length && pickerCustomEmoji.length === 0) {
       return [{ type: "text", value: message.body }];
@@ -248,8 +279,9 @@
           <img
             src={part.url}
             alt={part.shortcode}
+            title={emojiName(part.shortcode)}
             class={emojiOnlyBody
-              ? "inline-block h-20 w-20 align-text-bottom mx-0.5"
+              ? "inline-block h-24 w-24 align-text-bottom mx-0.5"
               : "inline-block h-8 w-8 align-text-bottom mx-0.5"}
             loading="lazy"
           />
@@ -266,6 +298,7 @@
         <button
           type="button"
           class="rounded-full px-2 py-0.5 text-xs border"
+          title={reactionDisplayName(reaction.key)}
           class:bg-primary-200-800={ownReaction(reaction)}
           class:text-primary-900-100={ownReaction(reaction)}
           class:bg-surface-200-800={!ownReaction(reaction)}
@@ -278,11 +311,12 @@
             <img
               src={reactionEmojiUrl}
               alt={reaction.key}
+              title={reactionDisplayName(reaction.key)}
               class="inline-block h-5 w-5 align-text-bottom"
               loading="lazy"
             />
           {:else}
-            <span class="inline-block text-2xl leading-none align-text-bottom">{reaction.key}</span>
+            <span class="inline-block text-2xl leading-none align-text-bottom" title={reactionDisplayName(reaction.key)}>{reaction.key}</span>
           {/if}
           {reaction.count}
         </button>

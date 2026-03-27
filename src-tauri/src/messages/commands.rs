@@ -172,11 +172,12 @@ pub async fn matrix_send_chat_message(
         .map_err(|error| format!("Failed to sync Matrix before send: {error}"))?;
 
     let room_id = request.room_id;
+    let picker_custom_emoji = load_picker_assets_from_client(&client).await?;
     let event_id = send_room_message_from_client(
         &client,
         room_id.as_str(),
         request.body.as_str(),
-        request.formatted_body.as_deref(),
+        &picker_custom_emoji,
     )
     .await?;
 
