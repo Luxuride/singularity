@@ -18,8 +18,8 @@ use super::receive::{
 use super::send::send_room_message_from_client;
 use super::types::{
     MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse,
-    MatrixGetUserAvatarRequest, MatrixGetUserAvatarResponse,
-    MatrixSendChatMessageRequest, MatrixSendChatMessageResponse, MatrixStreamChatMessagesRequest,
+    MatrixGetUserAvatarRequest, MatrixGetUserAvatarResponse, MatrixSendChatMessageRequest,
+    MatrixSendChatMessageResponse, MatrixStreamChatMessagesRequest,
     MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest, MatrixToggleReactionResponse,
 };
 

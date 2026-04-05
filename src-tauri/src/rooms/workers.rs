@@ -171,8 +171,7 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
     let long_poll_sync_timeout = Duration::from_secs(config::LONG_POLL_SYNC_TIMEOUT_SECONDS);
     let unauthenticated_delay = Duration::from_secs(config::WORKER_UNAUTH_SLEEP_SECONDS);
     let retry_initial_delay = Duration::from_millis(config::WORKER_RETRY_INITIAL_DELAY_MS);
-    let startup_retry_max_delay =
-        Duration::from_millis(config::WORKER_STARTUP_RETRY_MAX_DELAY_MS);
+    let startup_retry_max_delay = Duration::from_millis(config::WORKER_STARTUP_RETRY_MAX_DELAY_MS);
     let retry_max_delay = Duration::from_millis(config::WORKER_RETRY_MAX_DELAY_MS);
 
     tauri::async_runtime::spawn(async move {
