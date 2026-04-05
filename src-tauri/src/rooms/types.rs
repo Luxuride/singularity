@@ -18,15 +18,27 @@ pub struct MatrixChatSummary {
     pub kind: MatrixRoomKind,
     pub joined: bool,
     pub is_direct: bool,
-    pub parent_room_id: Option<String>,
     #[serde(default)]
-    pub parent_room_ids: Vec<String>,
+    pub children_room_ids: Vec<String>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixGetChatsResponse {
     pub chats: Vec<MatrixChatSummary>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetRoomImageRequest {
+    pub room_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetRoomImageResponse {
+    pub room_id: String,
+    pub image_url: Option<String>,
 }
 
 #[derive(Default, Deserialize)]

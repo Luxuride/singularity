@@ -1,5 +1,9 @@
 <script lang="ts">
+  import { matrixGetRoomImage } from "$lib/chats/api";
   import type { MatrixChatSummary } from "$lib/chats/types";
+
+  const roomImageCache = new Map<string, string | null>();
+  const roomImageInFlight = new Map<string, Promise<string | null>>();
 
   interface Props {
     room: MatrixChatSummary;
@@ -22,10 +26,62 @@
   }: Props = $props();
 
   const isSpace = $derived(room.kind === "space");
+  let lazyImageUrl = $state<string | null>(null);
 
   const indentation = $derived(`${Math.max(0, depth) * 0.9}rem`);
 
   const avatarLabel = $derived(room.displayName.trim().charAt(0).toUpperCase() || "#");
+
+  $effect(() => {
+    lazyImageUrl = room.imageUrl;
+
+    if (room.imageUrl !== null) {
+      roomImageCache.set(room.roomId, room.imageUrl);
+    }
+  });
+
+  $effect(() => {
+    if (lazyImageUrl || room.roomId.startsWith("virtual:")) {
+      return;
+    }
+
+    const cachedImage = roomImageCache.get(room.roomId);
+    if (cachedImage !== undefined) {
+      lazyImageUrl = cachedImage;
+      return;
+    }
+
+    const inFlight = roomImageInFlight.get(room.roomId);
+    if (inFlight) {
+      const roomId = room.roomId;
+      void inFlight.then((imageUrl) => {
+        roomImageCache.set(roomId, imageUrl);
+        if (room.roomId === roomId) {
+          lazyImageUrl = imageUrl;
+        }
+      });
+      return;
+    }
+
+    const roomId = room.roomId;
+    const request = matrixGetRoomImage(room.roomId)
+      .then((imageUrl) => {
+        roomImageCache.set(roomId, imageUrl);
+        return imageUrl;
+      })
+      .catch(() => null)
+      .finally(() => {
+        roomImageInFlight.delete(roomId);
+      });
+
+    roomImageInFlight.set(roomId, request);
+
+    void request.then((imageUrl) => {
+      if (room.roomId === roomId) {
+        lazyImageUrl = imageUrl;
+      }
+    });
+  });
 
   function handleClick() {
     if (isSpace) {
@@ -56,8 +112,8 @@
         <div
           class="mt-0.5 h-8 w-8 shrink-0 rounded-full bg-surface-200-800 overflow-hidden grid place-items-center text-xs font-semibold text-surface-800-200"
         >
-          {#if room.imageUrl}
-            <img src={room.imageUrl} alt="" class="h-full w-full object-cover" loading="lazy" />
+          {#if lazyImageUrl}
+            <img src={lazyImageUrl} alt="" class="h-full w-full object-cover" />
           {:else}
             <span>{avatarLabel}</span>
           {/if}

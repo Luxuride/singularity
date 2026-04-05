@@ -7,6 +7,7 @@ import type {
   MatrixGetChatNavigationRequest,
   MatrixGetChatNavigationResponse,
   MatrixGetChatsResponse,
+  MatrixGetRoomImageResponse,
   MatrixGetChatMessagesRequest,
   MatrixGetChatMessagesResponse,
   MatrixPickerCustomEmoji,
@@ -44,6 +45,18 @@ export async function matrixGetChats(): Promise<MatrixChatSummary[]> {
   try {
     const response = await invoke<MatrixGetChatsResponse>("matrix_get_chats");
     return response.chats.map(normalizeChatSummaryImageUrl);
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixGetRoomImage(roomId: string): Promise<string | null> {
+  try {
+    const response = await invoke<MatrixGetRoomImageResponse>("matrix_get_room_image", {
+      request: { roomId },
+    });
+
+    return normalizeImageUrl(response.imageUrl);
   } catch (error) {
     throw new Error(toMessage(error));
   }

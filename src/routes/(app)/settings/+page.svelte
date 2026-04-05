@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from "$app/navigation";
 	import { onMount } from "svelte";
 	import { get } from "svelte/store";
 
@@ -10,8 +9,12 @@
 		shellChats,
 		shellCurrentUserId,
 		shellErrorMessage,
+		shellPickerCustomEmoji,
 		shellRecoveryState,
 		shellRefreshing,
+		shellRootScopedRooms,
+		shellRootSpaces,
+		shellSelectedRootSpaceId,
 		shellSelectedRoomId,
 	} from "$lib/chats/shell";
 	import { recoveryStateLabel } from "$lib/components/verification/helpers";
@@ -120,10 +123,14 @@
 		try {
 			await matrixLogout();
 			shellChats.set([]);
+			shellRootSpaces.set([]);
+			shellRootScopedRooms.set([]);
 			shellSelectedRoomId.set("");
+			shellSelectedRootSpaceId.set("");
 			shellCurrentUserId.set("");
 			shellRecoveryState.set(null);
-			await goto("/");
+			shellPickerCustomEmoji.set([]);
+			window.location.replace("/");
 		} catch (error) {
 			shellErrorMessage.set(error instanceof Error ? error.message : "Failed to log out");
 		} finally {

@@ -1,5 +1,5 @@
 use log::info;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::auth::AuthState;
 use crate::db::AppDb;
@@ -41,10 +41,6 @@ pub async fn matrix_get_emoji_packs(
 ) -> Result<MatrixGetEmojiPacksResponse, String> {
     info!("matrix_get_emoji_packs requested");
     let client = auth_state.restore_client_and_get(&app_handle).await?;
-
-    sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
-        .await
-        .map_err(|error| format!("Failed to sync Matrix before loading emoji packs: {error}"))?;
 
     let custom_emoji = load_picker_assets_from_client(&client).await?;
 
@@ -113,48 +109,65 @@ pub async fn matrix_get_chat_messages(
 pub async fn matrix_stream_chat_messages(
     request: MatrixStreamChatMessagesRequest,
     auth_state: State<'_, AuthState>,
-    app_db: State<'_, AppDb>,
-    room_update_trigger_state: State<'_, RoomUpdateTriggerState>,
+    _app_db: State<'_, AppDb>,
+    _room_update_trigger_state: State<'_, RoomUpdateTriggerState>,
     app_handle: AppHandle,
 ) -> Result<MatrixStreamChatMessagesResponse, String> {
     info!("matrix_stream_chat_messages requested");
     let client = auth_state.restore_client_and_get(&app_handle).await?;
+    let app_handle_for_task = app_handle.clone();
+    let client_for_task = client.clone();
+    let request_for_task = request.clone();
 
-    let stream_result = stream_room_messages_from_client(
-        StreamRoomMessagesContext {
-            app_handle: &app_handle,
-            app_db: &app_db,
-            room_update_trigger_state: &room_update_trigger_state,
-            client: &client,
-        },
-        request.clone(),
-    )
-    .await;
+    tauri::async_runtime::spawn(async move {
+        let app_db = app_handle_for_task.state::<AppDb>();
+        let room_update_trigger_state = app_handle_for_task.state::<RoomUpdateTriggerState>();
 
-    match stream_result {
-        Ok(response) => Ok(response),
-        Err(error) if is_room_unavailable_error(&error) => {
-            sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
+        let stream_result = stream_room_messages_from_client(
+            StreamRoomMessagesContext {
+                app_handle: &app_handle_for_task,
+                app_db: &app_db,
+                room_update_trigger_state: &room_update_trigger_state,
+                client: &client_for_task,
+            },
+            request_for_task.clone(),
+        )
+        .await;
+
+        if let Err(error) = stream_result {
+            if is_room_unavailable_error(&error) {
+                if let Err(sync_error) = sync_once_serialized(
+                    &client_for_task,
+                    matrix_sdk::config::SyncSettings::default(),
+                )
                 .await
-                .map_err(|sync_error| {
-                    format!(
-                        "Failed to sync Matrix stream after room-unavailable error: {sync_error}"
-                    )
-                })?;
-
-            stream_room_messages_from_client(
-                StreamRoomMessagesContext {
-                    app_handle: &app_handle,
-                    app_db: &app_db,
-                    room_update_trigger_state: &room_update_trigger_state,
-                    client: &client,
-                },
-                request,
-            )
-            .await
+                {
+                    log::warn!(
+                        "Background matrix stream sync failed after room-unavailable error: {sync_error}"
+                    );
+                } else if let Err(retry_error) = stream_room_messages_from_client(
+                    StreamRoomMessagesContext {
+                        app_handle: &app_handle_for_task,
+                        app_db: &app_db,
+                        room_update_trigger_state: &room_update_trigger_state,
+                        client: &client_for_task,
+                    },
+                    request_for_task,
+                )
+                .await
+                {
+                    log::warn!("Background matrix stream retry failed: {retry_error}");
+                }
+            } else {
+                log::warn!("Background matrix stream failed: {error}");
+            }
         }
-        Err(error) => Err(error),
-    }
+    });
+
+    Ok(MatrixStreamChatMessagesResponse {
+        stream_id: request.stream_id,
+        started: true,
+    })
 }
 
 #[tauri::command]

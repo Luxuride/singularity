@@ -101,22 +101,8 @@
 
       shellCurrentUserId.set(session.userId ?? "");
 
-      try {
-        const recovery = await matrixRecoveryStatus();
-        shellRecoveryState.set(recovery.state);
-      } catch {
-        shellRecoveryState.set(null);
-      }
-
       const rooms = await matrixGetChats();
       shellChats.set(rooms);
-
-      try {
-        const { customEmoji: pickerCustomEmoji } = await matrixGetPickerAssets();
-        shellPickerCustomEmoji.set(pickerCustomEmoji);
-      } catch {
-        shellPickerCustomEmoji.set([]);
-      }
 
       const queryRootSpaceId = page.url.searchParams.get("rootSpaceId") ?? "";
       const queryRoomId = page.url.searchParams.get("roomId") ?? "";
@@ -129,10 +115,28 @@
       });
 
       await syncRoute(selectedRootSpaceId, selectedRoomId);
+
+      void loadShellMetadata();
     } catch (error) {
       shellErrorMessage.set(error instanceof Error ? error.message : "Failed to load chats");
     } finally {
       shellLoading.set(false);
+    }
+  }
+
+  async function loadShellMetadata() {
+    try {
+      const recovery = await matrixRecoveryStatus();
+      shellRecoveryState.set(recovery.state);
+    } catch {
+      shellRecoveryState.set(null);
+    }
+
+    try {
+      const { customEmoji: pickerCustomEmoji } = await matrixGetPickerAssets();
+      shellPickerCustomEmoji.set(pickerCustomEmoji);
+    } catch {
+      shellPickerCustomEmoji.set([]);
     }
   }
 

@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use futures_util::StreamExt;
-use log::{error, warn};
+use log::{error, info, warn};
+use matrix_sdk::ruma::events::GlobalAccountDataEventType;
 use matrix_sdk::ruma::events::StateEventType;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
@@ -10,12 +10,10 @@ use tokio::sync::mpsc;
 use crate::auth::handle_unknown_token_error;
 use crate::auth::AuthState;
 use crate::db::AppDb;
-use crate::messages::{
-    cache_mxc_media_to_local_path, fetch_room_messages_from_client, store_initial_room_messages,
-};
+use crate::messages::{fetch_room_messages_from_client, store_initial_room_messages};
 use crate::protocol::config;
 
-use super::persistence::refresh_room_snapshot;
+use super::persistence::{collect_and_store_chats, refresh_room_snapshot};
 use super::types::{MatrixChatSummary, MatrixRoomKind};
 use super::{
     MatrixRoomRemovedEvent, MatrixSelectedRoomMessagesEvent, RoomRefreshTrigger, RoomSnapshot,
@@ -24,14 +22,9 @@ use super::{
 
 pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixChatSummary> {
     let joined_rooms = client.joined_rooms();
-    let linked_parent_space_ids_by_child =
-        linked_parent_space_ids_by_child_room(&joined_rooms).await;
-    let mut chats = Vec::new();
-    let joined_room_ids = joined_rooms
-        .iter()
-        .map(|room| room.room_id().to_string())
-        .collect::<HashSet<_>>();
-    let mut unjoined_parent_space_ids = HashSet::new();
+    let children_by_parent = children_room_ids_by_parent_room(&joined_rooms).await;
+    let direct_room_ids = direct_room_ids(client).await;
+    let mut chats = Vec::with_capacity(joined_rooms.len());
 
     for room in joined_rooms {
         let display_name = room
@@ -46,68 +39,27 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
             .map(|state| state.is_encrypted())
             .unwrap_or(false);
         let joined_members = room.joined_members_count();
-        let is_direct = room.is_direct().await.unwrap_or(false);
+        let is_direct = direct_room_ids.contains(room.room_id().as_str());
         let kind = if room.is_space() {
             MatrixRoomKind::Space
         } else {
             MatrixRoomKind::Room
         };
-        let mut parent_room_ids = parent_space_ids(&room).await;
-        if let Some(linked_parent_ids) =
-            linked_parent_space_ids_by_child.get(room.room_id().as_str())
-        {
-            for linked_parent_id in linked_parent_ids {
-                if !parent_room_ids.contains(linked_parent_id) {
-                    parent_room_ids.push(linked_parent_id.clone());
-                }
-            }
-        }
-        let parent_room_id = parent_room_ids.first().cloned();
-        let room_avatar_image_url = match room.avatar_url() {
-            Some(mxc) => cache_mxc_media_to_local_path(client, mxc.as_str()).await,
-            None => None,
-        };
-        let image_url = if is_direct && matches!(kind, MatrixRoomKind::Room) {
-            match room_avatar_image_url {
-                Some(room_avatar) => Some(room_avatar),
-                None => direct_room_counterparty_avatar_url(client, &room).await,
-            }
-        } else {
-            room_avatar_image_url
-        };
-
-        for parent_id in &parent_room_ids {
-            if !joined_room_ids.contains(parent_id) {
-                unjoined_parent_space_ids.insert(parent_id.clone());
-            }
-        }
+        let children_room_ids = children_by_parent
+            .get(room.room_id().as_str())
+            .cloned()
+            .unwrap_or_default();
 
         chats.push(MatrixChatSummary {
             room_id: room.room_id().to_string(),
             display_name,
-            image_url,
+            image_url: None,
             encrypted,
             joined_members,
             kind,
             joined: true,
             is_direct,
-            parent_room_id,
-            parent_room_ids,
-        });
-    }
-
-    for space_id in unjoined_parent_space_ids {
-        chats.push(MatrixChatSummary {
-            room_id: space_id.clone(),
-            display_name: space_id,
-            image_url: None,
-            encrypted: false,
-            joined_members: 0,
-            kind: MatrixRoomKind::Space,
-            joined: false,
-            is_direct: false,
-            parent_room_id: None,
-            parent_room_ids: vec![],
+            children_room_ids,
         });
     }
 
@@ -116,13 +68,56 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
             .to_lowercase()
             .cmp(&b.display_name.to_lowercase())
     });
+
     chats
 }
 
-async fn linked_parent_space_ids_by_child_room(
-    joined_rooms: &[matrix_sdk::Room],
+async fn direct_room_ids(client: &matrix_sdk::Client) -> HashSet<String> {
+    let mut direct_room_ids = HashSet::new();
+    let raw_content = match client
+        .account()
+        .account_data_raw(GlobalAccountDataEventType::from("m.direct"))
+        .await
+    {
+        Ok(raw_content) => raw_content,
+        Err(_) => return direct_room_ids,
+    };
+
+    let Some(raw_content) = raw_content else {
+        return direct_room_ids;
+    };
+
+    let Ok(content) = raw_content.deserialize_as::<serde_json::Value>() else {
+        return direct_room_ids;
+    };
+
+    let Some(mapping) = content.as_object() else {
+        return direct_room_ids;
+    };
+
+    for room_ids in mapping.values() {
+        let Some(room_ids) = room_ids.as_array() else {
+            continue;
+        };
+
+        for room_id in room_ids {
+            let Some(room_id) = room_id.as_str() else {
+                continue;
+            };
+
+            if !room_id.is_empty() {
+                direct_room_ids.insert(room_id.to_string());
+            }
+        }
+    }
+
+    direct_room_ids
+}
+
+async fn children_room_ids_by_parent_room(
+    joined_rooms: &[matrix_sdk::room::Room],
 ) -> HashMap<String, Vec<String>> {
-    let mut linked_parents_by_child = HashMap::<String, HashSet<String>>::new();
+    let mut children_by_parent = HashMap::<String, HashSet<String>>::new();
 
     for room in joined_rooms {
         if !room.is_space() {
@@ -152,96 +147,32 @@ async fn linked_parent_space_ids_by_child_room(
                 continue;
             }
 
-            linked_parents_by_child
-                .entry(child_room_id.to_string())
+            children_by_parent
+                .entry(parent_space_id.clone())
                 .or_default()
-                .insert(parent_space_id.clone());
+                .insert(child_room_id.to_string());
         }
     }
 
-    linked_parents_by_child
+    children_by_parent
         .into_iter()
-        .map(|(child_room_id, parent_ids)| {
-            let mut parent_ids = parent_ids.into_iter().collect::<Vec<_>>();
-            parent_ids.sort();
-            (child_room_id, parent_ids)
+        .map(|(parent_room_id, child_ids)| {
+            let mut child_ids = child_ids.into_iter().collect::<Vec<_>>();
+            child_ids.sort();
+            (parent_room_id, child_ids)
         })
         .collect()
-}
-
-async fn direct_room_counterparty_avatar_url(
-    client: &matrix_sdk::Client,
-    room: &matrix_sdk::Room,
-) -> Option<String> {
-    let own_user_id = client.user_id()?.to_owned();
-    let members = room
-        .members(matrix_sdk::RoomMemberships::JOIN | matrix_sdk::RoomMemberships::INVITE)
-        .await
-        .ok()?;
-
-    for member in members {
-        if member.user_id().as_str() == own_user_id.as_str() {
-            continue;
-        }
-
-        let avatar_url = member.avatar_url()?;
-        return cache_mxc_media_to_local_path(client, avatar_url.as_str()).await;
-    }
-
-    None
-}
-
-async fn parent_space_ids(room: &matrix_sdk::Room) -> Vec<String> {
-    let mut parent_spaces = match room.parent_spaces().await {
-        Ok(parent_spaces) => parent_spaces,
-        Err(_) => return vec![],
-    };
-
-    let mut candidates = Vec::<(u8, String)>::new();
-
-    while let Some(parent_result) = parent_spaces.next().await {
-        let Ok(parent_space) = parent_result else {
-            continue;
-        };
-
-        let candidate = match parent_space {
-            matrix_sdk::room::ParentSpace::Reciprocal(parent_room) => {
-                Some((0_u8, parent_room.room_id().to_string()))
-            }
-            matrix_sdk::room::ParentSpace::WithPowerlevel(parent_room) => {
-                Some((1_u8, parent_room.room_id().to_string()))
-            }
-            matrix_sdk::room::ParentSpace::Unverifiable(parent_room_id) => {
-                Some((2_u8, parent_room_id.to_string()))
-            }
-            matrix_sdk::room::ParentSpace::Illegitimate(_) => None,
-        };
-
-        let Some((rank, parent_room_id)) = candidate else {
-            continue;
-        };
-
-        candidates.push((rank, parent_room_id));
-    }
-
-    candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
-
-    let mut unique_parent_ids = Vec::<String>::new();
-    for (_, parent_room_id) in candidates {
-        if !unique_parent_ids.contains(&parent_room_id) {
-            unique_parent_ids.push(parent_room_id);
-        }
-    }
-
-    unique_parent_ids
 }
 
 pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
     let (sender, mut receiver) = mpsc::unbounded_channel::<RoomRefreshTrigger>();
     let task_app = app.clone();
-    let sync_timeout = Duration::from_secs(config::LONG_POLL_SYNC_TIMEOUT_SECONDS);
+    let initial_sync_timeout = Duration::from_secs(config::INITIAL_ROOM_SYNC_TIMEOUT_SECONDS);
+    let long_poll_sync_timeout = Duration::from_secs(config::LONG_POLL_SYNC_TIMEOUT_SECONDS);
     let unauthenticated_delay = Duration::from_secs(config::WORKER_UNAUTH_SLEEP_SECONDS);
     let retry_initial_delay = Duration::from_millis(config::WORKER_RETRY_INITIAL_DELAY_MS);
+    let startup_retry_max_delay =
+        Duration::from_millis(config::WORKER_STARTUP_RETRY_MAX_DELAY_MS);
     let retry_max_delay = Duration::from_millis(config::WORKER_RETRY_MAX_DELAY_MS);
 
     tauri::async_runtime::spawn(async move {
@@ -264,7 +195,8 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
                 &mut previous_snapshot,
                 selected_room_id.clone(),
                 include_selected_messages,
-                sync_timeout,
+                initial_sync_timeout,
+                long_poll_sync_timeout,
             )
             .await
             {
@@ -290,13 +222,26 @@ pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
                 }
                 Err(error) => {
                     include_selected_messages = false;
-                    error!("Room update pass failed: {error}");
+                    let has_snapshot = !previous_snapshot.is_empty();
+                    if has_snapshot {
+                        error!("Room update pass failed: {error}");
+                    } else if is_transient_sync_timeout_error(&error) {
+                        info!("Initial room sync timed out; retrying: {error}");
+                    } else {
+                        warn!("Initial room sync pass failed: {error}");
+                    }
+
+                    let max_retry_delay = if has_snapshot {
+                        retry_max_delay
+                    } else {
+                        startup_retry_max_delay
+                    };
 
                     let next_delay = retry_delay
                         .unwrap_or(retry_initial_delay)
-                        .min(retry_max_delay);
+                        .min(max_retry_delay);
 
-                    retry_delay = Some(next_delay.saturating_mul(2).min(retry_max_delay));
+                    retry_delay = Some(next_delay.saturating_mul(2).min(max_retry_delay));
 
                     tokio::select! {
                         _ = tokio::time::sleep(next_delay) => {}
@@ -324,7 +269,8 @@ async fn run_refresh_pass(
     previous_snapshot: &mut RoomSnapshot,
     selected_room_id: Option<String>,
     include_selected_messages: bool,
-    sync_timeout: Duration,
+    initial_sync_timeout: Duration,
+    long_poll_sync_timeout: Duration,
 ) -> Result<bool, String> {
     let auth_state = app.state::<AuthState>();
     auth_state.restore_client_from_disk_if_needed(app).await?;
@@ -332,6 +278,28 @@ async fn run_refresh_pass(
     let client = match auth_state.client() {
         Ok(client) => client,
         Err(_) => return Ok(false),
+    };
+
+    if previous_snapshot.is_empty() {
+        let local_chats = collect_and_store_chats(app, &client).await;
+        if !local_chats.is_empty() {
+            let mut local_snapshot = RoomSnapshot::new();
+            for chat in local_chats {
+                local_snapshot.insert(chat.room_id.clone(), chat);
+            }
+
+            for chat in local_snapshot.values() {
+                let _ = app.emit(RoomUpdateEvent::RoomAdded.as_str(), chat.clone());
+            }
+
+            *previous_snapshot = local_snapshot;
+        }
+    }
+
+    let sync_timeout = if previous_snapshot.is_empty() {
+        initial_sync_timeout
+    } else {
+        long_poll_sync_timeout
     };
 
     let current_snapshot = match refresh_room_snapshot(app, &client, sync_timeout).await {
@@ -402,6 +370,12 @@ fn is_unknown_token_error(error: &str) -> bool {
     error.contains("M_UNKNOWN_TOKEN")
         || error.contains("refresh token does not exist")
         || error.contains("refresh token isn't valid anymore")
+}
+
+fn is_transient_sync_timeout_error(error: &str) -> bool {
+    error.contains("error sending request")
+        || error.contains("timed out")
+        || error.contains("deadline has elapsed")
 }
 
 fn apply_trigger(
