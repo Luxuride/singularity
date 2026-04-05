@@ -1,5 +1,6 @@
 pub(crate) mod commands;
 mod emoji;
+mod helpers;
 mod media;
 mod persistence;
 mod reactions;
