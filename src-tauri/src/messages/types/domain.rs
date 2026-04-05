@@ -23,46 +23,6 @@ pub enum MatrixMessageVerificationStatus {
     Unverified,
 }
 
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MatrixGetChatMessagesRequest {
-    pub room_id: String,
-    pub from: Option<String>,
-    pub limit: Option<u32>,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MatrixStreamChatMessagesRequest {
-    pub room_id: String,
-    pub from: Option<String>,
-    pub limit: Option<u32>,
-    pub stream_id: String,
-    pub load_kind: MatrixMessageLoadKind,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MatrixSendChatMessageRequest {
-    pub room_id: String,
-    pub body: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MatrixToggleReactionRequest {
-    pub room_id: String,
-    pub target_event_id: String,
-    pub key: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MatrixGetUserAvatarRequest {
-    pub room_id: String,
-    pub user_id: String,
-}
-
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixCustomEmoji {
@@ -105,47 +65,6 @@ pub struct MatrixChatMessage {
     pub encrypted: bool,
     pub decryption_status: MatrixMessageDecryptionStatus,
     pub verification_status: MatrixMessageVerificationStatus,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MatrixGetChatMessagesResponse {
-    pub room_id: String,
-    pub next_from: Option<String>,
-    pub messages: Vec<MatrixChatMessage>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MatrixStreamChatMessagesResponse {
-    pub stream_id: String,
-    pub started: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MatrixSendChatMessageResponse {
-    pub event_id: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MatrixToggleReactionResponse {
-    pub added: bool,
-    pub event_id: Option<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MatrixGetUserAvatarResponse {
-    pub user_id: String,
-    pub image_url: Option<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MatrixGetEmojiPacksResponse {
-    pub custom_emoji: Vec<MatrixPickerCustomEmoji>,
 }
 
 #[derive(Clone, Serialize)]
