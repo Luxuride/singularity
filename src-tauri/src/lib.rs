@@ -36,8 +36,10 @@ pub fn run() {
                 }
             }
 
+            assets::image::initialize_media_cache_dir(app.handle());
+
             let app_db = db::AppDb::initialize(app.handle())?;
-            settings::initialize_media_storage_mode(&app_db)?;
+            settings::initialize_media_storage_mode(app.handle())?;
             app.manage(app_db);
 
             let trigger_state = rooms::start_room_update_worker(app.handle().clone());

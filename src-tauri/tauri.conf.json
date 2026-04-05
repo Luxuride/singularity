@@ -22,7 +22,7 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$TEMP/singularity/media-cache/**"
+          "$APPCACHE/media-cache/**"
         ]
       }
     }
