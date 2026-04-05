@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use log::warn;
 use matrix_sdk::ruma::events::GlobalAccountDataEventType;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::auth::AuthState;

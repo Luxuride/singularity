@@ -37,8 +37,8 @@ pub(crate) fn load_media_storage_mode<R: tauri::Runtime>(
         return Ok(MediaStorageMode::InMemory);
     }
 
-    let bytes = fs::read(&path)
-        .map_err(|error| format!("Failed to read media settings file: {error}"))?;
+    let bytes =
+        fs::read(&path).map_err(|error| format!("Failed to read media settings file: {error}"))?;
 
     let persisted: PersistedMediaSettings = serde_json::from_slice(&bytes)
         .map_err(|error| format!("Failed to decode media settings file: {error}"))?;
@@ -79,7 +79,9 @@ pub(crate) fn persist_media_storage_mode<R: tauri::Runtime>(
     Ok(())
 }
 
-fn media_settings_path<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+fn media_settings_path<R: tauri::Runtime>(
+    app_handle: &tauri::AppHandle<R>,
+) -> Result<PathBuf, String> {
     Ok(app_handle
         .path()
         .app_config_dir()
