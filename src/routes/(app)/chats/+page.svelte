@@ -30,8 +30,9 @@
     normalizeReactionKey,
     normalizeShortcodesToEmoji,
   } from "$lib/emoji/picker";
-  import MessageTimeline from "$lib/components/messaging/MessageTimeline.svelte";
-  import MessageComposer from "$lib/components/messaging/MessageComposer.svelte";
+  import { MessageComposer } from "$lib/components/messaging/composer";
+  import { MessageTimeline } from "$lib/components/messaging/timeline";
+  import type { TimelineMessage } from "$lib/components/messaging/shared";
   import RoomList from "$lib/components/navigation/RoomList.svelte";
 
   let loadingMessages = $state(false);
@@ -39,12 +40,6 @@
   let composerErrorMessage = $state("");
   let messageDraft = $state("");
   let sendingMessage = $state(false);
-
-  type MessageSendState = "sending" | "failed";
-  type TimelineMessage = MatrixChatMessage & {
-    localId?: string;
-    sendState?: MessageSendState;
-  };
 
   let messages = $state<TimelineMessage[]>([]);
   let nextFrom = $state<string | null>(null);
