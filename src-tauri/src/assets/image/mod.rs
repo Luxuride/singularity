@@ -9,6 +9,7 @@ use std::sync::{Mutex, OnceLock};
 use log::warn;
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
 use matrix_sdk::ruma::events::room::MediaSource;
+use tauri::Manager;
 static MEDIA_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
 static IN_MEMORY_MEDIA_CACHE: OnceLock<Mutex<InMemoryMediaCache>> = OnceLock::new();
 static CACHED_MEDIA_URLS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
@@ -234,6 +235,25 @@ pub(crate) fn set_media_storage_mode(mode: MediaStorageMode) {
     if matches!(mode, MediaStorageMode::AssetStorage) {
         clear_in_memory_media_cache();
     }
+}
+
+pub(crate) fn initialize_media_cache_dir<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) {
+    if MEDIA_CACHE_DIR.get().is_some() {
+        return;
+    }
+
+    let mut cache_dir = match app_handle.path().app_cache_dir() {
+        Ok(path) => path,
+        Err(error) => {
+            warn!("Failed to resolve app cache directory, falling back to temp dir: {error}");
+            let mut fallback = std::env::temp_dir();
+            fallback.push("singularity");
+            fallback
+        }
+    };
+
+    cache_dir.push("media-cache");
+    let _ = MEDIA_CACHE_DIR.set(cache_dir);
 }
 
 pub(crate) fn handle_media_protocol_request(
