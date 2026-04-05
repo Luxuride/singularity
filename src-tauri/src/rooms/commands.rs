@@ -9,13 +9,11 @@ use crate::messages::cache_mxc_media_to_local_path;
 use super::persistence::{collect_and_store_chats, load_cached_chats, store_cached_chats};
 use super::types::{
     MatrixChatSummary, MatrixGetChatNavigationRequest, MatrixGetChatNavigationResponse,
-    MatrixGetChatsResponse, MatrixGetRoomImageRequest, MatrixGetRoomImageResponse,
-    MatrixRoomKind,
+    MatrixGetChatsResponse, MatrixGetRoomImageRequest, MatrixGetRoomImageResponse, MatrixRoomKind,
 };
 use super::{
-    RoomUpdateEvent,
     MatrixTriggerRoomUpdateRequest, MatrixTriggerRoomUpdateResponse, RoomRefreshTrigger,
-    RoomUpdateTriggerState,
+    RoomUpdateEvent, RoomUpdateTriggerState,
 };
 
 const VIRTUAL_DMS_ROOT_ID: &str = "virtual:dms";
@@ -124,8 +122,7 @@ impl<'a> NavigationIndex<'a> {
             return false;
         };
 
-        room.kind == MatrixRoomKind::Space
-            && self.parent_ids(room.room_id.as_str()).is_empty()
+        room.kind == MatrixRoomKind::Space && self.parent_ids(room.room_id.as_str()).is_empty()
     }
 
     fn derive_root_space_id_for_room(&self, room_id: &str) -> Option<String> {
@@ -269,19 +266,17 @@ impl<'a> NavigationIndex<'a> {
 
 fn has_stale_cached_chat_media(chats: &MatrixGetChatsResponse) -> bool {
     chats.chats.iter().any(|chat| {
-        chat.image_url
-            .as_deref()
-            .is_some_and(|url| {
-                if url.starts_with("matrix-media://") {
-                    return true;
-                }
+        chat.image_url.as_deref().is_some_and(|url| {
+            if url.starts_with("matrix-media://") {
+                return true;
+            }
 
-                if url.starts_with('/') {
-                    return !Path::new(url).exists();
-                }
+            if url.starts_with('/') {
+                return !Path::new(url).exists();
+            }
 
-                false
-            })
+            false
+        })
     })
 }
 
@@ -533,7 +528,10 @@ mod tests {
             kind,
             joined: true,
             is_direct,
-            children_room_ids: children_room_ids.iter().map(|value| (*value).to_string()).collect(),
+            children_room_ids: children_room_ids
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
         }
     }
 
@@ -542,7 +540,12 @@ mod tests {
         let chats = vec![
             chat("!dm:example.org", MatrixRoomKind::Room, true, &[]),
             chat("!orphan:example.org", MatrixRoomKind::Room, false, &[]),
-            chat("!space:example.org", MatrixRoomKind::Space, false, &["!child:example.org"]),
+            chat(
+                "!space:example.org",
+                MatrixRoomKind::Space,
+                false,
+                &["!child:example.org"],
+            ),
             chat("!child:example.org", MatrixRoomKind::Room, false, &[]),
         ];
 
@@ -574,19 +577,19 @@ mod tests {
     #[test]
     fn builds_descendant_scoped_rooms_for_space() {
         let chats = vec![
-            chat("!space:example.org", MatrixRoomKind::Space, false, &["!child-space:example.org"]),
+            chat(
+                "!space:example.org",
+                MatrixRoomKind::Space,
+                false,
+                &["!child-space:example.org"],
+            ),
             chat(
                 "!child-space:example.org",
                 MatrixRoomKind::Space,
                 false,
                 &["!child-room:example.org"],
             ),
-            chat(
-                "!child-room:example.org",
-                MatrixRoomKind::Room,
-                false,
-                &[],
-            ),
+            chat("!child-room:example.org", MatrixRoomKind::Room, false, &[]),
         ];
 
         let scoped = build_root_scoped_rooms(&chats, "!space:example.org");

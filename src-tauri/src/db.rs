@@ -1,5 +1,5 @@
-use std::fs;
 use std::collections::HashMap;
+use std::fs;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -460,14 +460,18 @@ impl AppDb {
                     ",
                     params![room_id, source_url],
                 )
-                .map_err(|error| format!("Failed to upsert chat image source cache row: {error}"))?;
+                .map_err(|error| {
+                    format!("Failed to upsert chat image source cache row: {error}")
+                })?;
         } else {
             connection
                 .execute(
                     "DELETE FROM chat_image_source_cache WHERE room_id = ?1",
                     [room_id],
                 )
-                .map_err(|error| format!("Failed to delete chat image source cache row: {error}"))?;
+                .map_err(|error| {
+                    format!("Failed to delete chat image source cache row: {error}")
+                })?;
         }
 
         Ok(())
@@ -494,12 +498,12 @@ impl AppDb {
             .next()
             .map_err(|error| format!("Failed to read chat image source cache row: {error}"))?
         {
-            let room_id = row
-                .get::<_, String>(0)
-                .map_err(|error| format!("Failed to decode chat image source cache room id: {error}"))?;
-            let source_url = row
-                .get::<_, String>(1)
-                .map_err(|error| format!("Failed to decode chat image source cache source url: {error}"))?;
+            let room_id = row.get::<_, String>(0).map_err(|error| {
+                format!("Failed to decode chat image source cache room id: {error}")
+            })?;
+            let source_url = row.get::<_, String>(1).map_err(|error| {
+                format!("Failed to decode chat image source cache source url: {error}")
+            })?;
 
             image_sources_by_room.insert(room_id, source_url);
         }
@@ -565,9 +569,10 @@ impl AppDb {
                 joined: joined_flag != 0,
                 is_direct: is_direct_flag != 0,
                 children_room_ids: {
-                    let raw_children_room_ids = row.get::<_, Option<String>>(8).map_err(|error| {
-                        format!("Failed to decode chats cache child room ids: {error}")
-                    })?;
+                    let raw_children_room_ids =
+                        row.get::<_, Option<String>>(8).map_err(|error| {
+                            format!("Failed to decode chats cache child room ids: {error}")
+                        })?;
 
                     let child_room_ids = raw_children_room_ids
                         .as_deref()
