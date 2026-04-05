@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { matrixGetRoomImage } from "$lib/chats/api";
   import type { MatrixChatSummary } from "$lib/chats/types";
+
+  const inFlightSpaceImageLoads = new Set<string>();
 
   interface Props {
     spaces: MatrixChatSummary[];
@@ -37,6 +40,26 @@
   function avatarLabelFor(name: string): string {
     return name.trim().charAt(0).toUpperCase() || "#";
   }
+
+  $effect(() => {
+    for (const space of spaces) {
+      if (space.imageUrl || space.roomId.startsWith("virtual:")) {
+        continue;
+      }
+
+      if (inFlightSpaceImageLoads.has(space.roomId)) {
+        continue;
+      }
+
+      inFlightSpaceImageLoads.add(space.roomId);
+
+      void matrixGetRoomImage(space.roomId)
+        .catch(() => null)
+        .finally(() => {
+          inFlightSpaceImageLoads.delete(space.roomId);
+        });
+    }
+  });
 </script>
 
 <aside class="card p-2 preset-outlined-surface-200-800 bg-surface-100-900 flex flex-col flex-1 min-h-0 gap-3">
@@ -58,7 +81,7 @@
                   class="mt-0.5 h-8 w-8 shrink-0 rounded-full bg-surface-200-800 overflow-hidden grid place-items-center text-xs font-semibold text-surface-800-200"
                 >
                   {#if space.imageUrl}
-                    <img src={space.imageUrl} alt="" class="h-full w-full object-cover" loading="lazy" />
+                    <img src={space.imageUrl} alt="" class="h-full w-full object-cover" />
                   {:else}
                     <span>{avatarLabelFor(space.displayName)}</span>
                   {/if}

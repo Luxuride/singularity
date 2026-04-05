@@ -9,12 +9,20 @@ export interface MatrixChatSummary {
   kind: MatrixRoomKind;
   joined: boolean;
   isDirect: boolean;
-  parentRoomId: string | null;
-  parentRoomIds: string[];
+  childrenRoomIds: string[];
 }
 
 export interface MatrixGetChatsResponse {
   chats: MatrixChatSummary[];
+}
+
+export interface MatrixGetRoomImageRequest {
+  roomId: string;
+}
+
+export interface MatrixGetRoomImageResponse {
+  roomId: string;
+  imageUrl: string | null;
 }
 
 export interface MatrixGetChatNavigationRequest {

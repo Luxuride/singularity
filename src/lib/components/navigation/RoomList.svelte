@@ -46,15 +46,21 @@
   const flatEntries = $derived.by<FlatEntry[]>(() => {
     const roomsById = new Map(rooms.map((room) => [room.roomId, room]));
     const childrenByParent = new Map<string, MatrixChatSummary[]>();
-
-    const rootKey = "__root__";
+    const childRoomIds = new Set<string>();
 
     for (const room of rooms) {
-      const parentId = normalizeParentRoomId(room, roomsById);
-      const key = parentId ?? rootKey;
-      const siblings = childrenByParent.get(key) ?? [];
-      siblings.push(room);
-      childrenByParent.set(key, siblings);
+      for (const childRoomId of room.childrenRoomIds ?? []) {
+        childRoomIds.add(childRoomId);
+
+        const childRoom = roomsById.get(childRoomId);
+        if (!childRoom) {
+          continue;
+        }
+
+        const siblings = childrenByParent.get(room.roomId) ?? [];
+        siblings.push(childRoom);
+        childrenByParent.set(room.roomId, siblings);
+      }
     }
 
     for (const siblings of childrenByParent.values()) {
@@ -62,40 +68,16 @@
     }
 
     const entries: FlatEntry[] = [];
-    appendChildren(rootKey, 0, new Set<string>(), entries, childrenByParent);
+    const rootRooms = rooms
+      .filter((room) => !childRoomIds.has(room.roomId))
+      .sort(sortRooms);
+
+    for (const room of rootRooms) {
+      appendRoom(room, 0, new Set<string>(), entries, childrenByParent, room.roomId);
+    }
+
     return entries;
   });
-
-  function normalizeParentRoomId(
-    room: MatrixChatSummary,
-    roomsById: Map<string, MatrixChatSummary>,
-  ): string | null {
-    const candidateParentIds: string[] = [];
-
-    if (room.parentRoomId) {
-      candidateParentIds.push(room.parentRoomId);
-    }
-
-    for (const parentRoomId of room.parentRoomIds ?? []) {
-      if (!candidateParentIds.includes(parentRoomId)) {
-        candidateParentIds.push(parentRoomId);
-      }
-    }
-
-    for (const parentRoomId of candidateParentIds) {
-      if (!parentRoomId || parentRoomId === room.roomId) {
-        continue;
-      }
-
-      if (!roomsById.has(parentRoomId)) {
-        continue;
-      }
-
-      return parentRoomId;
-    }
-
-    return null;
-  }
 
   function sortRooms(a: MatrixChatSummary, b: MatrixChatSummary): number {
     if (a.kind !== b.kind) {
@@ -105,41 +87,49 @@
     return a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" });
   }
 
-  function appendChildren(
-    parentKey: string,
+  function appendRoom(
+    room: MatrixChatSummary,
     depth: number,
     ancestry: Set<string>,
     entries: FlatEntry[],
     childrenByParent: Map<string, MatrixChatSummary[]>,
+    keySeed: string,
   ) {
-    const children = childrenByParent.get(parentKey) ?? [];
-    let childIndex = 0;
+    const children = childrenByParent.get(room.roomId) ?? [];
+    const hasChildren = children.length > 0;
 
-    for (const room of children) {
-      const hasChildren = (childrenByParent.get(room.roomId)?.length ?? 0) > 0;
-      entries.push({
-        key: `${parentKey}:${room.roomId}:${childIndex}`,
-        room,
-        depth,
-        hasChildren,
-      });
-      childIndex += 1;
+    entries.push({
+      key: `${keySeed}:${room.roomId}`,
+      room,
+      depth,
+      hasChildren,
+    });
 
-      if (ancestry.has(room.roomId)) {
-        continue;
-      }
+    if (!hasChildren) {
+      return;
+    }
 
-      if (!hasChildren) {
-        continue;
-      }
+    if (ancestry.has(room.roomId)) {
+      return;
+    }
 
-      if (room.kind === "space" && expandedSpaceIds[room.roomId] === false) {
-        continue;
-      }
+    if (room.kind === "space" && expandedSpaceIds[room.roomId] === false) {
+      return;
+    }
 
-      const nextAncestry = new Set(ancestry);
-      nextAncestry.add(room.roomId);
-      appendChildren(room.roomId, depth + 1, nextAncestry, entries, childrenByParent);
+    const nextAncestry = new Set(ancestry);
+    nextAncestry.add(room.roomId);
+
+    for (let index = 0; index < children.length; index += 1) {
+      const child = children[index];
+      appendRoom(
+        child,
+        depth + 1,
+        nextAncestry,
+        entries,
+        childrenByParent,
+        `${keySeed}:${room.roomId}:${index}`,
+      );
     }
   }
 

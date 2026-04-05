@@ -1,18 +1,17 @@
 use std::collections::{HashMap, HashSet};
-use std::time::Duration;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::auth::AuthState;
-use crate::protocol::config;
-use crate::protocol::sync::sync_once_serialized;
+use crate::messages::cache_mxc_media_to_local_path;
 
-use super::persistence::{load_cached_chats, store_cached_chats};
+use super::persistence::{collect_and_store_chats, load_cached_chats, store_cached_chats};
 use super::types::{
     MatrixChatSummary, MatrixGetChatNavigationRequest, MatrixGetChatNavigationResponse,
-    MatrixGetChatsResponse, MatrixRoomKind,
+    MatrixGetChatsResponse, MatrixGetRoomImageRequest, MatrixGetRoomImageResponse,
+    MatrixRoomKind,
 };
-use super::workers::collect_chat_summaries;
 use super::{
+    RoomUpdateEvent,
     MatrixTriggerRoomUpdateRequest, MatrixTriggerRoomUpdateResponse, RoomRefreshTrigger,
     RoomUpdateTriggerState,
 };
@@ -23,7 +22,7 @@ const VIRTUAL_UNSPACED_ROOT_ID: &str = "virtual:unspaced";
 struct NavigationIndex<'a> {
     chats: &'a [MatrixChatSummary],
     room_by_id: HashMap<&'a str, &'a MatrixChatSummary>,
-    valid_parent_ids_by_room: HashMap<&'a str, Vec<&'a str>>,
+    parent_ids_by_room: HashMap<&'a str, Vec<&'a str>>,
     children_by_parent: HashMap<&'a str, Vec<&'a str>>,
 }
 
@@ -34,50 +33,37 @@ impl<'a> NavigationIndex<'a> {
             .map(|room| (room.room_id.as_str(), room))
             .collect::<HashMap<_, _>>();
 
-        let mut valid_parent_ids_by_room = HashMap::<&str, Vec<&str>>::new();
+        let mut parent_ids_by_room = HashMap::<&str, Vec<&str>>::new();
         let mut children_by_parent = HashMap::<&str, Vec<&str>>::new();
 
         for room in chats {
-            let mut parents = Vec::<&str>::new();
+            let mut children = Vec::<&str>::new();
 
-            if let Some(parent_room_id) = room.parent_room_id.as_deref() {
-                parents.push(parent_room_id);
-            }
-
-            for parent_room_id in &room.parent_room_ids {
-                let parent_room_id = parent_room_id.as_str();
-                if !parents.contains(&parent_room_id) {
-                    parents.push(parent_room_id);
-                }
-            }
-
-            let mut valid_parents = Vec::<&str>::new();
-            for parent_id in parents {
-                if parent_id == room.room_id {
+            for child_room_id in &room.children_room_ids {
+                let child_room_id = child_room_id.as_str();
+                if child_room_id == room.room_id || !room_by_id.contains_key(child_room_id) {
                     continue;
                 }
 
-                if !room_by_id.contains_key(parent_id) {
-                    continue;
-                }
-
-                valid_parents.push(parent_id);
-            }
-
-            for parent_id in &valid_parents {
-                children_by_parent
-                    .entry(parent_id)
+                children.push(child_room_id);
+                parent_ids_by_room
+                    .entry(child_room_id)
                     .or_default()
                     .push(room.room_id.as_str());
             }
 
-            valid_parent_ids_by_room.insert(room.room_id.as_str(), valid_parents);
+            children.sort_unstable();
+            children_by_parent.insert(room.room_id.as_str(), children);
+        }
+
+        for parents in parent_ids_by_room.values_mut() {
+            parents.sort_unstable();
         }
 
         Self {
             chats,
             room_by_id,
-            valid_parent_ids_by_room,
+            parent_ids_by_room,
             children_by_parent,
         }
     }
@@ -86,8 +72,8 @@ impl<'a> NavigationIndex<'a> {
         self.room_by_id.get(room_id).copied()
     }
 
-    fn valid_parent_ids(&self, room_id: &str) -> &[&str] {
-        self.valid_parent_ids_by_room
+    fn parent_ids(&self, room_id: &str) -> &[&str] {
+        self.parent_ids_by_room
             .get(room_id)
             .map(Vec::as_slice)
             .unwrap_or(&[])
@@ -98,17 +84,11 @@ impl<'a> NavigationIndex<'a> {
             return false;
         }
 
-        self.valid_parent_ids(room.room_id.as_str()).is_empty()
-    }
-
-    fn primary_parent_id(&self, room: &MatrixChatSummary) -> Option<String> {
-        self.valid_parent_ids(room.room_id.as_str())
-            .first()
-            .map(|value| (*value).to_string())
+        self.parent_ids(room.room_id.as_str()).is_empty()
     }
 
     fn root_parent_space_id(&self, room: &MatrixChatSummary) -> Option<String> {
-        let mut stack = self.valid_parent_ids(room.room_id.as_str()).to_vec();
+        let mut stack = self.parent_ids(room.room_id.as_str()).to_vec();
         let mut seen = HashSet::<&str>::new();
 
         while let Some(parent_id) = stack.pop() {
@@ -120,7 +100,7 @@ impl<'a> NavigationIndex<'a> {
                 continue;
             };
 
-            let parent_parents = self.valid_parent_ids(parent_room.room_id.as_str());
+            let parent_parents = self.parent_ids(parent_room.room_id.as_str());
             if parent_parents.is_empty() {
                 return Some(parent_room.room_id.clone());
             }
@@ -143,7 +123,7 @@ impl<'a> NavigationIndex<'a> {
         };
 
         room.kind == MatrixRoomKind::Space
-            && self.valid_parent_ids(room.room_id.as_str()).is_empty()
+            && self.parent_ids(room.room_id.as_str()).is_empty()
     }
 
     fn derive_root_space_id_for_room(&self, room_id: &str) -> Option<String> {
@@ -161,7 +141,7 @@ impl<'a> NavigationIndex<'a> {
 
         if let Some(room) = current {
             if room.kind == MatrixRoomKind::Space
-                && self.valid_parent_ids(room.room_id.as_str()).is_empty()
+                && self.parent_ids(room.room_id.as_str()).is_empty()
             {
                 return Some(room.room_id.clone());
             }
@@ -195,8 +175,7 @@ impl<'a> NavigationIndex<'a> {
             kind: MatrixRoomKind::Space,
             joined: true,
             is_direct: false,
-            parent_room_id: None,
-            parent_room_ids: vec![],
+            children_room_ids: vec![],
         };
 
         let unspaced_root = MatrixChatSummary {
@@ -208,20 +187,19 @@ impl<'a> NavigationIndex<'a> {
             kind: MatrixRoomKind::Space,
             joined: true,
             is_direct: false,
-            parent_room_id: None,
-            parent_room_ids: vec![],
+            children_room_ids: vec![],
         };
 
         let mut matrix_root_spaces = self
             .chats
             .iter()
             .filter(|room| room.kind == MatrixRoomKind::Space)
-            .filter(|space| self.valid_parent_ids(space.room_id.as_str()).is_empty())
+            .filter(|space| self.parent_ids(space.room_id.as_str()).is_empty())
             .cloned()
             .collect::<Vec<_>>();
         sort_rooms_by_display_name(&mut matrix_root_spaces);
 
-        let mut roots = Vec::with_capacity(matrix_root_spaces.len() + 2);
+        let mut roots = Vec::with_capacity(matrix_root_spaces.len() + 3);
         roots.push(dms_root);
         roots.push(unspaced_root);
         roots.extend(matrix_root_spaces);
@@ -245,27 +223,23 @@ impl<'a> NavigationIndex<'a> {
                 .chats
                 .iter()
                 .filter(|room| self.is_unspaced_room(room))
-                .map(|room| {
-                    let mut room = room.clone();
-                    room.parent_room_id = self.primary_parent_id(&room);
-                    room
-                })
+                .cloned()
                 .collect::<Vec<_>>();
             sort_rooms_by_display_name(&mut rooms);
             return rooms;
         }
 
         let mut descendants = Vec::<MatrixChatSummary>::new();
-        let mut stack: Vec<(&str, &str, HashSet<&str>)> = self
+        let mut stack: Vec<(&str, HashSet<&str>)> = self
             .children_by_parent
             .get(root_space_id)
             .cloned()
             .unwrap_or_default()
             .into_iter()
-            .map(|child_id| (child_id, root_space_id, HashSet::new()))
+            .map(|child_id| (child_id, HashSet::new()))
             .collect();
 
-        while let Some((room_id, parent_id, ancestry)) = stack.pop() {
+        while let Some((room_id, ancestry)) = stack.pop() {
             if ancestry.contains(room_id) {
                 continue;
             }
@@ -274,16 +248,14 @@ impl<'a> NavigationIndex<'a> {
                 continue;
             };
 
-            let mut candidate = candidate.clone();
-            candidate.parent_room_id = Some(parent_id.to_string());
-            descendants.push(candidate);
+            descendants.push(candidate.clone());
 
             let mut next_ancestry = ancestry;
             next_ancestry.insert(room_id);
 
             if let Some(children) = self.children_by_parent.get(room_id) {
                 for child_id in children {
-                    stack.push((child_id, room_id, next_ancestry.clone()));
+                    stack.push((child_id, next_ancestry.clone()));
                 }
             }
         }
@@ -315,9 +287,8 @@ pub async fn matrix_get_chats(
         if has_stale_in_memory_chat_media(&cached) {
             let client = auth_state.restore_client_and_get(&app_handle).await?;
 
-            let local_chats = collect_chat_summaries(&client).await;
+            let local_chats = collect_and_store_chats(&app_handle, &client).await;
             if !local_chats.is_empty() {
-                let _ = store_cached_chats(&app_handle, &local_chats);
                 let _ = trigger_state.enqueue(RoomRefreshTrigger {
                     selected_room_id: None,
                     include_selected_messages: false,
@@ -337,9 +308,8 @@ pub async fn matrix_get_chats(
 
     let client = auth_state.restore_client_and_get(&app_handle).await?;
 
-    let local_chats = collect_chat_summaries(&client).await;
+    let local_chats = collect_and_store_chats(&app_handle, &client).await;
     if !local_chats.is_empty() {
-        let _ = store_cached_chats(&app_handle, &local_chats);
         let _ = trigger_state.enqueue(RoomRefreshTrigger {
             selected_room_id: None,
             include_selected_messages: false,
@@ -348,24 +318,12 @@ pub async fn matrix_get_chats(
         return Ok(MatrixGetChatsResponse { chats: local_chats });
     }
 
-    sync_once_serialized(
-        &client,
-        matrix_sdk::config::SyncSettings::default()
-            .timeout(Duration::from_secs(config::SYNC_TIMEOUT_SECONDS)),
-    )
-    .await
-    .map_err(|error| format!("Failed to sync Matrix rooms: {error}"))?;
-
-    let chats = collect_chat_summaries(&client).await;
-
-    store_cached_chats(&app_handle, &chats)?;
-
     let _ = trigger_state.enqueue(RoomRefreshTrigger {
         selected_room_id: None,
         include_selected_messages: false,
     });
 
-    Ok(MatrixGetChatsResponse { chats })
+    Ok(MatrixGetChatsResponse { chats: local_chats })
 }
 
 #[tauri::command]
@@ -409,6 +367,53 @@ pub async fn matrix_trigger_room_update(
     })?;
 
     Ok(MatrixTriggerRoomUpdateResponse { queued: true })
+}
+
+#[tauri::command]
+pub async fn matrix_get_room_image(
+    request: MatrixGetRoomImageRequest,
+    auth_state: State<'_, AuthState>,
+    app_handle: AppHandle,
+) -> Result<MatrixGetRoomImageResponse, String> {
+    if request.room_id.starts_with("virtual:") {
+        return Ok(MatrixGetRoomImageResponse {
+            room_id: request.room_id,
+            image_url: None,
+        });
+    }
+
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
+
+    let room_id = matrix_sdk::ruma::OwnedRoomId::try_from(request.room_id.as_str())
+        .map_err(|_| String::from("roomId is invalid"))?;
+    let room = client
+        .get_room(&room_id)
+        .ok_or_else(|| String::from("Room is not available in current session yet"))?;
+
+    let image_url = match room.avatar_url() {
+        Some(mxc) => cache_mxc_media_to_local_path(&client, mxc.as_str()).await,
+        None => None,
+    };
+
+    if let Some(mut chats) = load_cached_chats(&app_handle)? {
+        if let Some(chat) = chats
+            .iter_mut()
+            .find(|candidate| candidate.room_id == request.room_id)
+        {
+            if chat.image_url != image_url {
+                chat.image_url = image_url.clone();
+                let updated_chat = chat.clone();
+
+                let _ = store_cached_chats(&app_handle, &chats);
+                let _ = app_handle.emit(RoomUpdateEvent::RoomUpdated.as_str(), updated_chat);
+            }
+        }
+    }
+
+    Ok(MatrixGetRoomImageResponse {
+        room_id: request.room_id,
+        image_url,
+    })
 }
 
 #[cfg(test)]
@@ -469,8 +474,7 @@ mod tests {
             kind: MatrixRoomKind::Room,
             joined: true,
             is_direct: false,
-            parent_room_id: None,
-            parent_room_ids: vec![],
+            children_room_ids: vec![],
         }
     }
 
@@ -502,12 +506,8 @@ mod tests {
         room_id: &str,
         kind: MatrixRoomKind,
         is_direct: bool,
-        parent_room_id: Option<&str>,
+        children_room_ids: &[&str],
     ) -> MatrixChatSummary {
-        let parent_room_ids = parent_room_id
-            .map(|value| vec![value.to_string()])
-            .unwrap_or_default();
-
         MatrixChatSummary {
             room_id: room_id.to_string(),
             display_name: room_id.to_string(),
@@ -517,16 +517,17 @@ mod tests {
             kind,
             joined: true,
             is_direct,
-            parent_room_id: parent_room_id.map(ToOwned::to_owned),
-            parent_room_ids,
+            children_room_ids: children_room_ids.iter().map(|value| (*value).to_string()).collect(),
         }
     }
 
     #[test]
     fn builds_virtual_roots_with_counts() {
         let chats = vec![
-            chat("!dm:example.org", MatrixRoomKind::Room, true, None),
-            chat("!orphan:example.org", MatrixRoomKind::Room, false, None),
+            chat("!dm:example.org", MatrixRoomKind::Room, true, &[]),
+            chat("!orphan:example.org", MatrixRoomKind::Room, false, &[]),
+            chat("!space:example.org", MatrixRoomKind::Space, false, &["!child:example.org"]),
+            chat("!child:example.org", MatrixRoomKind::Room, false, &[]),
         ];
 
         let roots = build_root_spaces(&chats);
@@ -534,13 +535,14 @@ mod tests {
         assert_eq!(roots[0].joined_members, 1);
         assert_eq!(roots[1].room_id, VIRTUAL_UNSPACED_ROOT_ID);
         assert_eq!(roots[1].joined_members, 1);
+        assert_eq!(roots[2].room_id, "!space:example.org");
     }
 
     #[test]
-    fn derives_virtual_root_for_direct_and_unspaced_room() {
+    fn derives_virtual_root_for_unspaced_room() {
         let chats = vec![
-            chat("!dm:example.org", MatrixRoomKind::Room, true, None),
-            chat("!orphan:example.org", MatrixRoomKind::Room, false, None),
+            chat("!dm:example.org", MatrixRoomKind::Room, true, &[]),
+            chat("!orphan:example.org", MatrixRoomKind::Room, false, &[]),
         ];
 
         assert_eq!(
@@ -556,18 +558,18 @@ mod tests {
     #[test]
     fn builds_descendant_scoped_rooms_for_space() {
         let chats = vec![
-            chat("!space:example.org", MatrixRoomKind::Space, false, None),
+            chat("!space:example.org", MatrixRoomKind::Space, false, &["!child-space:example.org"]),
             chat(
                 "!child-space:example.org",
                 MatrixRoomKind::Space,
                 false,
-                Some("!space:example.org"),
+                &["!child-room:example.org"],
             ),
             chat(
                 "!child-room:example.org",
                 MatrixRoomKind::Room,
                 false,
-                Some("!child-space:example.org"),
+                &[],
             ),
         ];
 
@@ -583,27 +585,26 @@ mod tests {
 
     #[test]
     fn keeps_room_in_multiple_subspaces() {
-        let mut multi_parent_room = chat("!room:example.org", MatrixRoomKind::Room, false, None);
-        multi_parent_room.parent_room_ids = vec![
-            String::from("!space-a:example.org"),
-            String::from("!space-b:example.org"),
-        ];
-
         let chats = vec![
-            chat("!root:example.org", MatrixRoomKind::Space, false, None),
+            chat(
+                "!root:example.org",
+                MatrixRoomKind::Space,
+                false,
+                &["!space-a:example.org", "!space-b:example.org"],
+            ),
             chat(
                 "!space-a:example.org",
                 MatrixRoomKind::Space,
                 false,
-                Some("!root:example.org"),
+                &["!room:example.org"],
             ),
             chat(
                 "!space-b:example.org",
                 MatrixRoomKind::Space,
                 false,
-                Some("!root:example.org"),
+                &["!room:example.org"],
             ),
-            multi_parent_room,
+            chat("!room:example.org", MatrixRoomKind::Room, false, &[]),
         ];
 
         let scoped = build_root_scoped_rooms(&chats, "!root:example.org");

@@ -79,8 +79,7 @@ impl AppDb {
                     room_kind TEXT NOT NULL DEFAULT 'room',
                     joined INTEGER NOT NULL DEFAULT 1,
                     is_direct INTEGER NOT NULL DEFAULT 0,
-                    parent_room_id TEXT,
-                    parent_room_ids TEXT NOT NULL DEFAULT '[]',
+                    children_room_ids TEXT NOT NULL DEFAULT '[]',
                     updated_at INTEGER NOT NULL
                 );
 
@@ -157,9 +156,9 @@ impl AppDb {
         let mut has_room_kind = false;
         let mut has_joined = false;
         let mut has_is_direct = false;
-        let mut has_parent_room_id = false;
-        let mut has_parent_room_ids = false;
+        let mut has_children_room_ids = false;
         let mut has_image_url = false;
+        let mut has_legacy_parent_columns = false;
 
         while let Some(row) = rows
             .next()
@@ -181,12 +180,12 @@ impl AppDb {
                 has_is_direct = true;
             }
 
-            if column_name == "parent_room_id" {
-                has_parent_room_id = true;
+            if column_name == "children_room_ids" {
+                has_children_room_ids = true;
             }
 
-            if column_name == "parent_room_ids" {
-                has_parent_room_ids = true;
+            if column_name == "parent_room_id" || column_name == "parent_room_ids" {
+                has_legacy_parent_columns = true;
             }
 
             if column_name == "image_url" {
@@ -194,56 +193,37 @@ impl AppDb {
             }
         }
 
-        if !has_room_kind {
-            connection
-                .execute(
-                    "ALTER TABLE chats_cache ADD COLUMN room_kind TEXT NOT NULL DEFAULT 'room'",
-                    [],
-                )
-                .map_err(|error| format!("Failed to add chats cache room_kind column: {error}"))?;
-        }
+        let schema_incompatible = has_legacy_parent_columns
+            || !has_room_kind
+            || !has_joined
+            || !has_is_direct
+            || !has_image_url
+            || !has_children_room_ids;
 
-        if !has_parent_room_id {
+        if schema_incompatible {
+            log::warn!("Recreating chats_cache for breaking children_room_ids schema change");
             connection
-                .execute("ALTER TABLE chats_cache ADD COLUMN parent_room_id TEXT", [])
+                .execute_batch(
+                    "
+                    DROP TABLE IF EXISTS chats_cache;
+
+                    CREATE TABLE chats_cache (
+                        room_id TEXT PRIMARY KEY,
+                        display_name TEXT NOT NULL,
+                        image_url TEXT,
+                        encrypted INTEGER NOT NULL,
+                        joined_members INTEGER NOT NULL,
+                        room_kind TEXT NOT NULL DEFAULT 'room',
+                        joined INTEGER NOT NULL DEFAULT 1,
+                        is_direct INTEGER NOT NULL DEFAULT 0,
+                        children_room_ids TEXT NOT NULL DEFAULT '[]',
+                        updated_at INTEGER NOT NULL
+                    );
+                    ",
+                )
                 .map_err(|error| {
-                    format!("Failed to add chats cache parent_room_id column: {error}")
+                    format!("Failed to recreate chats cache for new schema: {error}")
                 })?;
-        }
-
-        if !has_parent_room_ids {
-            connection
-                .execute(
-                    "ALTER TABLE chats_cache ADD COLUMN parent_room_ids TEXT NOT NULL DEFAULT '[]'",
-                    [],
-                )
-                .map_err(|error| {
-                    format!("Failed to add chats cache parent_room_ids column: {error}")
-                })?;
-        }
-
-        if !has_joined {
-            connection
-                .execute(
-                    "ALTER TABLE chats_cache ADD COLUMN joined INTEGER NOT NULL DEFAULT 1",
-                    [],
-                )
-                .map_err(|error| format!("Failed to add chats cache joined column: {error}"))?;
-        }
-
-        if !has_is_direct {
-            connection
-                .execute(
-                    "ALTER TABLE chats_cache ADD COLUMN is_direct INTEGER NOT NULL DEFAULT 0",
-                    [],
-                )
-                .map_err(|error| format!("Failed to add chats cache is_direct column: {error}"))?;
-        }
-
-        if !has_image_url {
-            connection
-                .execute("ALTER TABLE chats_cache ADD COLUMN image_url TEXT", [])
-                .map_err(|error| format!("Failed to add chats cache image_url column: {error}"))?;
         }
 
         Ok(())
@@ -415,11 +395,10 @@ impl AppDb {
                         room_kind,
                         joined,
                         is_direct,
-                        parent_room_id,
-                        parent_room_ids,
+                        children_room_ids,
                         updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, unixepoch())
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, unixepoch())
                     ",
                 )
                 .map_err(|error| format!("Failed to prepare chats cache insert: {error}"))?;
@@ -430,8 +409,8 @@ impl AppDb {
                     MatrixRoomKind::Room => "room",
                 };
 
-                let encoded_parent_room_ids = serde_json::to_string(&chat.parent_room_ids)
-                    .map_err(|error| format!("Failed to encode parent room ids: {error}"))?;
+                let encoded_children_room_ids = serde_json::to_string(&chat.children_room_ids)
+                    .map_err(|error| format!("Failed to encode child room ids: {error}"))?;
 
                 statement
                     .execute(params![
@@ -443,8 +422,7 @@ impl AppDb {
                         room_kind,
                         if chat.joined { 1_i64 } else { 0_i64 },
                         if chat.is_direct { 1_i64 } else { 0_i64 },
-                        chat.parent_room_id,
-                        encoded_parent_room_ids,
+                        encoded_children_room_ids,
                     ])
                     .map_err(|error| format!("Failed to insert chats cache row: {error}"))?;
             }
@@ -461,7 +439,7 @@ impl AppDb {
         let mut statement = connection
             .prepare(
                 "
-                SELECT room_id, display_name, image_url, encrypted, joined_members, room_kind, joined, is_direct, parent_room_id, parent_room_ids
+                SELECT room_id, display_name, image_url, encrypted, joined_members, room_kind, joined, is_direct, children_room_ids
                 FROM chats_cache
                 ORDER BY updated_at DESC, room_id ASC
                 ",
@@ -513,32 +491,17 @@ impl AppDb {
                 kind,
                 joined: joined_flag != 0,
                 is_direct: is_direct_flag != 0,
-                parent_room_id: row.get::<_, Option<String>>(8).map_err(|error| {
-                    format!("Failed to decode chats cache parent room id: {error}")
-                })?,
-                parent_room_ids: {
-                    let raw_parent_room_ids = row.get::<_, Option<String>>(9).map_err(|error| {
-                        format!("Failed to decode chats cache parent room ids: {error}")
+                children_room_ids: {
+                    let raw_children_room_ids = row.get::<_, Option<String>>(8).map_err(|error| {
+                        format!("Failed to decode chats cache child room ids: {error}")
                     })?;
 
-                    let mut parent_room_ids = raw_parent_room_ids
+                    let child_room_ids = raw_children_room_ids
                         .as_deref()
                         .and_then(|encoded| serde_json::from_str::<Vec<String>>(encoded).ok())
                         .unwrap_or_default();
 
-                    if parent_room_ids.is_empty() {
-                        if let Some(parent_room_id) =
-                            row.get::<_, Option<String>>(8).map_err(|error| {
-                                format!(
-                                    "Failed to decode chats cache parent room id fallback: {error}"
-                                )
-                            })?
-                        {
-                            parent_room_ids.push(parent_room_id);
-                        }
-                    }
-
-                    parent_room_ids
+                    child_room_ids
                 },
             });
         }

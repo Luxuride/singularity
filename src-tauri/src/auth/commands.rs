@@ -32,6 +32,10 @@ fn map_recovery_state(state: RecoveryState) -> String {
     }
 }
 
+fn is_crypto_store_account_mismatch(error: &str) -> bool {
+    error.contains("account in the store doesn't match the account in the constructor")
+}
+
 #[tauri::command]
 pub async fn matrix_start_oauth(
     request: MatrixStartOAuthRequest,
@@ -84,7 +88,7 @@ pub async fn matrix_complete_oauth(
         .take()
         .ok_or_else(|| String::from("No login flow in progress. Start OAuth first."))?;
 
-    let parsed = client
+    let parsed = match client
         .matrix_auth()
         .login_with_sso_callback(callback_url)
         .map_err(|_| String::from("Callback URL is missing a valid loginToken"))?
@@ -92,7 +96,29 @@ pub async fn matrix_complete_oauth(
         .request_refresh_token()
         .send()
         .await
-        .map_err(|error| format!("Matrix login completion failed: {error}"))?;
+    {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            let error_text = error.to_string();
+
+            if is_crypto_store_account_mismatch(&error_text) {
+                log::warn!(
+                    "Matrix login hit crypto-store account mismatch; resetting local auth and SDK store"
+                );
+
+                let _ = auth_state.clear_runtime_session();
+                let _ = clear_persisted_session(&app_handle);
+                let _ = clear_app_cache(&app_handle);
+                let _ = clear_matrix_sdk_store(&app_handle);
+
+                return Err(String::from(
+                    "Matrix login failed because local crypto data belongs to a different device session. Local session data was reset. Please start sign-in again.",
+                ));
+            }
+
+            return Err(format!("Matrix login completion failed: {error_text}"));
+        }
+    };
 
     let homeserver_url = client.homeserver().to_string();
     let user_id = parsed.user_id.to_string();
