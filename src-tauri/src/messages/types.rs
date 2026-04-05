@@ -56,6 +56,13 @@ pub struct MatrixToggleReactionRequest {
     pub key: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetUserAvatarRequest {
+    pub room_id: String,
+    pub user_id: String,
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixCustomEmoji {
@@ -126,6 +133,13 @@ pub struct MatrixSendChatMessageResponse {
 pub struct MatrixToggleReactionResponse {
     pub added: bool,
     pub event_id: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetUserAvatarResponse {
+    pub user_id: String,
+    pub image_url: Option<String>,
 }
 
 #[derive(Serialize)]

@@ -2,7 +2,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -11,6 +11,7 @@ use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
 use matrix_sdk::ruma::events::room::MediaSource;
 static MEDIA_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
 static IN_MEMORY_MEDIA_CACHE: OnceLock<Mutex<InMemoryMediaCache>> = OnceLock::new();
+static CACHED_MEDIA_URLS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 static MEDIA_STORAGE_MODE: AtomicU8 = AtomicU8::new(MediaStorageMode::InMemory as u8);
 
 const MAX_IN_MEMORY_MEDIA_ITEMS: usize = 512;
@@ -266,6 +267,10 @@ pub(crate) async fn cache_mxc_media_to_local_path(
         return None;
     }
 
+    if let Some(cached_path) = cached_media_path_for_source_url(raw_url) {
+        return Some(cached_path);
+    }
+
     let mxc_uri = matrix_sdk::ruma::OwnedMxcUri::from(raw_url);
     let request = MediaRequestParameters {
         source: MediaSource::Plain(mxc_uri),
@@ -291,7 +296,9 @@ pub(crate) async fn cache_mxc_media_to_local_path(
         .mime_type(mime_type)
         .build()?;
 
-    persist_normalized_image(&request)
+    let resolved_path = persist_normalized_image(&request)?;
+    register_cached_media_path(raw_url, &resolved_path);
+    Some(resolved_path)
 }
 
 pub(crate) fn cache_event_image(bytes: &[u8], key_parts: ImageCacheKeyParts) -> Option<String> {
@@ -463,10 +470,51 @@ fn clear_in_memory_media_cache() {
     if let Ok(mut cache) = in_memory_media_cache().lock() {
         cache.clear();
     }
+
+    if let Ok(mut cached_urls) = cached_media_urls().lock() {
+        cached_urls.clear();
+    }
 }
 
 fn in_memory_media_cache() -> &'static Mutex<InMemoryMediaCache> {
     IN_MEMORY_MEDIA_CACHE.get_or_init(|| Mutex::new(InMemoryMediaCache::default()))
+}
+
+fn cached_media_urls() -> &'static Mutex<HashMap<String, String>> {
+    CACHED_MEDIA_URLS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cached_media_path_for_source_url(source_url: &str) -> Option<String> {
+    let cached_path = {
+        let cache = cached_media_urls();
+        let lock = cache.lock().ok()?;
+        lock.get(source_url).cloned()
+    }?;
+
+    if cached_path.starts_with("matrix-media://") {
+        let media_key = cached_path
+            .trim_start_matches("matrix-media://localhost/")
+            .trim_start_matches("matrix-media://")
+            .to_owned();
+
+        if load_cached_media_from_memory(&media_key).is_some() {
+            return Some(cached_path);
+        }
+    } else if Path::new(&cached_path).exists() {
+        return Some(cached_path);
+    }
+
+    if let Ok(mut cache) = cached_media_urls().lock() {
+        cache.remove(source_url);
+    }
+
+    None
+}
+
+fn register_cached_media_path(source_url: &str, resolved_path: &str) {
+    if let Ok(mut cache) = cached_media_urls().lock() {
+        cache.insert(source_url.to_owned(), resolved_path.to_owned());
+    }
 }
 
 fn to_in_memory_media_url(media_key: &str) -> String {

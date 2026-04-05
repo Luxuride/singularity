@@ -103,6 +103,16 @@ export interface MatrixGetEmojiPacksResponse {
   customEmoji: MatrixPickerCustomEmoji[];
 }
 
+export interface MatrixGetUserAvatarRequest {
+  roomId: string;
+  userId: string;
+}
+
+export interface MatrixGetUserAvatarResponse {
+  userId: string;
+  imageUrl: string | null;
+}
+
 export interface MatrixReactionSummary {
   key: string;
   count: number;

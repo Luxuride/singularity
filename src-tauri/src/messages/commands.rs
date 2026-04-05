@@ -1,4 +1,4 @@
-use log::info;
+use log::{info, warn};
 use tauri::{AppHandle, Manager, State};
 
 use crate::auth::AuthState;
@@ -7,6 +7,7 @@ use crate::protocol::sync::sync_once_serialized;
 use crate::rooms::{RoomRefreshTrigger, RoomUpdateTriggerState};
 
 use super::emoji::load_picker_assets_from_client;
+use super::media::cache_mxc_media_to_local_path;
 use super::persistence::{
     is_cacheable_initial_request, load_initial_room_messages, store_initial_room_messages,
 };
@@ -17,9 +18,20 @@ use super::receive::{
 use super::send::send_room_message_from_client;
 use super::types::{
     MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse,
+    MatrixGetUserAvatarRequest, MatrixGetUserAvatarResponse,
     MatrixSendChatMessageRequest, MatrixSendChatMessageResponse, MatrixStreamChatMessagesRequest,
     MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest, MatrixToggleReactionResponse,
 };
+
+use matrix_sdk::ruma::{OwnedRoomId, OwnedUserId};
+
+fn parse_user_id(user_id_raw: &str) -> Result<OwnedUserId, String> {
+    OwnedUserId::try_from(user_id_raw).map_err(|_| format!("Invalid user ID: {user_id_raw}"))
+}
+
+fn parse_room_id(room_id_raw: &str) -> Result<OwnedRoomId, String> {
+    OwnedRoomId::try_from(room_id_raw).map_err(|_| format!("Invalid room ID: {room_id_raw}"))
+}
 
 fn has_stale_in_memory_media_urls(response: &MatrixGetChatMessagesResponse) -> bool {
     response.messages.iter().any(|message| {
@@ -45,6 +57,48 @@ pub async fn matrix_get_emoji_packs(
     let custom_emoji = load_picker_assets_from_client(&client).await?;
 
     Ok(MatrixGetEmojiPacksResponse { custom_emoji })
+}
+
+#[tauri::command]
+pub async fn matrix_get_user_avatar(
+    request: MatrixGetUserAvatarRequest,
+    auth_state: State<'_, AuthState>,
+    app_handle: AppHandle,
+) -> Result<MatrixGetUserAvatarResponse, String> {
+    info!("matrix_get_user_avatar requested");
+    let client = auth_state.restore_client_and_get(&app_handle).await?;
+    let user_id = parse_user_id(request.user_id.as_str())?;
+    let room_id = parse_room_id(request.room_id.as_str())?;
+
+    let room = match client.get_room(&room_id) {
+        Some(room) => room,
+        None => {
+            return Ok(MatrixGetUserAvatarResponse {
+                user_id: request.user_id,
+                image_url: None,
+            });
+        }
+    };
+
+    let image_url = match room.get_member(user_id.as_ref()).await {
+        Ok(Some(member)) => match member.avatar_url() {
+            Some(avatar_url) => cache_mxc_media_to_local_path(&client, avatar_url.as_str()).await,
+            None => None,
+        },
+        Ok(None) => None,
+        Err(error) => {
+            warn!(
+                "Failed to fetch member profile for {} in {}: {}",
+                user_id, room_id, error
+            );
+            None
+        }
+    };
+
+    Ok(MatrixGetUserAvatarResponse {
+        user_id: request.user_id,
+        image_url,
+    })
 }
 
 #[tauri::command]
