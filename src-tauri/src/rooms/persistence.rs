@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use tauri::{AppHandle, Manager};
 
 use crate::db::AppDb;
+use crate::messages::cache_mxc_media_to_local_path;
 use crate::protocol::sync::sync_once_serialized;
 
 use super::types::MatrixChatSummary;
@@ -12,6 +13,13 @@ use super::RoomSnapshot;
 pub(crate) fn load_cached_chats(app: &AppHandle) -> Result<Option<Vec<MatrixChatSummary>>, String> {
     let app_db = app.state::<AppDb>();
     app_db.load_cached_chats()
+}
+
+pub(crate) fn load_cached_chat_image_sources(
+    app: &AppHandle,
+) -> Result<HashMap<String, String>, String> {
+    let app_db = app.state::<AppDb>();
+    app_db.load_cached_chat_image_sources()
 }
 
 pub(crate) fn store_cached_chats(
@@ -34,12 +42,19 @@ pub(crate) async fn collect_and_store_chats(
         .filter_map(|chat| chat.image_url.map(|image_url| (chat.room_id, image_url)))
         .collect::<HashMap<_, _>>();
 
+    let cached_image_sources_by_room = load_cached_chat_image_sources(app).unwrap_or_default();
+
     let mut chats = collect_chat_summaries(client).await;
     for chat in &mut chats {
-        if chat.image_url.is_none() {
-            if let Some(image_url) = cached_images_by_room.get(chat.room_id.as_str()) {
-                chat.image_url = Some(image_url.clone());
-            }
+        if let Some(source_url) = cached_image_sources_by_room.get(chat.room_id.as_str()) {
+            chat.image_url = cache_mxc_media_to_local_path(client, source_url)
+                .await
+                .or_else(|| cached_images_by_room.get(chat.room_id.as_str()).cloned());
+            continue;
+        }
+
+        if let Some(image_url) = cached_images_by_room.get(chat.room_id.as_str()) {
+            chat.image_url = Some(image_url.clone());
         }
     }
 

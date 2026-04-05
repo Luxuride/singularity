@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::auth::AuthState;
+use crate::db::AppDb;
 use crate::messages::cache_mxc_media_to_local_path;
 
 use super::persistence::{collect_and_store_chats, load_cached_chats, store_cached_chats};
@@ -265,11 +267,21 @@ impl<'a> NavigationIndex<'a> {
     }
 }
 
-fn has_stale_in_memory_chat_media(chats: &MatrixGetChatsResponse) -> bool {
+fn has_stale_cached_chat_media(chats: &MatrixGetChatsResponse) -> bool {
     chats.chats.iter().any(|chat| {
         chat.image_url
             .as_deref()
-            .is_some_and(|url| url.starts_with("matrix-media://"))
+            .is_some_and(|url| {
+                if url.starts_with("matrix-media://") {
+                    return true;
+                }
+
+                if url.starts_with('/') {
+                    return !Path::new(url).exists();
+                }
+
+                false
+            })
     })
 }
 
@@ -284,7 +296,7 @@ pub async fn matrix_get_chats(
             chats: cached_chats,
         };
 
-        if has_stale_in_memory_chat_media(&cached) {
+        if has_stale_cached_chat_media(&cached) {
             let client = auth_state.restore_client_and_get(&app_handle).await?;
 
             let local_chats = collect_and_store_chats(&app_handle, &client).await;
@@ -373,6 +385,7 @@ pub async fn matrix_trigger_room_update(
 pub async fn matrix_get_room_image(
     request: MatrixGetRoomImageRequest,
     auth_state: State<'_, AuthState>,
+    app_db: State<'_, AppDb>,
     app_handle: AppHandle,
 ) -> Result<MatrixGetRoomImageResponse, String> {
     if request.room_id.starts_with("virtual:") {
@@ -390,10 +403,13 @@ pub async fn matrix_get_room_image(
         .get_room(&room_id)
         .ok_or_else(|| String::from("Room is not available in current session yet"))?;
 
-    let image_url = match room.avatar_url() {
-        Some(mxc) => cache_mxc_media_to_local_path(&client, mxc.as_str()).await,
+    let avatar_source_url = room.avatar_url().map(|mxc| mxc.to_string());
+    let image_url = match avatar_source_url.as_deref() {
+        Some(source_url) => cache_mxc_media_to_local_path(&client, source_url).await,
         None => None,
     };
+
+    let _ = app_db.set_chat_image_source(request.room_id.as_str(), avatar_source_url.as_deref());
 
     if let Some(mut chats) = load_cached_chats(&app_handle)? {
         if let Some(chat) = chats
@@ -460,7 +476,7 @@ fn build_root_scoped_rooms(
 mod tests {
     use super::{
         build_root_scoped_rooms, build_root_spaces, derive_root_space_id_for_room,
-        has_stale_in_memory_chat_media, VIRTUAL_DMS_ROOT_ID, VIRTUAL_UNSPACED_ROOT_ID,
+        has_stale_cached_chat_media, VIRTUAL_DMS_ROOT_ID, VIRTUAL_UNSPACED_ROOT_ID,
     };
     use crate::rooms::types::{MatrixChatSummary, MatrixGetChatsResponse, MatrixRoomKind};
 
@@ -486,7 +502,7 @@ mod tests {
             ))],
         };
 
-        assert!(has_stale_in_memory_chat_media(&response));
+        assert!(has_stale_cached_chat_media(&response));
     }
 
     #[test]
@@ -499,7 +515,7 @@ mod tests {
             ],
         };
 
-        assert!(!has_stale_in_memory_chat_media(&response));
+        assert!(!has_stale_cached_chat_media(&response));
     }
 
     fn chat(

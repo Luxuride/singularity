@@ -1,4 +1,5 @@
 use std::fs;
+use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -80,6 +81,12 @@ impl AppDb {
                     joined INTEGER NOT NULL DEFAULT 1,
                     is_direct INTEGER NOT NULL DEFAULT 0,
                     children_room_ids TEXT NOT NULL DEFAULT '[]',
+                    updated_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS chat_image_source_cache (
+                    room_id TEXT PRIMARY KEY,
+                    source_url TEXT NOT NULL,
                     updated_at INTEGER NOT NULL
                 );
 
@@ -432,6 +439,72 @@ impl AppDb {
             .map_err(|error| format!("Failed to commit chats cache transaction: {error}"))?;
 
         Ok(())
+    }
+
+    pub(crate) fn set_chat_image_source(
+        &self,
+        room_id: &str,
+        source_url: Option<&str>,
+    ) -> Result<(), String> {
+        let connection = self.lock()?;
+
+        if let Some(source_url) = source_url {
+            connection
+                .execute(
+                    "
+                    INSERT INTO chat_image_source_cache (room_id, source_url, updated_at)
+                    VALUES (?1, ?2, unixepoch())
+                    ON CONFLICT(room_id) DO UPDATE SET
+                        source_url = excluded.source_url,
+                        updated_at = unixepoch()
+                    ",
+                    params![room_id, source_url],
+                )
+                .map_err(|error| format!("Failed to upsert chat image source cache row: {error}"))?;
+        } else {
+            connection
+                .execute(
+                    "DELETE FROM chat_image_source_cache WHERE room_id = ?1",
+                    [room_id],
+                )
+                .map_err(|error| format!("Failed to delete chat image source cache row: {error}"))?;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn load_cached_chat_image_sources(&self) -> Result<HashMap<String, String>, String> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare(
+                "
+                SELECT room_id, source_url
+                FROM chat_image_source_cache
+                ORDER BY updated_at DESC, room_id ASC
+                ",
+            )
+            .map_err(|error| format!("Failed to prepare chat image source cache query: {error}"))?;
+
+        let mut rows = statement
+            .query([])
+            .map_err(|error| format!("Failed to query chat image source cache: {error}"))?;
+
+        let mut image_sources_by_room = HashMap::new();
+        while let Some(row) = rows
+            .next()
+            .map_err(|error| format!("Failed to read chat image source cache row: {error}"))?
+        {
+            let room_id = row
+                .get::<_, String>(0)
+                .map_err(|error| format!("Failed to decode chat image source cache room id: {error}"))?;
+            let source_url = row
+                .get::<_, String>(1)
+                .map_err(|error| format!("Failed to decode chat image source cache source url: {error}"))?;
+
+            image_sources_by_room.insert(room_id, source_url);
+        }
+
+        Ok(image_sources_by_room)
     }
 
     pub(crate) fn load_cached_chats(&self) -> Result<Option<Vec<MatrixChatSummary>>, String> {
