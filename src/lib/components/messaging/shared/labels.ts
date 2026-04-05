@@ -32,7 +32,11 @@ export function verificationLabel(status: MatrixChatMessage["verificationStatus"
   return "Verification unknown";
 }
 
-export function streamStatusLabel(loadingMessages: boolean, activeLoadKind: string | null, streamMessageCount: number): string {
+export function streamStatusLabel(
+  loadingMessages: boolean,
+  activeLoadKind: string | null,
+  streamMessageCount: number,
+): string {
   if (!loadingMessages || !activeLoadKind) {
     return "";
   }
