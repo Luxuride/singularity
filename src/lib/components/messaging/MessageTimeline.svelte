@@ -101,6 +101,7 @@
           {#each messages as message, index (`${message.eventId ?? message.localId ?? `${index}-${message.timestamp ?? 0}`}`)}
             <MessageItem
               {message}
+              {roomId}
               onRetry={onRetryMessage}
               {currentUserId}
               {pickerCustomEmoji}

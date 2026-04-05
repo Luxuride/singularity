@@ -8,6 +8,7 @@
     selectedEmojiToken,
   } from "$lib/emoji/picker";
   import type { PickerCustomEmoji } from "$lib/emoji/picker";
+  import MessageAvatar from "./MessageAvatar.svelte";
   import { toTime, decryptionLabel, verificationLabel } from "./helpers";
 
   type EmojiClickDetail = {
@@ -30,6 +31,7 @@
 
   interface Props {
     message: TimelineMessage;
+    roomId: string;
     onRetry?: (message: TimelineMessage) => void;
     onToggleReaction?: (message: TimelineMessage, key: string) => void;
     currentUserId?: string | null;
@@ -39,6 +41,7 @@
 
   let {
     message,
+    roomId,
     onRetry,
     onToggleReaction,
     currentUserId = null,
@@ -248,8 +251,11 @@
 </script>
 
 <li class="card p-3 preset-outlined-surface-300-700 bg-surface-50-950" data-message-event-id={message.eventId ?? undefined}>
-  <div class="flex items-center justify-between gap-2 text-xs text-surface-700-300 mb-1">
-    <span>{message.sender}</span>
+  <div class="mb-1 flex items-center justify-between gap-2 text-xs text-surface-700-300">
+    <div class="flex min-w-0 items-center gap-2">
+      <MessageAvatar {roomId} sender={message.sender} />
+      <span class="truncate">{message.sender}</span>
+    </div>
     <span>{toTime(message.timestamp)}</span>
   </div>
   {#if message.messageType === "m.image"}
