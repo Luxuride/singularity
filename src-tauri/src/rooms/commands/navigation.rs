@@ -1,25 +1,9 @@
-use log::warn;
-use matrix_sdk::ruma::events::GlobalAccountDataEventType;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
-use tauri::{AppHandle, Emitter, State};
 
-use crate::auth::AuthState;
-use crate::db::AppDb;
-use crate::messages::cache_mxc_media_to_local_path;
+use crate::rooms::types::{MatrixChatSummary, MatrixGetChatNavigationResponse, MatrixRoomKind};
 
-use super::persistence::{collect_and_store_chats, load_cached_chats, store_cached_chats};
-use super::types::{
-    MatrixChatSummary, MatrixGetChatNavigationRequest, MatrixGetChatNavigationResponse,
-    MatrixGetChatsResponse, MatrixGetRoomImageRequest, MatrixGetRoomImageResponse, MatrixRoomKind,
-};
-use super::{
-    MatrixTriggerRoomUpdateRequest, MatrixTriggerRoomUpdateResponse, RoomRefreshTrigger,
-    RoomUpdateEvent, RoomUpdateTriggerState,
-};
-
-const VIRTUAL_DMS_ROOT_ID: &str = "virtual:dms";
-const VIRTUAL_UNSPACED_ROOT_ID: &str = "virtual:unspaced";
+pub(super) const VIRTUAL_DMS_ROOT_ID: &str = "virtual:dms";
+pub(super) const VIRTUAL_UNSPACED_ROOT_ID: &str = "virtual:unspaced";
 
 struct NavigationIndex<'a> {
     chats: &'a [MatrixChatSummary],
@@ -266,243 +250,8 @@ impl<'a> NavigationIndex<'a> {
     }
 }
 
-fn has_stale_cached_chat_media(chats: &MatrixGetChatsResponse) -> bool {
-    chats.chats.iter().any(|chat| {
-        chat.image_url.as_deref().is_some_and(|url| {
-            if url.starts_with("matrix-media://") {
-                return true;
-            }
-
-            if url.starts_with('/') {
-                return !Path::new(url).exists();
-            }
-
-            false
-        })
-    })
-}
-
-async fn direct_room_target_user_id(client: &matrix_sdk::Client, room_id: &str) -> Option<String> {
-    let raw_content = client
-        .account()
-        .account_data_raw(GlobalAccountDataEventType::from("m.direct"))
-        .await
-        .ok()??;
-
-    let content = raw_content.deserialize_as::<serde_json::Value>().ok()?;
-    let mapping = content.as_object()?;
-    let own_user_id = client.user_id().map(|value| value.as_str().to_string());
-
-    for (user_id, room_ids) in mapping {
-        if own_user_id.as_deref() == Some(user_id.as_str()) {
-            continue;
-        }
-
-        let Some(room_ids) = room_ids.as_array() else {
-            continue;
-        };
-
-        if room_ids
-            .iter()
-            .filter_map(|value| value.as_str())
-            .any(|candidate_room_id| candidate_room_id == room_id)
-        {
-            return Some(user_id.to_string());
-        }
-    }
-
-    None
-}
-
-async fn resolve_dm_avatar_source_url(
-    client: &matrix_sdk::Client,
-    room: &matrix_sdk::room::Room,
-) -> Option<String> {
-    let room_id = room.room_id().as_str();
-    let dm_target_user_id = direct_room_target_user_id(client, room_id).await?;
-    let dm_target_user_id =
-        matrix_sdk::ruma::OwnedUserId::try_from(dm_target_user_id.as_str()).ok()?;
-
-    match room.get_member(dm_target_user_id.as_ref()).await {
-        Ok(Some(member)) => member.avatar_url().map(|avatar_url| avatar_url.to_string()),
-        Ok(None) => None,
-        Err(error) => {
-            warn!(
-                "Failed to fetch DM target member for avatar fallback in {}: {}",
-                room_id, error
-            );
-            None
-        }
-    }
-}
-
-#[tauri::command]
-pub async fn matrix_get_chats(
-    auth_state: State<'_, AuthState>,
-    trigger_state: State<'_, RoomUpdateTriggerState>,
-    app_handle: AppHandle,
-) -> Result<MatrixGetChatsResponse, String> {
-    if let Some(cached_chats) = load_cached_chats(&app_handle)? {
-        let cached = MatrixGetChatsResponse {
-            chats: cached_chats,
-        };
-
-        if has_stale_cached_chat_media(&cached) {
-            let client = auth_state.restore_client_and_get(&app_handle).await?;
-
-            let local_chats = collect_and_store_chats(&app_handle, &client).await;
-            if !local_chats.is_empty() {
-                let _ = trigger_state.enqueue(RoomRefreshTrigger {
-                    selected_room_id: None,
-                    include_selected_messages: false,
-                });
-
-                return Ok(MatrixGetChatsResponse { chats: local_chats });
-            }
-        }
-
-        let _ = trigger_state.enqueue(RoomRefreshTrigger {
-            selected_room_id: None,
-            include_selected_messages: false,
-        });
-
-        return Ok(cached);
-    }
-
-    let client = auth_state.restore_client_and_get(&app_handle).await?;
-
-    let local_chats = collect_and_store_chats(&app_handle, &client).await;
-    if !local_chats.is_empty() {
-        let _ = trigger_state.enqueue(RoomRefreshTrigger {
-            selected_room_id: None,
-            include_selected_messages: false,
-        });
-
-        return Ok(MatrixGetChatsResponse { chats: local_chats });
-    }
-
-    let _ = trigger_state.enqueue(RoomRefreshTrigger {
-        selected_room_id: None,
-        include_selected_messages: false,
-    });
-
-    Ok(MatrixGetChatsResponse { chats: local_chats })
-}
-
-#[tauri::command]
-pub fn matrix_get_chat_navigation(
-    request: Option<MatrixGetChatNavigationRequest>,
-    app_handle: AppHandle,
-) -> Result<MatrixGetChatNavigationResponse, String> {
-    let payload = request.unwrap_or_default();
-    let chats = load_cached_chats(&app_handle)?.unwrap_or_default();
-    let index = NavigationIndex::new(&chats);
-
-    let selected_root_space_id = choose_selected_root_space_id(
-        &index,
-        payload.root_space_id.as_deref(),
-        payload.selected_room_id.as_deref(),
-    );
-
-    let root_spaces = index.build_root_spaces();
-    let root_scoped_rooms = selected_root_space_id
-        .as_deref()
-        .map(|root_space_id| index.build_root_scoped_rooms(root_space_id))
-        .unwrap_or_default();
-
-    Ok(MatrixGetChatNavigationResponse {
-        selected_root_space_id,
-        root_spaces,
-        root_scoped_rooms,
-    })
-}
-
-#[tauri::command]
-pub async fn matrix_trigger_room_update(
-    request: Option<MatrixTriggerRoomUpdateRequest>,
-    trigger_state: State<'_, RoomUpdateTriggerState>,
-) -> Result<MatrixTriggerRoomUpdateResponse, String> {
-    let payload = request.unwrap_or_default();
-
-    trigger_state.enqueue(RoomRefreshTrigger {
-        selected_room_id: payload.selected_room_id,
-        include_selected_messages: payload.include_selected_messages,
-    })?;
-
-    Ok(MatrixTriggerRoomUpdateResponse { queued: true })
-}
-
-#[tauri::command]
-pub async fn matrix_get_room_image(
-    request: MatrixGetRoomImageRequest,
-    auth_state: State<'_, AuthState>,
-    app_db: State<'_, AppDb>,
-    app_handle: AppHandle,
-) -> Result<MatrixGetRoomImageResponse, String> {
-    if request.room_id.starts_with("virtual:") {
-        return Ok(MatrixGetRoomImageResponse {
-            room_id: request.room_id,
-            image_url: None,
-        });
-    }
-
-    let client = auth_state.restore_client_and_get(&app_handle).await?;
-
-    let room_id = matrix_sdk::ruma::OwnedRoomId::try_from(request.room_id.as_str())
-        .map_err(|_| String::from("roomId is invalid"))?;
-    let room = client
-        .get_room(&room_id)
-        .ok_or_else(|| String::from("Room is not available in current session yet"))?;
-
-    let mut avatar_source_url = room.avatar_url().map(|mxc| mxc.to_string());
-    if avatar_source_url.is_none() {
-        avatar_source_url = resolve_dm_avatar_source_url(&client, &room).await;
-    }
-
-    let image_url = match avatar_source_url.as_deref() {
-        Some(source_url) => cache_mxc_media_to_local_path(&client, source_url).await,
-        None => None,
-    };
-
-    let _ = app_db.set_chat_image_source(request.room_id.as_str(), avatar_source_url.as_deref());
-
-    if let Some(mut chats) = load_cached_chats(&app_handle)? {
-        if let Some(chat) = chats
-            .iter_mut()
-            .find(|candidate| candidate.room_id == request.room_id)
-        {
-            if chat.image_url != image_url {
-                chat.image_url = image_url.clone();
-                let updated_chat = chat.clone();
-
-                let _ = store_cached_chats(&app_handle, &chats);
-                let _ = app_handle.emit(RoomUpdateEvent::RoomUpdated.as_str(), updated_chat);
-            }
-        }
-    }
-
-    Ok(MatrixGetRoomImageResponse {
-        room_id: request.room_id,
-        image_url,
-    })
-}
-
-#[cfg(test)]
-fn build_root_spaces(chats: &[MatrixChatSummary]) -> Vec<MatrixChatSummary> {
-    NavigationIndex::new(chats).build_root_spaces()
-}
-
 fn sort_rooms_by_display_name(rooms: &mut [MatrixChatSummary]) {
     rooms.sort_by_cached_key(|room| room.display_name.to_lowercase());
-}
-
-fn is_root_space(room_id: &str, index: &NavigationIndex<'_>) -> bool {
-    index.is_root_space(room_id)
-}
-
-#[cfg(test)]
-fn derive_root_space_id_for_room(room_id: &str, chats: &[MatrixChatSummary]) -> Option<String> {
-    NavigationIndex::new(chats).derive_root_space_id_for_room(room_id)
 }
 
 fn choose_selected_root_space_id(
@@ -511,7 +260,7 @@ fn choose_selected_root_space_id(
     selected_room_id: Option<&str>,
 ) -> Option<String> {
     if let Some(root_space_id) = requested_root_space_id {
-        if is_root_space(root_space_id, index) {
+        if index.is_root_space(root_space_id) {
             return Some(root_space_id.to_string());
         }
     }
@@ -519,59 +268,35 @@ fn choose_selected_root_space_id(
     selected_room_id.and_then(|room_id| index.derive_root_space_id_for_room(room_id))
 }
 
-#[cfg(test)]
-fn build_root_scoped_rooms(
+pub(super) fn build_navigation_response(
     chats: &[MatrixChatSummary],
-    root_space_id: &str,
-) -> Vec<MatrixChatSummary> {
-    NavigationIndex::new(chats).build_root_scoped_rooms(root_space_id)
+    requested_root_space_id: Option<&str>,
+    selected_room_id: Option<&str>,
+) -> MatrixGetChatNavigationResponse {
+    let index = NavigationIndex::new(chats);
+
+    let selected_root_space_id =
+        choose_selected_root_space_id(&index, requested_root_space_id, selected_room_id);
+
+    let root_spaces = index.build_root_spaces();
+    let root_scoped_rooms = selected_root_space_id
+        .as_deref()
+        .map(|root_space_id| index.build_root_scoped_rooms(root_space_id))
+        .unwrap_or_default();
+
+    MatrixGetChatNavigationResponse {
+        selected_root_space_id,
+        root_spaces,
+        root_scoped_rooms,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        build_root_scoped_rooms, build_root_spaces, derive_root_space_id_for_room,
-        has_stale_cached_chat_media, VIRTUAL_DMS_ROOT_ID, VIRTUAL_UNSPACED_ROOT_ID,
+        build_navigation_response, NavigationIndex, VIRTUAL_DMS_ROOT_ID, VIRTUAL_UNSPACED_ROOT_ID,
     };
-    use crate::rooms::types::{MatrixChatSummary, MatrixGetChatsResponse, MatrixRoomKind};
-
-    fn chat_with_image(image_url: Option<&str>) -> MatrixChatSummary {
-        MatrixChatSummary {
-            room_id: String::from("!room:example.org"),
-            display_name: String::from("Example"),
-            image_url: image_url.map(ToOwned::to_owned),
-            encrypted: false,
-            joined_members: 2,
-            kind: MatrixRoomKind::Room,
-            joined: true,
-            is_direct: false,
-            children_room_ids: vec![],
-        }
-    }
-
-    #[test]
-    fn detects_stale_matrix_media_avatar_url() {
-        let response = MatrixGetChatsResponse {
-            chats: vec![chat_with_image(Some(
-                "matrix-media://localhost/img-123.png",
-            ))],
-        };
-
-        assert!(has_stale_cached_chat_media(&response));
-    }
-
-    #[test]
-    fn ignores_non_stale_avatar_urls() {
-        let response = MatrixGetChatsResponse {
-            chats: vec![
-                chat_with_image(None),
-                chat_with_image(Some("asset://localhost/tmp/img-123.png")),
-                chat_with_image(Some("https://example.org/avatar.png")),
-            ],
-        };
-
-        assert!(!has_stale_cached_chat_media(&response));
-    }
+    use crate::rooms::types::{MatrixChatSummary, MatrixRoomKind};
 
     fn chat(
         room_id: &str,
@@ -609,7 +334,9 @@ mod tests {
             chat("!child:example.org", MatrixRoomKind::Room, false, &[]),
         ];
 
-        let roots = build_root_spaces(&chats);
+        let response = build_navigation_response(&chats, None, None);
+        let roots = response.root_spaces;
+
         assert_eq!(roots[0].room_id, VIRTUAL_DMS_ROOT_ID);
         assert_eq!(roots[0].joined_members, 1);
         assert_eq!(roots[1].room_id, VIRTUAL_UNSPACED_ROOT_ID);
@@ -624,12 +351,14 @@ mod tests {
             chat("!orphan:example.org", MatrixRoomKind::Room, false, &[]),
         ];
 
+        let index = NavigationIndex::new(&chats);
+
         assert_eq!(
-            derive_root_space_id_for_room("!dm:example.org", &chats),
+            index.derive_root_space_id_for_room("!dm:example.org"),
             Some(VIRTUAL_DMS_ROOT_ID.to_string())
         );
         assert_eq!(
-            derive_root_space_id_for_room("!orphan:example.org", &chats),
+            index.derive_root_space_id_for_room("!orphan:example.org"),
             Some(VIRTUAL_UNSPACED_ROOT_ID.to_string())
         );
     }
@@ -652,7 +381,13 @@ mod tests {
             chat("!child-room:example.org", MatrixRoomKind::Room, false, &[]),
         ];
 
-        let scoped = build_root_scoped_rooms(&chats, "!space:example.org");
+        let response = build_navigation_response(
+            &chats,
+            Some("!space:example.org"),
+            Some("!child-room:example.org"),
+        );
+        let scoped = response.root_scoped_rooms;
+
         assert_eq!(scoped.len(), 2);
         assert!(scoped
             .iter()
@@ -686,7 +421,10 @@ mod tests {
             chat("!room:example.org", MatrixRoomKind::Room, false, &[]),
         ];
 
-        let scoped = build_root_scoped_rooms(&chats, "!root:example.org");
+        let response =
+            build_navigation_response(&chats, Some("!root:example.org"), Some("!room:example.org"));
+        let scoped = response.root_scoped_rooms;
+
         let room_occurrences = scoped
             .iter()
             .filter(|room| room.room_id == "!room:example.org")
