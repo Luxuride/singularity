@@ -26,6 +26,7 @@
 
         nativeBuildPackages = with pkgs; [
           pkg-config
+          desktop-file-utils
           dbus
           openssl
           glib

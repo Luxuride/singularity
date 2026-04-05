@@ -27,6 +27,15 @@
       }
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "singularity"
+        ]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

@@ -72,6 +72,12 @@ pub async fn matrix_complete_oauth(
     let callback_url = Url::parse(&request.callback_url)
         .map_err(|_| String::from("Callback URL is not a valid URL"))?;
 
+    if callback_url.scheme() != config::CALLBACK_REDIRECT_SCHEME
+        || callback_url.host_str() != Some(config::CALLBACK_REDIRECT_HOST)
+    {
+        return Err(String::from("Callback URL has an unexpected redirect target"));
+    }
+
     let client = auth_state
         .lock_inner()?
         .pending_client

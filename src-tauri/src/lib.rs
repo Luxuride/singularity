@@ -12,12 +12,30 @@ mod verification;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {
+            // Deep-link events are emitted by the plugin for forwarded launches.
+        }));
+    }
+
+    builder
         .register_uri_scheme_protocol("matrix-media", |_ctx, request| {
             assets::image::handle_media_protocol_request(request)
         })
         .manage(auth::AuthState::default())
         .setup(|app| {
+            #[cfg(any(windows, target_os = "linux"))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+
+                if let Err(error) = app.deep_link().register_all() {
+                    log::warn!("Skipping deep-link runtime registration: {error}");
+                }
+            }
+
             let app_db = db::AppDb::initialize(app.handle())?;
             settings::initialize_media_storage_mode(&app_db)?;
             app.manage(app_db);
@@ -31,6 +49,7 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             auth::commands::matrix_start_oauth,
