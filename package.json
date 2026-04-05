@@ -18,6 +18,7 @@
     "@tauri-apps/plugin-opener": "^2",
     "emoji-picker-element": "^1.29.1",
     "prosemirror-commands": "^1.7.1",
+    "prosemirror-history": "^1.5.0",
     "prosemirror-keymap": "^1.2.3",
     "prosemirror-model": "^1.25.4",
     "prosemirror-state": "^1.4.4",

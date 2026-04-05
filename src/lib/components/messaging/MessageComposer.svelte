@@ -10,6 +10,7 @@
   import type { EmojiShortcodeSuggestion, PickerCustomEmoji } from "$lib/emoji/picker";
   import "prosemirror-view/style/prosemirror.css";
   import { baseKeymap } from "prosemirror-commands";
+  import { history, redo, undo } from "prosemirror-history";
   import { keymap } from "prosemirror-keymap";
   import { Node as PMNode, Schema } from "prosemirror-model";
   import { EditorState, TextSelection } from "prosemirror-state";
@@ -238,7 +239,15 @@
     const state = EditorState.create({
       schema: composerSchema,
       doc: initialDoc,
-      plugins: [keymap(baseKeymap)],
+      plugins: [
+        history(),
+        keymap({
+          "Mod-z": undo,
+          "Shift-Mod-z": redo,
+          "Mod-y": redo,
+        }),
+        keymap(baseKeymap),
+      ],
     });
 
     const view = new EditorView(editorMountElement, {
