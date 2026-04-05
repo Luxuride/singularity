@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use log::warn;
+use matrix_sdk::ruma::events::GlobalAccountDataEventType;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::auth::AuthState;
@@ -280,6 +282,60 @@ fn has_stale_cached_chat_media(chats: &MatrixGetChatsResponse) -> bool {
     })
 }
 
+async fn direct_room_target_user_id(client: &matrix_sdk::Client, room_id: &str) -> Option<String> {
+    let raw_content = client
+        .account()
+        .account_data_raw(GlobalAccountDataEventType::from("m.direct"))
+        .await
+        .ok()??;
+
+    let content = raw_content.deserialize_as::<serde_json::Value>().ok()?;
+    let mapping = content.as_object()?;
+    let own_user_id = client.user_id().map(|value| value.as_str().to_string());
+
+    for (user_id, room_ids) in mapping {
+        if own_user_id.as_deref() == Some(user_id.as_str()) {
+            continue;
+        }
+
+        let Some(room_ids) = room_ids.as_array() else {
+            continue;
+        };
+
+        if room_ids
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|candidate_room_id| candidate_room_id == room_id)
+        {
+            return Some(user_id.to_string());
+        }
+    }
+
+    None
+}
+
+async fn resolve_dm_avatar_source_url(
+    client: &matrix_sdk::Client,
+    room: &matrix_sdk::room::Room,
+) -> Option<String> {
+    let room_id = room.room_id().as_str();
+    let dm_target_user_id = direct_room_target_user_id(client, room_id).await?;
+    let dm_target_user_id =
+        matrix_sdk::ruma::OwnedUserId::try_from(dm_target_user_id.as_str()).ok()?;
+
+    match room.get_member(dm_target_user_id.as_ref()).await {
+        Ok(Some(member)) => member.avatar_url().map(|avatar_url| avatar_url.to_string()),
+        Ok(None) => None,
+        Err(error) => {
+            warn!(
+                "Failed to fetch DM target member for avatar fallback in {}: {}",
+                room_id, error
+            );
+            None
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn matrix_get_chats(
     auth_state: State<'_, AuthState>,
@@ -398,7 +454,11 @@ pub async fn matrix_get_room_image(
         .get_room(&room_id)
         .ok_or_else(|| String::from("Room is not available in current session yet"))?;
 
-    let avatar_source_url = room.avatar_url().map(|mxc| mxc.to_string());
+    let mut avatar_source_url = room.avatar_url().map(|mxc| mxc.to_string());
+    if avatar_source_url.is_none() {
+        avatar_source_url = resolve_dm_avatar_source_url(&client, &room).await;
+    }
+
     let image_url = match avatar_source_url.as_deref() {
         Some(source_url) => cache_mxc_media_to_local_path(&client, source_url).await,
         None => None,
