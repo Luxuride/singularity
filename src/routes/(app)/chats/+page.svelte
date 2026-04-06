@@ -30,10 +30,10 @@
     normalizeReactionKey,
     normalizeShortcodesToEmoji,
   } from "$lib/emoji/picker";
+  import { RoomList } from "$lib/components/navigation";
   import { MessageComposer } from "$lib/components/messaging/composer";
   import { MessageTimeline } from "$lib/components/messaging/timeline";
   import type { TimelineMessage } from "$lib/components/messaging/shared";
-  import RoomList from "$lib/components/navigation/RoomList.svelte";
 
   let loadingMessages = $state(false);
   let errorMessage = $state("");
