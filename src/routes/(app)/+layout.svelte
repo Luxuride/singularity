@@ -30,9 +30,7 @@
     MatrixRoomRemovedEvent,
     MatrixSelectedRoomMessagesEvent,
   } from "$lib/chats/types";
-  import AppHeader from "$lib/components/navigation/AppHeader.svelte";
-  import RootSpaceList from "$lib/components/navigation/RootSpaceList.svelte";
-  import RoomList from "$lib/components/navigation/RoomList.svelte";
+  import { AppHeader, RootSpaceList, RoomList } from "$lib/components/navigation";
 
   let { children } = $props();
 
