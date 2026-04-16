@@ -5,7 +5,6 @@
     buildEmojiByShortcodeToken,
     buildMessageBodyParts,
     emojiName,
-    isEmojiOnlyMessage,
   } from "./helpers";
   import type { TimelineMessage } from "../shared";
 
@@ -21,7 +20,6 @@
 
   const emojiByShortcodeToken = $derived.by(() => buildEmojiByShortcodeToken(message, pickerCustomEmoji));
   const messageBodyParts = $derived.by(() => buildMessageBodyParts(message, pickerCustomEmoji, emojiByShortcodeToken));
-  const emojiOnlyBody = $derived.by(() => isEmojiOnlyMessage(messageBodyParts));
 </script>
 
 {#if message.messageType === "m.image"}
@@ -45,16 +43,16 @@
     {/if}
   </figure>
 {:else}
-  <p class={`whitespace-pre-wrap break-words ${emojiOnlyBody ? "text-5xl leading-tight" : "text-base"}`}>
+  <p class="whitespace-pre-wrap break-words text-base">
     {#each messageBodyParts as part, index (`${part.type}-${index}`)}
       {#if part.type === "emoji"}
         <img
           src={part.url}
           alt={part.shortcode}
           title={emojiName(part.shortcode)}
-          class={emojiOnlyBody
-            ? "inline-block h-24 w-24 align-text-bottom mx-0.5"
-            : "inline-block h-8 w-8 align-text-bottom mx-0.5"}
+          height="32"
+          width="32"
+          class="inline-block align-text-bottom mx-0.5"
           loading="lazy"
         />
       {:else}
