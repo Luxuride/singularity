@@ -117,25 +117,21 @@ pub(super) fn build_formatted_body_from_custom_emoji(
         "32"
     };
 
-    let formatted = markup::new! {
-        p {
-            @for segment in &segments {
-                @match segment {
-                    HtmlSegment::Text(value) => {
-                        @value
-                    }
-                    HtmlSegment::LineBreak => {
-                        br {}
-                    }
-                    HtmlSegment::Emoji { source_url, token } => {
-                        img[data_mx_emoticon = "", src = source_url, alt = token, title = token, height = emoji_height] {}
-                    }
-                }
+    let mut html = String::from("<p>");
+    for segment in &segments {
+        match segment {
+            HtmlSegment::Text(value) => html.push_str(value),
+            HtmlSegment::LineBreak => html.push_str("<br>"),
+            HtmlSegment::Emoji { source_url, token } => {
+                html.push_str(&format!(
+                    r#"<img data-mx-emoticon="" src="{}" alt="{}" title="{}" height="{}" width="{}">"#,
+                    source_url, token, token, emoji_height, emoji_height
+                ));
             }
         }
-    };
-
-    Some(formatted.to_string())
+    }
+    html.push_str("</p>");
+    Some(html)
 }
 
 fn push_text_segments(segments: &mut Vec<HtmlSegment>, value: &str) {

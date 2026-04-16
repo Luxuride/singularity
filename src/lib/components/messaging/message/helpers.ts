@@ -7,8 +7,6 @@ export type MessageBodyPart =
   | { type: "emoji"; shortcode: string; url: string };
 
 const CUSTOM_EMOJI_PATTERN = /(:[A-Za-z0-9_+\-]+:)/g;
-const SINGLE_UNICODE_EMOJI_PATTERN =
-  /^\s*(?:\p{Regional_Indicator}{2}|(?:\p{Extended_Pictographic}|\p{Emoji_Presentation})(?:\p{Emoji_Modifier})?(?:\uFE0F|\uFE0E)?(?:\u200D(?:\p{Extended_Pictographic}|\p{Emoji_Presentation})(?:\p{Emoji_Modifier})?(?:\uFE0F|\uFE0E)?)*)\s*$/u;
 
 export function shortcodeToken(value: string): string {
   const clean = value.trim().replace(/^:+|:+$/g, "");
@@ -136,19 +134,4 @@ export function buildMessageBodyParts(
   return parts.length ? parts : [{ type: "text", value: message.body }];
 }
 
-export function isEmojiOnlyMessage(parts: MessageBodyPart[]): boolean {
-  const emojiParts = parts.filter((part) => part.type === "emoji");
-  const hasOnlyWhitespaceText = parts.every(
-    (part) => part.type === "emoji" || part.value.trim().length === 0,
-  );
 
-  if (emojiParts.length === 1 && hasOnlyWhitespaceText) {
-    return true;
-  }
-
-  if (parts.length === 1 && parts[0].type === "text") {
-    return SINGLE_UNICODE_EMOJI_PATTERN.test(parts[0].value);
-  }
-
-  return false;
-}
