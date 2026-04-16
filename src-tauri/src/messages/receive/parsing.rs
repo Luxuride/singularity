@@ -64,7 +64,9 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
             verification_status,
         ) {
             let mut custom_emojis = Vec::with_capacity(parsed.custom_emojis.len());
+            let mut custom_emoji_urls_by_source = HashMap::<String, String>::new();
             for emoji in parsed.custom_emojis {
+                let source_url = emoji.url.clone();
                 let resolved_url = match resolved_emoji_urls.get(emoji.url.as_str()) {
                     Some(cached) => cached.clone(),
                     None => {
@@ -84,7 +86,17 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                     shortcode: emoji.shortcode,
                     url: resolved_url,
                 });
+
+                if source_url.is_empty() || custom_emoji_urls_by_source.contains_key(&source_url) {
+                    continue;
+                }
+
+                custom_emoji_urls_by_source.insert(source_url, custom_emojis.last().expect("custom emoji just pushed").url.clone());
             }
+
+            let formatted_body = parsed
+                .formatted_body
+                .map(|body| rewrite_formatted_body_custom_emoji(&body, &custom_emoji_urls_by_source));
 
             let image_url = if matches!(parsed.message_type.as_deref(), Some("m.image")) {
                 media_resolver
@@ -99,7 +111,7 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                 sender: parsed.sender,
                 timestamp: parsed.timestamp,
                 body: parsed.body,
-                formatted_body: parsed.formatted_body,
+                formatted_body,
                 message_type: parsed.message_type,
                 image_url,
                 custom_emojis,
@@ -133,4 +145,213 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
     }
 
     (messages, had_utd)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::rewrite_formatted_body_custom_emoji;
+
+    #[test]
+    fn rewrites_custom_emoji_image_src_to_matrix_media() {
+        let mut custom_emoji_urls_by_source = HashMap::new();
+        custom_emoji_urls_by_source.insert(
+            "mxc://media.example.org/wave".to_owned(),
+            "matrix-media://localhost/wave".to_owned(),
+        );
+
+        let rewritten = rewrite_formatted_body_custom_emoji(
+            "<p>hello <img data-mx-emoticon src=\"mxc://media.example.org/wave\" alt=\":wave:\"></p>",
+            &custom_emoji_urls_by_source,
+        );
+
+        assert_eq!(
+            rewritten,
+            "<p>hello <img data-mx-emoticon src=\"matrix-media://localhost/wave\" alt=\":wave:\" width=\"32\" height=\"32\"></p>"
+        );
+    }
+
+    #[test]
+    fn adds_dimensions_when_missing() {
+        let mut custom_emoji_urls_by_source = HashMap::new();
+        custom_emoji_urls_by_source.insert(
+            "mxc://media.example.org/smile".to_owned(),
+            "matrix-media://localhost/smile".to_owned(),
+        );
+
+        let rewritten = rewrite_formatted_body_custom_emoji(
+            "<p><img data-mx-emoticon src=\"mxc://media.example.org/smile\" alt=\":smile:\"></p>",
+            &custom_emoji_urls_by_source,
+        );
+
+        assert!(rewritten.contains("width=\"32\""));
+        assert!(rewritten.contains("height=\"32\""));
+    }
+
+    #[test]
+    fn sets_width_equal_to_height_when_width_missing() {
+        let mut custom_emoji_urls_by_source = HashMap::new();
+        custom_emoji_urls_by_source.insert(
+            "mxc://media.example.org/joy".to_owned(),
+            "matrix-media://localhost/joy".to_owned(),
+        );
+
+        let rewritten = rewrite_formatted_body_custom_emoji(
+            "<p><img data-mx-emoticon src=\"mxc://media.example.org/joy\" alt=\":joy:\" height=\"48\"></p>",
+            &custom_emoji_urls_by_source,
+        );
+
+        assert!(rewritten.contains("width=\"48\""));
+        assert!(rewritten.contains("height=\"48\""));
+    }
+
+    #[test]
+    fn sets_height_equal_to_width_when_height_missing() {
+        let mut custom_emoji_urls_by_source = HashMap::new();
+        custom_emoji_urls_by_source.insert(
+            "mxc://media.example.org/sad".to_owned(),
+            "matrix-media://localhost/sad".to_owned(),
+        );
+
+        let rewritten = rewrite_formatted_body_custom_emoji(
+            "<p><img data-mx-emoticon src=\"mxc://media.example.org/sad\" alt=\":sad:\" width=\"64\"></p>",
+            &custom_emoji_urls_by_source,
+        );
+
+        assert!(rewritten.contains("width=\"64\""));
+        assert!(rewritten.contains("height=\"64\""));
+    }
+}
+
+fn rewrite_formatted_body_custom_emoji(
+    formatted_body: &str,
+    custom_emoji_urls_by_source: &HashMap<String, String>,
+) -> String {
+    if !formatted_body.contains("data-mx-emoticon") || custom_emoji_urls_by_source.is_empty() {
+        return formatted_body.to_owned();
+    }
+
+    let mut rewritten = String::with_capacity(formatted_body.len());
+    let mut search_index = 0_usize;
+
+    while let Some(relative_start) = formatted_body[search_index..].find("<img") {
+        let tag_start = search_index + relative_start;
+        let Some(relative_end) = formatted_body[tag_start..].find('>') else {
+            rewritten.push_str(&formatted_body[search_index..]);
+            return rewritten;
+        };
+
+        let tag_end = tag_start + relative_end + 1;
+        let tag = &formatted_body[tag_start..tag_end];
+        rewritten.push_str(&formatted_body[search_index..tag_start]);
+        rewritten.push_str(&rewrite_custom_emoji_tag(tag, custom_emoji_urls_by_source));
+        search_index = tag_end;
+    }
+
+    rewritten.push_str(&formatted_body[search_index..]);
+    rewritten
+}
+
+fn rewrite_custom_emoji_tag(tag: &str, custom_emoji_urls_by_source: &HashMap<String, String>) -> String {
+    if !tag.contains("data-mx-emoticon") {
+        return tag.to_owned();
+    }
+
+    let Some(source_url) = extract_html_attribute(tag, "src") else {
+        return tag.to_owned();
+    };
+
+    let Some(rewritten_src) = custom_emoji_urls_by_source.get(&source_url) else {
+        return tag.to_owned();
+    };
+
+    let mut result = replace_html_attribute(tag, "src", rewritten_src);
+    
+    // Handle width and height attributes
+    let width = extract_html_attribute(&result, "width");
+    let height = extract_html_attribute(&result, "height");
+    
+    match (width, height) {
+        (None, None) => {
+            // Both missing: add both as 32
+            result = add_html_attribute(&result, "width", "32");
+            result = add_html_attribute(&result, "height", "32");
+        }
+        (None, Some(h)) => {
+            // Width missing, height present: make width equal to height
+            result = add_html_attribute(&result, "width", &h);
+        }
+        (Some(w), None) => {
+            // Height missing, width present: make height equal to width
+            result = add_html_attribute(&result, "height", &w);
+        }
+        (Some(_), Some(_)) => {
+            // Both present: no change needed
+        }
+    }
+    
+    result
+}
+
+fn extract_html_attribute(tag: &str, attribute: &str) -> Option<String> {
+    let quoted_pattern = format!("{attribute}=\"");
+    if let Some(start_index) = tag.find(&quoted_pattern) {
+        let value_start = start_index + quoted_pattern.len();
+        let value_end = tag[value_start..].find('"')? + value_start;
+        return Some(tag[value_start..value_end].to_owned());
+    }
+
+    let single_quote_pattern = format!("{attribute}='");
+    if let Some(start_index) = tag.find(&single_quote_pattern) {
+        let value_start = start_index + single_quote_pattern.len();
+        let value_end = tag[value_start..].find('\'')? + value_start;
+        return Some(tag[value_start..value_end].to_owned());
+    }
+
+    None
+}
+
+fn replace_html_attribute(tag: &str, attribute: &str, value: &str) -> String {
+    let quoted_pattern = format!("{attribute}=\"");
+    if let Some(start_index) = tag.find(&quoted_pattern) {
+        let value_start = start_index + quoted_pattern.len();
+        if let Some(relative_end) = tag[value_start..].find('"') {
+            let value_end = value_start + relative_end;
+            return format!("{}{}{}", &tag[..value_start], value, &tag[value_end..]);
+        }
+    }
+
+    let single_quote_pattern = format!("{attribute}='");
+    if let Some(start_index) = tag.find(&single_quote_pattern) {
+        let value_start = start_index + single_quote_pattern.len();
+        if let Some(relative_end) = tag[value_start..].find('\'') {
+            let value_end = value_start + relative_end;
+            return format!("{}{}{}", &tag[..value_start], value, &tag[value_end..]);
+        }
+    }
+
+    tag.to_owned()
+}
+
+fn add_html_attribute(tag: &str, attribute: &str, value: &str) -> String {
+    // First try to replace if it exists
+    let quoted_pattern = format!("{attribute}=\"");
+    if tag.contains(&quoted_pattern) {
+        return replace_html_attribute(tag, attribute, value);
+    }
+
+    let single_quote_pattern = format!("{attribute}='");
+    if tag.contains(&single_quote_pattern) {
+        return replace_html_attribute(tag, attribute, value);
+    }
+
+    // Attribute doesn't exist, add it before the closing >
+    if let Some(close_pos) = tag.rfind('>') {
+        let before_close = &tag[..close_pos];
+        let close_char = &tag[close_pos..];
+        format!("{} {}=\"{}\"{}",before_close, attribute, value, close_char)
+    } else {
+        tag.to_owned()
+    }
 }

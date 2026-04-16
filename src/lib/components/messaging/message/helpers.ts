@@ -4,7 +4,7 @@ import type { TimelineMessage } from "../shared";
 
 export function shortcodeToken(value: string): string {
   const clean = value.trim().replace(/^:+|:+$/g, "");
-  return clean ? `:${clean}:` : "";
+  return clean ? `:${clean.toLowerCase()}:` : "";
 }
 
 export function emojiName(value: string): string {

@@ -573,13 +573,13 @@
     }
   }
 
-  async function sendDraftMessage() {
+  async function sendDraftMessage(rawDraft?: string) {
     const roomId = $shellSelectedRoomId;
     if (!roomId) {
       return;
     }
 
-    const rawBody = messageDraft.trim();
+    const rawBody = (rawDraft ?? messageDraft).trim();
     if (!rawBody) {
       composerErrorMessage = "Message cannot be empty";
       return;
