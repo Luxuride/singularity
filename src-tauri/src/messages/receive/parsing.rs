@@ -91,12 +91,19 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                     continue;
                 }
 
-                custom_emoji_urls_by_source.insert(source_url, custom_emojis.last().expect("custom emoji just pushed").url.clone());
+                custom_emoji_urls_by_source.insert(
+                    source_url,
+                    custom_emojis
+                        .last()
+                        .expect("custom emoji just pushed")
+                        .url
+                        .clone(),
+                );
             }
 
-            let formatted_body = parsed
-                .formatted_body
-                .map(|body| rewrite_formatted_body_custom_emoji(&body, &custom_emoji_urls_by_source));
+            let formatted_body = parsed.formatted_body.map(|body| {
+                rewrite_formatted_body_custom_emoji(&body, &custom_emoji_urls_by_source)
+            });
 
             let image_url = if matches!(parsed.message_type.as_deref(), Some("m.image")) {
                 media_resolver
@@ -257,7 +264,7 @@ mod tests {
 
         // Should rewrite URL since it's in the map
         assert!(rewritten.contains("matrix-media://localhost/image1"));
-        
+
         // Should NOT add dimensions (not an emoji)
         assert!(!rewritten.contains("width=\"32\""));
         assert!(!rewritten.contains("height=\"32\""));
@@ -301,13 +308,13 @@ fn rewrite_img_tag(tag: &str, custom_emoji_urls_by_source: &HashMap<String, Stri
             result = replace_html_attribute(&result, "src", rewritten_src);
         }
     }
-    
+
     // Handle width/height dimensions only for emoji
     let is_emoji = result.contains("data-mx-emoticon") || result.contains("data_mx_emoticon");
     if is_emoji {
         let width = extract_html_attribute(&result, "width");
         let height = extract_html_attribute(&result, "height");
-        
+
         match (width, height) {
             (None, None) => {
                 result = add_html_attribute(&result, "width", "32");
@@ -324,7 +331,7 @@ fn rewrite_img_tag(tag: &str, custom_emoji_urls_by_source: &HashMap<String, Stri
             }
         }
     }
-    
+
     result
 }
 
@@ -384,7 +391,7 @@ fn add_html_attribute(tag: &str, attribute: &str, value: &str) -> String {
     if let Some(close_pos) = tag.rfind('>') {
         let before_close = &tag[..close_pos];
         let close_char = &tag[close_pos..];
-        format!("{} {}=\"{}\"{}",before_close, attribute, value, close_char)
+        format!("{} {}=\"{}\"{}", before_close, attribute, value, close_char)
     } else {
         tag.to_owned()
     }
