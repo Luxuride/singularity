@@ -146,7 +146,6 @@ pub fn parse_timeline_message(
         };
 
         let (body, image_url) = match text_body {
-
             Some(values) => values,
             None => (format!("Unsupported message type: {msgtype}"), None),
         };
@@ -426,10 +425,7 @@ mod tests {
 
         assert_eq!(parsed.custom_emojis.len(), 1);
         assert_eq!(parsed.custom_emojis[0].shortcode, ":wave:");
-        assert_eq!(
-            parsed.custom_emojis[0].url,
-            "mxc://media.example.org/wave"
-        );
+        assert_eq!(parsed.custom_emojis[0].url, "mxc://media.example.org/wave");
     }
 
     #[test]
