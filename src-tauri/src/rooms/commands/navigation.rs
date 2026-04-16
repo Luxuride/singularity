@@ -139,7 +139,16 @@ impl<'a> NavigationIndex<'a> {
         None
     }
 
-    fn build_root_spaces(&self) -> Vec<MatrixChatSummary> {
+    fn matrix_root_spaces(&self) -> Vec<MatrixChatSummary> {
+        self.chats
+            .iter()
+            .filter(|room| room.kind == MatrixRoomKind::Space)
+            .filter(|space| self.parent_ids(space.room_id.as_str()).is_empty())
+            .cloned()
+            .collect()
+    }
+
+    fn build_root_spaces(&self, saved_root_space_ids: Option<&[String]>) -> Vec<MatrixChatSummary> {
         let direct_count = self
             .chats
             .iter()
@@ -175,14 +184,8 @@ impl<'a> NavigationIndex<'a> {
             children_room_ids: vec![],
         };
 
-        let mut matrix_root_spaces = self
-            .chats
-            .iter()
-            .filter(|room| room.kind == MatrixRoomKind::Space)
-            .filter(|space| self.parent_ids(space.room_id.as_str()).is_empty())
-            .cloned()
-            .collect::<Vec<_>>();
-        sort_rooms_by_display_name(&mut matrix_root_spaces);
+        let matrix_root_spaces =
+            order_matrix_root_spaces(self.matrix_root_spaces(), saved_root_space_ids);
 
         let mut roots = Vec::with_capacity(matrix_root_spaces.len() + 3);
         roots.push(dms_root);
@@ -254,6 +257,46 @@ fn sort_rooms_by_display_name(rooms: &mut [MatrixChatSummary]) {
     rooms.sort_by_cached_key(|room| room.display_name.to_lowercase());
 }
 
+fn order_matrix_root_spaces(
+    mut matrix_root_spaces: Vec<MatrixChatSummary>,
+    saved_root_space_ids: Option<&[String]>,
+) -> Vec<MatrixChatSummary> {
+    sort_rooms_by_display_name(&mut matrix_root_spaces);
+
+    let Some(saved_root_space_ids) = saved_root_space_ids else {
+        return matrix_root_spaces;
+    };
+
+    if saved_root_space_ids.is_empty() {
+        return matrix_root_spaces;
+    }
+
+    let mut room_by_id = matrix_root_spaces
+        .into_iter()
+        .map(|room| (room.room_id.clone(), room))
+        .collect::<HashMap<_, _>>();
+
+    let mut ordered_rooms = Vec::new();
+    for room_id in saved_root_space_ids {
+        if let Some(room) = room_by_id.remove(room_id) {
+            ordered_rooms.push(room);
+        }
+    }
+
+    let mut new_rooms = room_by_id.into_values().collect::<Vec<_>>();
+    sort_rooms_by_display_name(&mut new_rooms);
+    new_rooms.extend(ordered_rooms);
+    new_rooms
+}
+
+pub(super) fn orderable_root_space_ids(chats: &[MatrixChatSummary]) -> HashSet<String> {
+    NavigationIndex::new(chats)
+        .matrix_root_spaces()
+        .into_iter()
+        .map(|room| room.room_id)
+        .collect()
+}
+
 fn choose_selected_root_space_id(
     index: &NavigationIndex<'_>,
     requested_root_space_id: Option<&str>,
@@ -270,6 +313,7 @@ fn choose_selected_root_space_id(
 
 pub(super) fn build_navigation_response(
     chats: &[MatrixChatSummary],
+    saved_root_space_ids: Option<&[String]>,
     requested_root_space_id: Option<&str>,
     selected_room_id: Option<&str>,
 ) -> MatrixGetChatNavigationResponse {
@@ -278,7 +322,7 @@ pub(super) fn build_navigation_response(
     let selected_root_space_id =
         choose_selected_root_space_id(&index, requested_root_space_id, selected_room_id);
 
-    let root_spaces = index.build_root_spaces();
+    let root_spaces = index.build_root_spaces(saved_root_space_ids);
     let root_scoped_rooms = selected_root_space_id
         .as_deref()
         .map(|root_space_id| index.build_root_scoped_rooms(root_space_id))
@@ -294,7 +338,8 @@ pub(super) fn build_navigation_response(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_navigation_response, NavigationIndex, VIRTUAL_DMS_ROOT_ID, VIRTUAL_UNSPACED_ROOT_ID,
+        build_navigation_response, orderable_root_space_ids, NavigationIndex, VIRTUAL_DMS_ROOT_ID,
+        VIRTUAL_UNSPACED_ROOT_ID,
     };
     use crate::rooms::types::{MatrixChatSummary, MatrixRoomKind};
 
@@ -334,7 +379,7 @@ mod tests {
             chat("!child:example.org", MatrixRoomKind::Room, false, &[]),
         ];
 
-        let response = build_navigation_response(&chats, None, None);
+        let response = build_navigation_response(&chats, None, None, None);
         let roots = response.root_spaces;
 
         assert_eq!(roots[0].room_id, VIRTUAL_DMS_ROOT_ID);
@@ -383,6 +428,7 @@ mod tests {
 
         let response = build_navigation_response(
             &chats,
+            None,
             Some("!space:example.org"),
             Some("!child-room:example.org"),
         );
@@ -421,8 +467,12 @@ mod tests {
             chat("!room:example.org", MatrixRoomKind::Room, false, &[]),
         ];
 
-        let response =
-            build_navigation_response(&chats, Some("!root:example.org"), Some("!room:example.org"));
+        let response = build_navigation_response(
+            &chats,
+            None,
+            Some("!root:example.org"),
+            Some("!room:example.org"),
+        );
         let scoped = response.root_scoped_rooms;
 
         let room_occurrences = scoped
@@ -437,5 +487,38 @@ mod tests {
         assert!(scoped
             .iter()
             .any(|room| room.room_id == "!space-b:example.org"));
+    }
+
+    #[test]
+    fn reorders_root_spaces_with_saved_order_and_new_rooms_first() {
+        let chats = vec![
+            chat("!alpha:example.org", MatrixRoomKind::Space, false, &[]),
+            chat("!beta:example.org", MatrixRoomKind::Space, false, &[]),
+            chat("!gamma:example.org", MatrixRoomKind::Space, false, &[]),
+        ];
+
+        let saved_root_space_ids = vec![
+            "!beta:example.org".to_string(),
+            "!alpha:example.org".to_string(),
+        ];
+        let response =
+            build_navigation_response(&chats, Some(saved_root_space_ids.as_slice()), None, None);
+
+        assert_eq!(response.root_spaces[2].room_id, "!gamma:example.org");
+        assert_eq!(response.root_spaces[3].room_id, "!beta:example.org");
+        assert_eq!(response.root_spaces[4].room_id, "!alpha:example.org");
+    }
+
+    #[test]
+    fn validates_orderable_root_space_ids() {
+        let chats = vec![
+            chat("!root:example.org", MatrixRoomKind::Space, false, &[]),
+            chat("!child:example.org", MatrixRoomKind::Room, false, &[]),
+        ];
+
+        let orderable = orderable_root_space_ids(&chats);
+
+        assert!(orderable.contains("!root:example.org"));
+        assert!(!orderable.contains("!child:example.org"));
     }
 }

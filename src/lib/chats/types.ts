@@ -36,6 +36,14 @@ export interface MatrixGetChatNavigationResponse {
   rootScopedRooms: MatrixChatSummary[];
 }
 
+export interface MatrixSetRootSpaceOrderRequest {
+  rootSpaceIds: string[];
+}
+
+export interface MatrixSetRootSpaceOrderResponse {
+  rootSpaceIds: string[];
+}
+
 export interface MatrixTriggerRoomUpdateRequest {
   selectedRoomId?: string;
   includeSelectedMessages?: boolean;

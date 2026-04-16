@@ -9,6 +9,7 @@
     matrixGetChatNavigation,
     matrixGetChats,
     matrixGetPickerAssets,
+    matrixSetRootSpaceOrder,
     matrixTriggerRoomUpdate,
   } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
@@ -214,6 +215,21 @@
     await syncRoute(nextRootSpaceId, "");
   }
 
+  async function reorderRootSpaces(rootSpaceIds: string[]) {
+    try {
+      await matrixSetRootSpaceOrder({ rootSpaceIds });
+    } catch (error) {
+      shellErrorMessage.set(error instanceof Error ? error.message : "Failed to save root space order");
+      throw error;
+    }
+
+    try {
+      await refreshChatNavigationAndRoute();
+    } catch (error) {
+      shellErrorMessage.set(error instanceof Error ? error.message : "Failed to refresh root space order");
+    }
+  }
+
   async function selectRoom(roomId: string) {
     const chats = get(shellChats);
     const room = chats.find((candidate) => candidate.roomId === roomId);
@@ -265,11 +281,7 @@
     <div class="grid gap-4 lg:grid-cols-[220px_280px_1fr] p-4 md:p-6 min-h-0 h-full">
       <div class="flex flex-col min-h-0 h-full gap-4">
         <AppHeader userId={$shellCurrentUserId} />
-        <RootSpaceList
-          spaces={$shellRootSpaces}
-          selectedRootSpaceId={$shellSelectedRootSpaceId}
-          onSelectRootSpace={selectRootSpace}
-        />
+          <RootSpaceList spaces={$shellRootSpaces} selectedRootSpaceId={$shellSelectedRootSpaceId} onSelectRootSpace={selectRootSpace} onReorderRootSpaces={reorderRootSpaces} />
         <section class="card p-2 preset-outlined-surface-200-800 bg-surface-50-950">
           <a class="btn preset-tonal w-full justify-center" href="/settings">Settings</a>
         </section>
