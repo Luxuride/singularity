@@ -154,123 +154,6 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
     (messages, had_utd)
 }
 
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use super::rewrite_formatted_body_custom_emoji;
-
-    #[test]
-    fn rewrites_custom_emoji_image_src_to_matrix_media() {
-        let mut custom_emoji_urls_by_source = HashMap::new();
-        custom_emoji_urls_by_source.insert(
-            "mxc://media.example.org/wave".to_owned(),
-            "matrix-media://localhost/wave".to_owned(),
-        );
-
-        let rewritten = rewrite_formatted_body_custom_emoji(
-            "<p>hello <img data-mx-emoticon src=\"mxc://media.example.org/wave\" alt=\":wave:\"></p>",
-            &custom_emoji_urls_by_source,
-        );
-
-        assert_eq!(
-            rewritten,
-            "<p>hello <img data-mx-emoticon src=\"matrix-media://localhost/wave\" alt=\":wave:\" width=\"32\" height=\"32\"></p>"
-        );
-    }
-
-    #[test]
-    fn adds_dimensions_when_missing() {
-        let mut custom_emoji_urls_by_source = HashMap::new();
-        custom_emoji_urls_by_source.insert(
-            "mxc://media.example.org/smile".to_owned(),
-            "matrix-media://localhost/smile".to_owned(),
-        );
-
-        let rewritten = rewrite_formatted_body_custom_emoji(
-            "<p><img data-mx-emoticon src=\"mxc://media.example.org/smile\" alt=\":smile:\"></p>",
-            &custom_emoji_urls_by_source,
-        );
-
-        assert!(rewritten.contains("width=\"32\""));
-        assert!(rewritten.contains("height=\"32\""));
-    }
-
-    #[test]
-    fn sets_width_equal_to_height_when_width_missing() {
-        let mut custom_emoji_urls_by_source = HashMap::new();
-        custom_emoji_urls_by_source.insert(
-            "mxc://media.example.org/joy".to_owned(),
-            "matrix-media://localhost/joy".to_owned(),
-        );
-
-        let rewritten = rewrite_formatted_body_custom_emoji(
-            "<p><img data-mx-emoticon src=\"mxc://media.example.org/joy\" alt=\":joy:\" height=\"48\"></p>",
-            &custom_emoji_urls_by_source,
-        );
-
-        assert!(rewritten.contains("width=\"48\""));
-        assert!(rewritten.contains("height=\"48\""));
-    }
-
-    #[test]
-    fn sets_height_equal_to_width_when_height_missing() {
-        let mut custom_emoji_urls_by_source = HashMap::new();
-        custom_emoji_urls_by_source.insert(
-            "mxc://media.example.org/sad".to_owned(),
-            "matrix-media://localhost/sad".to_owned(),
-        );
-
-        let rewritten = rewrite_formatted_body_custom_emoji(
-            "<p><img data-mx-emoticon src=\"mxc://media.example.org/sad\" alt=\":sad:\" width=\"64\"></p>",
-            &custom_emoji_urls_by_source,
-        );
-
-        assert!(rewritten.contains("width=\"64\""));
-        assert!(rewritten.contains("height=\"64\""));
-    }
-
-    #[test]
-    fn handles_underscore_data_mx_emoticon_format() {
-        let mut custom_emoji_urls_by_source = HashMap::new();
-        custom_emoji_urls_by_source.insert(
-            "mxc://matrix.luxuride.eu/GPXPlREYzJTkwoPxjpTkfMWg".to_owned(),
-            "matrix-media://localhost/GPXPlREYzJTkwoPxjpTkfMWg".to_owned(),
-        );
-
-        let rewritten = rewrite_formatted_body_custom_emoji(
-            "<p>Test <img data_mx_emoticon=\"\" src=\"mxc://matrix.luxuride.eu/GPXPlREYzJTkwoPxjpTkfMWg\" alt=\":neuro-flushed:\" title=\":neuro-flushed:\" height=\"32\"></img></p>",
-            &custom_emoji_urls_by_source,
-        );
-
-        assert!(rewritten.contains("matrix-media://localhost/GPXPlREYzJTkwoPxjpTkfMWg"));
-        assert!(!rewritten.contains("mxc://matrix.luxuride.eu"));
-        assert!(rewritten.contains("width=\"32\""));
-        assert!(rewritten.contains("height=\"32\""));
-    }
-
-    #[test]
-    fn rewrites_non_emoji_img_urls_when_in_map() {
-        let mut custom_emoji_urls_by_source = HashMap::new();
-        custom_emoji_urls_by_source.insert(
-            "mxc://media.example.org/image1".to_owned(),
-            "matrix-media://localhost/image1".to_owned(),
-        );
-
-        let rewritten = rewrite_formatted_body_custom_emoji(
-            "<p>Here is an image: <img src=\"mxc://media.example.org/image1\" alt=\"Some image\"></p>",
-            &custom_emoji_urls_by_source,
-        );
-
-        // Should rewrite URL since it's in the map
-        assert!(rewritten.contains("matrix-media://localhost/image1"));
-
-        // Should NOT add dimensions (not an emoji)
-        assert!(!rewritten.contains("width=\"32\""));
-        assert!(!rewritten.contains("height=\"32\""));
-    }
-}
-
 fn rewrite_formatted_body_custom_emoji(
     formatted_body: &str,
     custom_emoji_urls_by_source: &HashMap<String, String>,
@@ -394,5 +277,122 @@ fn add_html_attribute(tag: &str, attribute: &str, value: &str) -> String {
         format!("{} {}=\"{}\"{}", before_close, attribute, value, close_char)
     } else {
         tag.to_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::rewrite_formatted_body_custom_emoji;
+
+    #[test]
+    fn rewrites_custom_emoji_image_src_to_matrix_media() {
+        let mut custom_emoji_urls_by_source = HashMap::new();
+        custom_emoji_urls_by_source.insert(
+            "mxc://media.example.org/wave".to_owned(),
+            "matrix-media://localhost/wave".to_owned(),
+        );
+
+        let rewritten = rewrite_formatted_body_custom_emoji(
+            "<p>hello <img data-mx-emoticon src=\"mxc://media.example.org/wave\" alt=\":wave:\"></p>",
+            &custom_emoji_urls_by_source,
+        );
+
+        assert_eq!(
+            rewritten,
+            "<p>hello <img data-mx-emoticon src=\"matrix-media://localhost/wave\" alt=\":wave:\" width=\"32\" height=\"32\"></p>"
+        );
+    }
+
+    #[test]
+    fn adds_dimensions_when_missing() {
+        let mut custom_emoji_urls_by_source = HashMap::new();
+        custom_emoji_urls_by_source.insert(
+            "mxc://media.example.org/smile".to_owned(),
+            "matrix-media://localhost/smile".to_owned(),
+        );
+
+        let rewritten = rewrite_formatted_body_custom_emoji(
+            "<p><img data-mx-emoticon src=\"mxc://media.example.org/smile\" alt=\":smile:\"></p>",
+            &custom_emoji_urls_by_source,
+        );
+
+        assert!(rewritten.contains("width=\"32\""));
+        assert!(rewritten.contains("height=\"32\""));
+    }
+
+    #[test]
+    fn sets_width_equal_to_height_when_width_missing() {
+        let mut custom_emoji_urls_by_source = HashMap::new();
+        custom_emoji_urls_by_source.insert(
+            "mxc://media.example.org/joy".to_owned(),
+            "matrix-media://localhost/joy".to_owned(),
+        );
+
+        let rewritten = rewrite_formatted_body_custom_emoji(
+            "<p><img data-mx-emoticon src=\"mxc://media.example.org/joy\" alt=\":joy:\" height=\"48\"></p>",
+            &custom_emoji_urls_by_source,
+        );
+
+        assert!(rewritten.contains("width=\"48\""));
+        assert!(rewritten.contains("height=\"48\""));
+    }
+
+    #[test]
+    fn sets_height_equal_to_width_when_height_missing() {
+        let mut custom_emoji_urls_by_source = HashMap::new();
+        custom_emoji_urls_by_source.insert(
+            "mxc://media.example.org/sad".to_owned(),
+            "matrix-media://localhost/sad".to_owned(),
+        );
+
+        let rewritten = rewrite_formatted_body_custom_emoji(
+            "<p><img data-mx-emoticon src=\"mxc://media.example.org/sad\" alt=\":sad:\" width=\"64\"></p>",
+            &custom_emoji_urls_by_source,
+        );
+
+        assert!(rewritten.contains("width=\"64\""));
+        assert!(rewritten.contains("height=\"64\""));
+    }
+
+    #[test]
+    fn handles_underscore_data_mx_emoticon_format() {
+        let mut custom_emoji_urls_by_source = HashMap::new();
+        custom_emoji_urls_by_source.insert(
+            "mxc://matrix.luxuride.eu/GPXPlREYzJTkwoPxjpTkfMWg".to_owned(),
+            "matrix-media://localhost/GPXPlREYzJTkwoPxjpTkfMWg".to_owned(),
+        );
+
+        let rewritten = rewrite_formatted_body_custom_emoji(
+            "<p>Test <img data_mx_emoticon=\"\" src=\"mxc://matrix.luxuride.eu/GPXPlREYzJTkwoPxjpTkfMWg\" alt=\":neuro-flushed:\" title=\":neuro-flushed:\" height=\"32\"></img></p>",
+            &custom_emoji_urls_by_source,
+        );
+
+        assert!(rewritten.contains("matrix-media://localhost/GPXPlREYzJTkwoPxjpTkfMWg"));
+        assert!(!rewritten.contains("mxc://matrix.luxuride.eu"));
+        assert!(rewritten.contains("width=\"32\""));
+        assert!(rewritten.contains("height=\"32\""));
+    }
+
+    #[test]
+    fn rewrites_non_emoji_img_urls_when_in_map() {
+        let mut custom_emoji_urls_by_source = HashMap::new();
+        custom_emoji_urls_by_source.insert(
+            "mxc://media.example.org/image1".to_owned(),
+            "matrix-media://localhost/image1".to_owned(),
+        );
+
+        let rewritten = rewrite_formatted_body_custom_emoji(
+            "<p>Here is an image: <img src=\"mxc://media.example.org/image1\" alt=\"Some image\"></p>",
+            &custom_emoji_urls_by_source,
+        );
+
+        // Should rewrite URL since it's in the map
+        assert!(rewritten.contains("matrix-media://localhost/image1"));
+
+        // Should NOT add dimensions (not an emoji)
+        assert!(!rewritten.contains("width=\"32\""));
+        assert!(!rewritten.contains("height=\"32\""));
     }
 }
