@@ -548,6 +548,7 @@
         return {
           ...message,
           eventId: response.eventId,
+          formattedBody: response.formattedBody || message.formattedBody,
           sendState: undefined,
           localId: undefined,
         };

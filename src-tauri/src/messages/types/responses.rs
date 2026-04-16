@@ -21,6 +21,7 @@ pub struct MatrixStreamChatMessagesResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MatrixSendChatMessageResponse {
     pub event_id: String,
+    pub formatted_body: Option<String>,
 }
 
 #[derive(Serialize)]

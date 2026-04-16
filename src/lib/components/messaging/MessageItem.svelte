@@ -32,7 +32,7 @@
 
 <li class="card p-3 preset-outlined-surface-300-700 bg-surface-50-950" data-message-event-id={message.eventId ?? undefined}>
   <MessageHeader {message} {roomId} />
-  <MessageBody {message} {pickerCustomEmoji} />
+  <MessageBody {message} />
   <MessageReactions {message} {currentUserId} {pickerCustomEmoji} onToggleReaction={onToggleReaction} />
   <MessageSendState {message} {isSending} onRetry={onRetry} />
   <MessageEncryptionState {message} />

@@ -6,7 +6,9 @@ use crate::protocol::sync::sync_once_serialized;
 use crate::rooms::{RoomRefreshTrigger, RoomUpdateTriggerState};
 
 use super::super::emoji::load_picker_assets_from_client;
-use super::super::send::send_room_message_from_client;
+use super::super::send::{
+    build_formatted_body_from_custom_emoji_for_send, send_room_message_from_client,
+};
 use super::super::types::{MatrixSendChatMessageRequest, MatrixSendChatMessageResponse};
 
 #[tauri::command]
@@ -25,6 +27,10 @@ pub async fn matrix_send_chat_message(
 
     let room_id = request.room_id;
     let picker_custom_emoji = load_picker_assets_from_client(&client).await?;
+    let formatted_body = build_formatted_body_from_custom_emoji_for_send(
+        request.body.as_str(),
+        &picker_custom_emoji,
+    );
     let event_id = send_room_message_from_client(
         &client,
         room_id.as_str(),
@@ -38,5 +44,8 @@ pub async fn matrix_send_chat_message(
         include_selected_messages: false,
     });
 
-    Ok(MatrixSendChatMessageResponse { event_id })
+    Ok(MatrixSendChatMessageResponse {
+        event_id,
+        formatted_body,
+    })
 }

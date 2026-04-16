@@ -155,6 +155,7 @@ export interface MatrixStreamChatMessagesResponse {
 
 export interface MatrixSendChatMessageResponse {
   eventId: string;
+  formattedBody?: string;
 }
 
 export interface MatrixToggleReactionResponse {

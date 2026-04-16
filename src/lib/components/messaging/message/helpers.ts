@@ -2,12 +2,6 @@ import type { PickerCustomEmoji } from "$lib/emoji/picker";
 
 import type { TimelineMessage } from "../shared";
 
-export type MessageBodyPart =
-  | { type: "text"; value: string }
-  | { type: "emoji"; shortcode: string; url: string };
-
-const CUSTOM_EMOJI_PATTERN = /(:[A-Za-z0-9_+\-]+:)/g;
-
 export function shortcodeToken(value: string): string {
   const clean = value.trim().replace(/^:+|:+$/g, "");
   return clean ? `:${clean}:` : "";
@@ -103,35 +97,6 @@ export function reactionDisplayName(key: string, message: TimelineMessage, picke
   }
 
   return emojiName(trimmed);
-}
-
-export function buildMessageBodyParts(
-  message: TimelineMessage,
-  pickerCustomEmoji: PickerCustomEmoji[],
-  emojiByShortcodeToken: Map<string, string>,
-): MessageBodyPart[] {
-  if (!message.customEmojis?.length && pickerCustomEmoji.length === 0) {
-    return [{ type: "text", value: message.body }];
-  }
-
-  const segments = message.body.split(CUSTOM_EMOJI_PATTERN);
-  const parts: MessageBodyPart[] = [];
-
-  for (const segment of segments) {
-    if (!segment) {
-      continue;
-    }
-
-    const emojiUrl = emojiByShortcodeToken.get(segment);
-    if (emojiUrl) {
-      parts.push({ type: "emoji", shortcode: segment, url: emojiUrl });
-      continue;
-    }
-
-    parts.push({ type: "text", value: segment });
-  }
-
-  return parts.length ? parts : [{ type: "text", value: message.body }];
 }
 
 
