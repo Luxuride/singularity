@@ -8,3 +8,5 @@ export interface TimelineMessage extends MatrixChatMessage {
 export type RetryMessageHandler = (message: TimelineMessage) => void;
 
 export type ToggleReactionHandler = (message: TimelineMessage, key: string) => void;
+
+export type JumpToMessageHandler = (eventId: string) => void;

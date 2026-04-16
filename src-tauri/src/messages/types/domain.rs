@@ -52,6 +52,7 @@ pub struct MatrixReactionSummary {
 #[serde(rename_all = "camelCase")]
 pub struct MatrixChatMessage {
     pub event_id: Option<String>,
+    pub in_reply_to_event_id: Option<String>,
     pub sender: String,
     pub timestamp: Option<u64>,
     pub body: String,

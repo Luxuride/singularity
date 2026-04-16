@@ -510,6 +510,7 @@
 
     return {
       eventId: null,
+      inReplyToEventId: null,
       sender: $shellCurrentUserId || "You",
       timestamp: Date.now(),
       body,

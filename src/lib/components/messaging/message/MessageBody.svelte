@@ -8,6 +8,14 @@
   let {
     message,
   }: Props = $props();
+
+  function stripMxReplyBlock(html: string): string {
+    return html.replace(/<mx-reply>[\s\S]*?<\/mx-reply>/i, "").trimStart();
+  }
+
+  const renderedFormattedBody = $derived(
+    message.formattedBody ? stripMxReplyBlock(message.formattedBody) : null,
+  );
 </script>
 
 {#if message.messageType === "m.image"}
@@ -30,9 +38,9 @@
       </figcaption>
     {/if}
   </figure>
-{:else if message.formattedBody}
+{:else if renderedFormattedBody}
   <div class="message-formatted-body whitespace-pre-wrap break-words text-base">
-    {@html message.formattedBody}
+    {@html renderedFormattedBody}
   </div>
 {:else}
   <p class="whitespace-pre-wrap break-words text-base">

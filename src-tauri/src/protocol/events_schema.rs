@@ -7,6 +7,7 @@ use crate::protocol::event_types;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedTimelineMessage {
     pub event_id: Option<String>,
+    pub in_reply_to_event_id: Option<String>,
     pub sender: String,
     pub timestamp: Option<u64>,
     pub body: String,
@@ -106,6 +107,7 @@ pub fn parse_timeline_message(
 
     if event_type == event_types::ROOM_MESSAGE {
         let content = event.get("content");
+        let in_reply_to_event_id = extract_in_reply_to_event_id(content);
         let msgtype = event
             .get("content")
             .and_then(|content| content.get("msgtype"))
@@ -152,6 +154,7 @@ pub fn parse_timeline_message(
 
         return Some(ParsedTimelineMessage {
             event_id,
+            in_reply_to_event_id,
             sender,
             timestamp,
             body,
@@ -168,6 +171,7 @@ pub fn parse_timeline_message(
     if event_type == event_types::ROOM_ENCRYPTED {
         return Some(ParsedTimelineMessage {
             event_id,
+            in_reply_to_event_id: None,
             sender,
             timestamp,
             body: String::from("Unable to decrypt encrypted message"),
@@ -182,6 +186,15 @@ pub fn parse_timeline_message(
     }
 
     None
+}
+
+fn extract_in_reply_to_event_id(content: Option<&Value>) -> Option<String> {
+    content
+        .and_then(|value| value.get("m.relates_to"))
+        .and_then(|value| value.get("m.in_reply_to"))
+        .and_then(|value| value.get("event_id"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
 }
 
 fn extract_media_event_url(event: &Value) -> Option<&str> {
@@ -326,6 +339,7 @@ mod tests {
         )
         .expect("message should parse");
         assert_eq!(parsed.body, "hello");
+        assert_eq!(parsed.in_reply_to_event_id, None);
         assert_eq!(parsed.message_type, Some("m.text".to_owned()));
         assert!(parsed.image_url.is_none());
         assert!(!parsed.encrypted);
@@ -426,6 +440,37 @@ mod tests {
         assert_eq!(parsed.custom_emojis.len(), 1);
         assert_eq!(parsed.custom_emojis[0].shortcode, ":wave:");
         assert_eq!(parsed.custom_emojis[0].url, "mxc://media.example.org/wave");
+    }
+
+    #[test]
+    fn parses_message_in_reply_to_reference() {
+        let homeserver = Url::parse("https://matrix.example.org").expect("homeserver");
+        let event = json!({
+            "type": "m.room.message",
+            "sender": "@alice:example.org",
+            "content": {
+                "msgtype": "m.text",
+                "body": "reply body",
+                "m.relates_to": {
+                    "m.in_reply_to": {
+                        "event_id": "$target-event"
+                    }
+                }
+            }
+        });
+
+        let parsed = parse_timeline_message(
+            &event,
+            &homeserver,
+            MatrixMessageDecryptionStatus::Plaintext,
+            MatrixMessageVerificationStatus::Unknown,
+        )
+        .expect("message should parse");
+
+        assert_eq!(
+            parsed.in_reply_to_event_id,
+            Some("$target-event".to_owned())
+        );
     }
 
     #[test]

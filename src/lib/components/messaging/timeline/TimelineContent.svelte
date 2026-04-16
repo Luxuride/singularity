@@ -29,9 +29,88 @@
   }: Props = $props();
 
   let timelineElement: HTMLElement | null = $state(null);
+  let highlightedMessageElement: HTMLElement | null = $state(null);
+  let highlightTimeout: ReturnType<typeof setTimeout> | null = $state(null);
+  let ignoreNextGlobalPointerDown = $state(false);
+
+  const messagesByEventId = $derived.by(() => {
+    const indexed = new Map<string, TimelineMessage>();
+    for (const message of messages) {
+      if (!message.eventId) {
+        continue;
+      }
+
+      indexed.set(message.eventId, message);
+    }
+
+    return indexed;
+  });
+
+  function jumpToMessage(eventId: string) {
+    if (!timelineElement) {
+      return;
+    }
+
+    const target = timelineElement.querySelector<HTMLElement>(
+      `[data-message-event-id="${eventId.replaceAll('"', '\\"')}"]`,
+    );
+
+    if (!target) {
+      return;
+    }
+
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+
+    if (highlightedMessageElement && highlightedMessageElement !== target) {
+      highlightedMessageElement.classList.remove("bg-surface-100-900");
+      highlightedMessageElement.classList.remove("border-primary-500");
+    }
+
+    target.classList.add("bg-surface-100-900");
+    target.classList.add("border-primary-500");
+    highlightedMessageElement = target;
+    ignoreNextGlobalPointerDown = true;
+    queueMicrotask(() => {
+      ignoreNextGlobalPointerDown = false;
+    });
+
+    if (highlightTimeout) {
+      clearTimeout(highlightTimeout);
+    }
+
+    highlightTimeout = setTimeout(() => {
+      highlightedMessageElement?.classList.remove("border-primary-500");
+      highlightTimeout = null;
+    }, 750);
+  }
 
   $effect(() => {
     onTimelineElementChange?.(timelineElement);
+  });
+
+  $effect(() => {
+    const onGlobalPointerDown = () => {
+      if (ignoreNextGlobalPointerDown) {
+        return;
+      }
+
+      highlightedMessageElement?.classList.remove("bg-surface-100-900");
+      highlightedMessageElement = null;
+    };
+
+    window.addEventListener("pointerdown", onGlobalPointerDown, true);
+
+    return () => {
+      window.removeEventListener("pointerdown", onGlobalPointerDown, true);
+    };
+  });
+
+  $effect(() => {
+    return () => {
+      if (highlightTimeout) {
+        clearTimeout(highlightTimeout);
+      }
+    };
   });
 </script>
 
@@ -48,6 +127,10 @@
         <MessageItem
           {message}
           {roomId}
+          repliedMessage={
+            message.inReplyToEventId ? messagesByEventId.get(message.inReplyToEventId) : undefined
+          }
+          onJumpToMessage={jumpToMessage}
           onRetry={onRetryMessage}
           {currentUserId}
           {pickerCustomEmoji}

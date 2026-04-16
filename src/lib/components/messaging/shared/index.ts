@@ -2,6 +2,7 @@ export type {
   TimelineMessage,
   RetryMessageHandler,
   ToggleReactionHandler,
+  JumpToMessageHandler,
 } from "./types";
 
 export {
