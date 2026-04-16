@@ -1,14 +1,4 @@
-use matrix_sdk::ruma::{OwnedRoomId, OwnedUserId};
-
 use super::types::MatrixChatMessage;
-
-pub(super) fn parse_user_id(user_id_raw: &str) -> Result<OwnedUserId, String> {
-    OwnedUserId::try_from(user_id_raw).map_err(|_| format!("Invalid user ID: {user_id_raw}"))
-}
-
-pub(super) fn parse_room_id(room_id_raw: &str) -> Result<OwnedRoomId, String> {
-    OwnedRoomId::try_from(room_id_raw).map_err(|_| format!("Invalid room ID: {room_id_raw}"))
-}
 
 pub(super) fn has_stale_in_memory_media_urls(messages: &[MatrixChatMessage]) -> bool {
     messages.iter().any(|message| {

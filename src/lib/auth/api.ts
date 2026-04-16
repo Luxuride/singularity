@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
-import { toMessage } from "../errors";
+import { invokeMatrixCommand } from "../command-client";
 import type {
   MatrixClearCacheExceptAuthResponse,
   MatrixCompleteOAuthRequest,
@@ -16,67 +15,39 @@ import type {
 export async function matrixStartOAuth(
   input: MatrixStartOAuthRequest,
 ): Promise<MatrixStartOAuthResponse> {
-  try {
-    return await invoke<MatrixStartOAuthResponse>("matrix_start_oauth", {
-      request: input,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixStartOAuthResponse>("matrix_start_oauth", {
+    request: input,
+  });
 }
 
 export async function matrixCompleteOAuth(
   input: MatrixCompleteOAuthRequest,
 ): Promise<MatrixCompleteOAuthResponse> {
-  try {
-    return await invoke<MatrixCompleteOAuthResponse>("matrix_complete_oauth", {
-      request: input,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixCompleteOAuthResponse>("matrix_complete_oauth", {
+    request: input,
+  });
 }
 
 export async function matrixSessionStatus(): Promise<MatrixSessionStatusResponse> {
-  try {
-    return await invoke<MatrixSessionStatusResponse>("matrix_session_status");
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixSessionStatusResponse>("matrix_session_status");
 }
 
 export async function matrixLogout(): Promise<MatrixLogoutResponse> {
-  try {
-    return await invoke<MatrixLogoutResponse>("matrix_logout");
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixLogoutResponse>("matrix_logout");
 }
 
 export async function matrixClearCacheExceptAuth(): Promise<MatrixClearCacheExceptAuthResponse> {
-  try {
-    return await invoke<MatrixClearCacheExceptAuthResponse>("matrix_clear_cache_except_auth");
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixClearCacheExceptAuthResponse>("matrix_clear_cache_except_auth");
 }
 
 export async function matrixRecoveryStatus(): Promise<MatrixRecoveryStatusResponse> {
-  try {
-    return await invoke<MatrixRecoveryStatusResponse>("matrix_recovery_status");
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixRecoveryStatusResponse>("matrix_recovery_status");
 }
 
 export async function matrixRecoverWithKey(
   input: MatrixRecoverWithKeyRequest,
 ): Promise<MatrixRecoverWithKeyResponse> {
-  try {
-    return await invoke<MatrixRecoverWithKeyResponse>("matrix_recover_with_key", {
-      request: input,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixRecoverWithKeyResponse>("matrix_recover_with_key", {
+    request: input,
+  });
 }

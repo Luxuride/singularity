@@ -1,6 +1,7 @@
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
 
 use super::types::MatrixPickerCustomEmoji;
+use crate::protocol::parse_room_id;
 mod formatting;
 use formatting::build_formatted_body_from_custom_emoji;
 
@@ -30,8 +31,7 @@ impl MessageSender for MatrixMessageSender {
             return Err(String::from("Message cannot be empty"));
         }
 
-        let room_id = matrix_sdk::ruma::OwnedRoomId::try_from(room_id_raw)
-            .map_err(|_| String::from("roomId is invalid"))?;
+        let room_id = parse_room_id(room_id_raw)?;
 
         let room = client
             .get_room(&room_id)

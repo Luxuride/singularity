@@ -6,6 +6,7 @@ use matrix_sdk::ruma::uint;
 use serde_json::Value;
 
 use crate::protocol::events_schema::parse_reaction_event;
+use crate::protocol::{parse_event_id, parse_room_id};
 
 pub(crate) trait ReactionManager {
     async fn toggle_reaction(
@@ -33,10 +34,8 @@ impl ReactionManager for MatrixReactionManager {
             return Err(String::from("Reaction key cannot be empty"));
         }
 
-        let room_id = matrix_sdk::ruma::OwnedRoomId::try_from(room_id_raw)
-            .map_err(|_| String::from("roomId is invalid"))?;
-        let target_event_id = matrix_sdk::ruma::OwnedEventId::try_from(target_event_id_raw)
-            .map_err(|_| String::from("targetEventId is invalid"))?;
+        let room_id = parse_room_id(room_id_raw)?;
+        let target_event_id = parse_event_id(target_event_id_raw)?;
 
         let room = client
             .get_room(&room_id)
@@ -55,8 +54,7 @@ impl ReactionManager for MatrixReactionManager {
         )
         .await?
         {
-            let redact_target = matrix_sdk::ruma::OwnedEventId::try_from(existing_event_id.clone())
-                .map_err(|_| String::from("Found invalid reaction event id for redaction"))?;
+            let redact_target = parse_event_id(&existing_event_id)?;
 
             room.redact(&redact_target, Some("Toggle reaction off"), None)
                 .await

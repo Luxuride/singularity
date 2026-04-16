@@ -6,6 +6,7 @@ use matrix_sdk::ruma::uint;
 use super::super::media::MediaResolver;
 use super::super::types::MatrixGetChatMessagesResponse;
 use super::parsing::parse_message_chunk;
+use crate::protocol::parse_room_id;
 
 pub(super) async fn fetch_room_messages_impl<M: MediaResolver>(
     media_resolver: &M,
@@ -14,8 +15,7 @@ pub(super) async fn fetch_room_messages_impl<M: MediaResolver>(
     from: Option<String>,
     limit: Option<u32>,
 ) -> Result<MatrixGetChatMessagesResponse, String> {
-    let room_id = matrix_sdk::ruma::OwnedRoomId::try_from(room_id_raw)
-        .map_err(|_| String::from("roomId is invalid"))?;
+    let room_id = parse_room_id(room_id_raw)?;
 
     let room = client
         .get_room(&room_id)

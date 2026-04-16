@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter};
 use crate::auth::AuthState;
 use crate::db::AppDb;
 use crate::messages::cache_mxc_media_to_local_path;
+use crate::protocol::parse_room_id;
 use crate::rooms::types::{
     MatrixGetChatsResponse, MatrixGetRoomImageRequest, MatrixGetRoomImageResponse,
 };
@@ -99,8 +100,7 @@ pub(super) async fn get_room_image(
 
     let client = auth_state.restore_client_and_get(app_handle).await?;
 
-    let room_id = matrix_sdk::ruma::OwnedRoomId::try_from(request.room_id.as_str())
-        .map_err(|_| String::from("roomId is invalid"))?;
+    let room_id = parse_room_id(request.room_id.as_str())?;
     let room = client
         .get_room(&room_id)
         .ok_or_else(|| String::from("Room is not available in current session yet"))?;
