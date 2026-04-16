@@ -65,3 +65,10 @@ pub(crate) async fn send_room_message_from_client(
         .send_room_message(client, room_id_raw, body, picker_custom_emoji)
         .await
 }
+
+pub(crate) fn build_formatted_body_from_custom_emoji_for_send(
+    body: &str,
+    picker_custom_emoji: &[MatrixPickerCustomEmoji],
+) -> Option<String> {
+    build_formatted_body_from_custom_emoji(body, picker_custom_emoji)
+}

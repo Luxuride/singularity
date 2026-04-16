@@ -1,25 +1,13 @@
 <script lang="ts">
-  import type { PickerCustomEmoji } from "$lib/emoji/picker";
-
-  import {
-    buildEmojiByShortcodeToken,
-    buildMessageBodyParts,
-    emojiName,
-  } from "./helpers";
   import type { TimelineMessage } from "../shared";
 
   interface Props {
     message: TimelineMessage;
-    pickerCustomEmoji?: PickerCustomEmoji[];
   }
 
   let {
     message,
-    pickerCustomEmoji = [],
   }: Props = $props();
-
-  const emojiByShortcodeToken = $derived.by(() => buildEmojiByShortcodeToken(message, pickerCustomEmoji));
-  const messageBodyParts = $derived.by(() => buildMessageBodyParts(message, pickerCustomEmoji, emojiByShortcodeToken));
 </script>
 
 {#if message.messageType === "m.image"}
@@ -42,22 +30,12 @@
       </figcaption>
     {/if}
   </figure>
+{:else if message.formattedBody}
+  <div class="whitespace-pre-wrap break-words text-base">
+    {@html message.formattedBody}
+  </div>
 {:else}
   <p class="whitespace-pre-wrap break-words text-base">
-    {#each messageBodyParts as part, index (`${part.type}-${index}`)}
-      {#if part.type === "emoji"}
-        <img
-          src={part.url}
-          alt={part.shortcode}
-          title={emojiName(part.shortcode)}
-          height="32"
-          width="32"
-          class="inline-block align-text-bottom mx-0.5"
-          loading="lazy"
-        />
-      {:else}
-        {part.value}
-      {/if}
-    {/each}
+    {message.body}
   </p>
 {/if}

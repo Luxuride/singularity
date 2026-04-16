@@ -116,7 +116,6 @@ pub(super) fn build_formatted_body_from_custom_emoji(
     } else {
         "32"
     };
-
     let mut html = String::from("<p>");
     for segment in &segments {
         match segment {
