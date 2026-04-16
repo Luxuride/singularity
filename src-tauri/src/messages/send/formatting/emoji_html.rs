@@ -110,6 +110,13 @@ pub(super) fn build_formatted_body_from_custom_emoji(
         return None;
     }
 
+    // Single emoji messages get double the height (64 vs 32)
+    let emoji_height = if segments.len() == 1 && matches!(segments[0], HtmlSegment::Emoji { .. }) {
+        "64"
+    } else {
+        "32"
+    };
+
     let formatted = markup::new! {
         p {
             @for segment in &segments {
@@ -121,15 +128,14 @@ pub(super) fn build_formatted_body_from_custom_emoji(
                         br {}
                     }
                     HtmlSegment::Emoji { source_url, token } => {
-                        img[data_mx_emoticon = "", src = source_url, alt = token, title = token, height = "32"] {}
+                        img[data_mx_emoticon = "", src = source_url, alt = token, title = token, height = emoji_height] {}
                     }
                 }
             }
         }
-    }
-    .to_string();
+    };
 
-    Some(formatted)
+    Some(formatted.to_string())
 }
 
 fn push_text_segments(segments: &mut Vec<HtmlSegment>, value: &str) {
