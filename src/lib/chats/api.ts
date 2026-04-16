@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
-import { toMessage } from "../errors";
+import { invokeMatrixCommand } from "../command-client";
 import { normalizeChatSummaryImageUrl, normalizeImageUrl, normalizeMessageImageUrl } from "./media";
 import type {
   MatrixChatSummary,
@@ -33,10 +32,10 @@ type PickerAssets = {
 };
 
 export async function matrixGetPickerAssets(): Promise<PickerAssets> {
-  const response = await invoke<MatrixGetEmojiPacksResponse>("matrix_get_emoji_packs");
+  const response = await invokeMatrixCommand<MatrixGetEmojiPacksResponse>("matrix_get_emoji_packs");
 
   return {
-    customEmoji: response.customEmoji.map((emoji) => ({
+    customEmoji: response.customEmoji.map((emoji: MatrixPickerCustomEmoji) => ({
       ...emoji,
       url: normalizeImageUrl(emoji.url) ?? emoji.url,
       category: emoji.category ?? undefined,
@@ -45,231 +44,159 @@ export async function matrixGetPickerAssets(): Promise<PickerAssets> {
 }
 
 export async function matrixGetChats(): Promise<MatrixChatSummary[]> {
-  try {
-    const response = await invoke<MatrixGetChatsResponse>("matrix_get_chats");
-    return response.chats.map(normalizeChatSummaryImageUrl);
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  const response = await invokeMatrixCommand<MatrixGetChatsResponse>("matrix_get_chats");
+  return response.chats.map(normalizeChatSummaryImageUrl);
 }
 
 export async function matrixGetRoomImage(roomId: string): Promise<string | null> {
-  try {
-    const response = await invoke<MatrixGetRoomImageResponse>("matrix_get_room_image", {
-      request: { roomId },
-    });
+  const response = await invokeMatrixCommand<MatrixGetRoomImageResponse>("matrix_get_room_image", {
+    request: { roomId },
+  });
 
-    return normalizeImageUrl(response.imageUrl);
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return normalizeImageUrl(response.imageUrl);
 }
 
 export async function matrixGetUserAvatar(roomId: string, userId: string): Promise<string | null> {
-  try {
-    const response = await invoke<MatrixGetUserAvatarResponse>("matrix_get_user_avatar", {
-      request: { roomId, userId },
-    });
+  const response = await invokeMatrixCommand<MatrixGetUserAvatarResponse>("matrix_get_user_avatar", {
+    request: { roomId, userId },
+  });
 
-    return normalizeImageUrl(response.imageUrl);
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return normalizeImageUrl(response.imageUrl);
 }
 
 export async function matrixGetChatNavigation(
   input?: MatrixGetChatNavigationRequest,
 ): Promise<MatrixGetChatNavigationResponse> {
-  try {
-    const response = await invoke<MatrixGetChatNavigationResponse>("matrix_get_chat_navigation", {
-      request: input ?? null,
-    });
+  const response = await invokeMatrixCommand<MatrixGetChatNavigationResponse>("matrix_get_chat_navigation", {
+    request: input ?? null,
+  });
 
-    return {
-      ...response,
-      rootSpaces: response.rootSpaces.map(normalizeChatSummaryImageUrl),
-      rootScopedRooms: response.rootScopedRooms.map(normalizeChatSummaryImageUrl),
-    };
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return {
+    ...response,
+    rootSpaces: response.rootSpaces.map(normalizeChatSummaryImageUrl),
+    rootScopedRooms: response.rootScopedRooms.map(normalizeChatSummaryImageUrl),
+  };
 }
 
 export async function matrixSetRootSpaceOrder(
   input: MatrixSetRootSpaceOrderRequest,
 ): Promise<MatrixSetRootSpaceOrderResponse> {
-  try {
-    return await invoke<MatrixSetRootSpaceOrderResponse>("matrix_set_root_space_order", {
-      request: input,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixSetRootSpaceOrderResponse>("matrix_set_root_space_order", {
+    request: input,
+  });
 }
 
 export async function matrixGetChatMessages(
   input: MatrixGetChatMessagesRequest,
 ): Promise<MatrixGetChatMessagesResponse> {
-  try {
-    const response = await invoke<MatrixGetChatMessagesResponse>("matrix_get_chat_messages", {
-      request: input,
-    });
+  const response = await invokeMatrixCommand<MatrixGetChatMessagesResponse>("matrix_get_chat_messages", {
+    request: input,
+  });
 
-    return {
-      ...response,
-      messages: response.messages.map(normalizeMessageImageUrl),
-    };
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return {
+    ...response,
+    messages: response.messages.map(normalizeMessageImageUrl),
+  };
 }
 
 export async function matrixStreamChatMessages(
   input: MatrixStreamChatMessagesRequest,
 ): Promise<MatrixStreamChatMessagesResponse> {
-  try {
-    return await invoke<MatrixStreamChatMessagesResponse>("matrix_stream_chat_messages", {
-      request: input,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixStreamChatMessagesResponse>("matrix_stream_chat_messages", {
+    request: input,
+  });
 }
 
 export async function matrixSendChatMessage(
   input: MatrixSendChatMessageRequest,
 ): Promise<MatrixSendChatMessageResponse> {
-  try {
-    return await invoke<MatrixSendChatMessageResponse>("matrix_send_chat_message", {
-      request: input,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixSendChatMessageResponse>("matrix_send_chat_message", {
+    request: input,
+  });
 }
 
 export async function matrixToggleReaction(
   input: MatrixToggleReactionRequest,
 ): Promise<MatrixToggleReactionResponse> {
-  try {
-    return await invoke<MatrixToggleReactionResponse>("matrix_toggle_reaction", {
-      request: input,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixToggleReactionResponse>("matrix_toggle_reaction", {
+    request: input,
+  });
 }
 
 export async function matrixTriggerRoomUpdate(
   input?: MatrixTriggerRoomUpdateRequest,
 ): Promise<MatrixTriggerRoomUpdateResponse> {
-  try {
-    return await invoke<MatrixTriggerRoomUpdateResponse>("matrix_trigger_room_update", {
-      request: input ?? null,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixTriggerRoomUpdateResponse>("matrix_trigger_room_update", {
+    request: input ?? null,
+  });
 }
 
 export async function matrixOwnVerificationStatus(): Promise<MatrixOwnVerificationStatus> {
-  try {
-    return await invoke<MatrixOwnVerificationStatus>("matrix_own_verification_status");
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixOwnVerificationStatus>("matrix_own_verification_status");
 }
 
 export async function matrixGetUserDevices(userId: string): Promise<MatrixGetUserDevicesResponse> {
-  try {
-    return await invoke<MatrixGetUserDevicesResponse>("matrix_get_user_devices", {
-      userIdRaw: userId,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixGetUserDevicesResponse>("matrix_get_user_devices", {
+    userIdRaw: userId,
+  });
 }
 
 export async function matrixRequestDeviceVerification(
   userId: string,
   deviceId: string,
 ): Promise<MatrixRequestVerificationResponse> {
-  try {
-    return await invoke<MatrixRequestVerificationResponse>(
-      "matrix_request_device_verification",
-      { userIdRaw: userId, deviceIdRaw: deviceId },
-    );
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixRequestVerificationResponse>(
+    "matrix_request_device_verification",
+    { userIdRaw: userId, deviceIdRaw: deviceId },
+  );
 }
 
 export async function matrixGetVerificationFlow(
   userId: string,
   flowId: string,
 ): Promise<MatrixVerificationFlowResponse> {
-  try {
-    return await invoke<MatrixVerificationFlowResponse>("matrix_get_verification_flow", {
-      userIdRaw: userId,
-      flowId,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixVerificationFlowResponse>("matrix_get_verification_flow", {
+    userIdRaw: userId,
+    flowId,
+  });
 }
 
 export async function matrixAcceptVerificationRequest(
   userId: string,
   flowId: string,
 ): Promise<MatrixVerificationFlowResponse> {
-  try {
-    return await invoke<MatrixVerificationFlowResponse>("matrix_accept_verification_request", {
-      userIdRaw: userId,
-      flowId,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixVerificationFlowResponse>("matrix_accept_verification_request", {
+    userIdRaw: userId,
+    flowId,
+  });
 }
 
 export async function matrixStartSasVerification(
   userId: string,
   flowId: string,
 ): Promise<MatrixVerificationFlowResponse> {
-  try {
-    return await invoke<MatrixVerificationFlowResponse>("matrix_start_sas_verification", {
-      userIdRaw: userId,
-      flowId,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixVerificationFlowResponse>("matrix_start_sas_verification", {
+    userIdRaw: userId,
+    flowId,
+  });
 }
 
 export async function matrixAcceptSasVerification(
   userId: string,
   flowId: string,
 ): Promise<MatrixVerificationFlowResponse> {
-  try {
-    return await invoke<MatrixVerificationFlowResponse>("matrix_accept_sas_verification", {
-      userIdRaw: userId,
-      flowId,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixVerificationFlowResponse>("matrix_accept_sas_verification", {
+    userIdRaw: userId,
+    flowId,
+  });
 }
 
 export async function matrixConfirmSasVerification(
   userId: string,
   flowId: string,
 ): Promise<MatrixVerificationFlowResponse> {
-  try {
-    return await invoke<MatrixVerificationFlowResponse>("matrix_confirm_sas_verification", {
-      userIdRaw: userId,
-      flowId,
-    });
-  } catch (error) {
-    throw new Error(toMessage(error));
-  }
+  return invokeMatrixCommand<MatrixVerificationFlowResponse>("matrix_confirm_sas_verification", {
+    userIdRaw: userId,
+    flowId,
+  });
 }

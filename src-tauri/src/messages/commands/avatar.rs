@@ -2,8 +2,8 @@ use log::{info, warn};
 use tauri::{AppHandle, State};
 
 use crate::auth::AuthState;
+use crate::protocol::{parse_room_id, parse_user_id};
 
-use super::super::helpers::{parse_room_id, parse_user_id};
 use super::super::media::cache_mxc_media_to_local_path;
 use super::super::types::{MatrixGetUserAvatarRequest, MatrixGetUserAvatarResponse};
 

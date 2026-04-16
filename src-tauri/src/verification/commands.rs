@@ -8,6 +8,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::auth::AuthState;
 use crate::protocol::config;
 use crate::protocol::event_paths;
+use crate::protocol::parse_user_id;
 use crate::protocol::sync::sync_once_serialized;
 
 use super::types::{
@@ -16,10 +17,6 @@ use super::types::{
     MatrixVerificationFlowResponse, MatrixVerificationRequestState,
     MatrixVerificationStateChangedEvent,
 };
-
-fn parse_user_id(user_id_raw: &str) -> Result<OwnedUserId, String> {
-    OwnedUserId::try_from(user_id_raw).map_err(|_| format!("Invalid user ID: {user_id_raw}"))
-}
 
 async fn sync_after_verification(client: &Client) -> Result<(), String> {
     sync_once_serialized(
