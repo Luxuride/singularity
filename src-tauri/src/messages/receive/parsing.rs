@@ -222,13 +222,53 @@ mod tests {
         assert!(rewritten.contains("width=\"64\""));
         assert!(rewritten.contains("height=\"64\""));
     }
+
+    #[test]
+    fn handles_underscore_data_mx_emoticon_format() {
+        let mut custom_emoji_urls_by_source = HashMap::new();
+        custom_emoji_urls_by_source.insert(
+            "mxc://matrix.luxuride.eu/GPXPlREYzJTkwoPxjpTkfMWg".to_owned(),
+            "matrix-media://localhost/GPXPlREYzJTkwoPxjpTkfMWg".to_owned(),
+        );
+
+        let rewritten = rewrite_formatted_body_custom_emoji(
+            "<p>Test <img data_mx_emoticon=\"\" src=\"mxc://matrix.luxuride.eu/GPXPlREYzJTkwoPxjpTkfMWg\" alt=\":neuro-flushed:\" title=\":neuro-flushed:\" height=\"32\"></img></p>",
+            &custom_emoji_urls_by_source,
+        );
+
+        assert!(rewritten.contains("matrix-media://localhost/GPXPlREYzJTkwoPxjpTkfMWg"));
+        assert!(!rewritten.contains("mxc://matrix.luxuride.eu"));
+        assert!(rewritten.contains("width=\"32\""));
+        assert!(rewritten.contains("height=\"32\""));
+    }
+
+    #[test]
+    fn rewrites_non_emoji_img_urls_when_in_map() {
+        let mut custom_emoji_urls_by_source = HashMap::new();
+        custom_emoji_urls_by_source.insert(
+            "mxc://media.example.org/image1".to_owned(),
+            "matrix-media://localhost/image1".to_owned(),
+        );
+
+        let rewritten = rewrite_formatted_body_custom_emoji(
+            "<p>Here is an image: <img src=\"mxc://media.example.org/image1\" alt=\"Some image\"></p>",
+            &custom_emoji_urls_by_source,
+        );
+
+        // Should rewrite URL since it's in the map
+        assert!(rewritten.contains("matrix-media://localhost/image1"));
+        
+        // Should NOT add dimensions (not an emoji)
+        assert!(!rewritten.contains("width=\"32\""));
+        assert!(!rewritten.contains("height=\"32\""));
+    }
 }
 
 fn rewrite_formatted_body_custom_emoji(
     formatted_body: &str,
     custom_emoji_urls_by_source: &HashMap<String, String>,
 ) -> String {
-    if !formatted_body.contains("data-mx-emoticon") || custom_emoji_urls_by_source.is_empty() {
+    if custom_emoji_urls_by_source.is_empty() {
         return formatted_body.to_owned();
     }
 
@@ -245,7 +285,7 @@ fn rewrite_formatted_body_custom_emoji(
         let tag_end = tag_start + relative_end + 1;
         let tag = &formatted_body[tag_start..tag_end];
         rewritten.push_str(&formatted_body[search_index..tag_start]);
-        rewritten.push_str(&rewrite_custom_emoji_tag(tag, custom_emoji_urls_by_source));
+        rewritten.push_str(&rewrite_img_tag(tag, custom_emoji_urls_by_source));
         search_index = tag_end;
     }
 
@@ -253,41 +293,35 @@ fn rewrite_formatted_body_custom_emoji(
     rewritten
 }
 
-fn rewrite_custom_emoji_tag(tag: &str, custom_emoji_urls_by_source: &HashMap<String, String>) -> String {
-    if !tag.contains("data-mx-emoticon") {
-        return tag.to_owned();
+fn rewrite_img_tag(tag: &str, custom_emoji_urls_by_source: &HashMap<String, String>) -> String {
+    // Rewrite src URL for all img elements
+    let mut result = tag.to_owned();
+    if let Some(source_url) = extract_html_attribute(tag, "src") {
+        if let Some(rewritten_src) = custom_emoji_urls_by_source.get(&source_url) {
+            result = replace_html_attribute(&result, "src", rewritten_src);
+        }
     }
-
-    let Some(source_url) = extract_html_attribute(tag, "src") else {
-        return tag.to_owned();
-    };
-
-    let Some(rewritten_src) = custom_emoji_urls_by_source.get(&source_url) else {
-        return tag.to_owned();
-    };
-
-    let mut result = replace_html_attribute(tag, "src", rewritten_src);
     
-    // Handle width and height attributes
-    let width = extract_html_attribute(&result, "width");
-    let height = extract_html_attribute(&result, "height");
-    
-    match (width, height) {
-        (None, None) => {
-            // Both missing: add both as 32
-            result = add_html_attribute(&result, "width", "32");
-            result = add_html_attribute(&result, "height", "32");
-        }
-        (None, Some(h)) => {
-            // Width missing, height present: make width equal to height
-            result = add_html_attribute(&result, "width", &h);
-        }
-        (Some(w), None) => {
-            // Height missing, width present: make height equal to width
-            result = add_html_attribute(&result, "height", &w);
-        }
-        (Some(_), Some(_)) => {
-            // Both present: no change needed
+    // Handle width/height dimensions only for emoji
+    let is_emoji = result.contains("data-mx-emoticon") || result.contains("data_mx_emoticon");
+    if is_emoji {
+        let width = extract_html_attribute(&result, "width");
+        let height = extract_html_attribute(&result, "height");
+        
+        match (width, height) {
+            (None, None) => {
+                result = add_html_attribute(&result, "width", "32");
+                result = add_html_attribute(&result, "height", "32");
+            }
+            (None, Some(h)) => {
+                result = add_html_attribute(&result, "width", &h);
+            }
+            (Some(w), None) => {
+                result = add_html_attribute(&result, "height", &w);
+            }
+            (Some(_), Some(_)) => {
+                // Both present: no change
+            }
         }
     }
     

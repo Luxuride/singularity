@@ -41,7 +41,9 @@
 {/if}
 
 <style>
-  .message-formatted-body :global(img[data-mx-emoticon]) {
+  /* Handle both data-mx-emoticon (hyphens) and data_mx_emoticon (underscores) formats */
+  .message-formatted-body :global(img[data-mx-emoticon]),
+  .message-formatted-body :global(img[data_mx_emoticon]) {
     display: inline-block;
     vertical-align: text-bottom;
   }

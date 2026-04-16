@@ -226,7 +226,8 @@ fn parse_custom_emojis_from_formatted_body(formatted_body: &str) -> Vec<ParsedCu
 
         search_index = tag_end;
 
-        if !tag.contains("data-mx-emoticon") {
+        // Check for both data-mx-emoticon (hyphens) and data_mx_emoticon (underscores)
+        if !tag.contains("data-mx-emoticon") && !tag.contains("data_mx_emoticon") {
             continue;
         }
 
