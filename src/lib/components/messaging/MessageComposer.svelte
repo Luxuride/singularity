@@ -3,7 +3,7 @@
   import type { EmojiShortcodeSuggestion, PickerCustomEmoji } from "$lib/emoji/picker";
   import { ShortcodeSuggestions } from "./composer-emoji";
   import { ComposerActions, ComposerEditor, ComposerErrorBanner, ComposerToolbar } from "./composer";
-  import type { ComposerEditorHandle, ShortcodeRange, SuggestionPosition } from "./composer";
+import type { ComposerEditorHandle, ShortcodeRange, SuggestionPosition } from "./composer";
 
   interface Props {
     draft: string;

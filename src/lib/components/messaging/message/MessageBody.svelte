@@ -31,7 +31,7 @@
     {/if}
   </figure>
 {:else if message.formattedBody}
-  <div class="whitespace-pre-wrap break-words text-base">
+  <div class="message-formatted-body whitespace-pre-wrap break-words text-base">
     {@html message.formattedBody}
   </div>
 {:else}
@@ -39,3 +39,10 @@
     {message.body}
   </p>
 {/if}
+
+<style>
+  .message-formatted-body :global(img[data-mx-emoticon]) {
+    display: inline-block;
+    vertical-align: text-bottom;
+  }
+</style>
