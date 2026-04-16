@@ -79,6 +79,12 @@ impl AppDb {
                     updated_at INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS root_space_order (
+                    room_id TEXT PRIMARY KEY,
+                    position INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS chat_image_source_cache (
                     room_id TEXT PRIMARY KEY,
                     source_url TEXT NOT NULL,
@@ -406,6 +412,69 @@ impl AppDb {
         Ok(())
     }
 
+    pub(crate) fn load_root_space_order(&self) -> Result<Vec<String>, String> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare(
+                "
+                SELECT room_id
+                FROM root_space_order
+                ORDER BY position ASC, updated_at DESC, room_id ASC
+                ",
+            )
+            .map_err(|error| format!("Failed to prepare root space order query: {error}"))?;
+
+        let mut rows = statement
+            .query([])
+            .map_err(|error| format!("Failed to query root space order: {error}"))?;
+
+        let mut root_space_ids = Vec::new();
+        while let Some(row) = rows
+            .next()
+            .map_err(|error| format!("Failed to read root space order row: {error}"))?
+        {
+            root_space_ids.push(
+                row.get::<_, String>(0).map_err(|error| {
+                    format!("Failed to decode root space order room id: {error}")
+                })?,
+            );
+        }
+
+        Ok(root_space_ids)
+    }
+
+    pub(crate) fn store_root_space_order(&self, root_space_ids: &[String]) -> Result<(), String> {
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction()
+            .map_err(|error| format!("Failed to start root space order transaction: {error}"))?;
+
+        tx.execute("DELETE FROM root_space_order", [])
+            .map_err(|error| format!("Failed to clear root space order: {error}"))?;
+
+        {
+            let mut statement = tx
+                .prepare(
+                    "
+                    INSERT INTO root_space_order (room_id, position, updated_at)
+                    VALUES (?1, ?2, unixepoch())
+                    ",
+                )
+                .map_err(|error| format!("Failed to prepare root space order insert: {error}"))?;
+
+            for (position, room_id) in root_space_ids.iter().enumerate() {
+                statement
+                    .execute(params![room_id, position as i64])
+                    .map_err(|error| format!("Failed to insert root space order row: {error}"))?;
+            }
+        }
+
+        tx.commit()
+            .map_err(|error| format!("Failed to commit root space order transaction: {error}"))?;
+
+        Ok(())
+    }
+
     pub(crate) fn set_chat_image_source(
         &self,
         room_id: &str,
@@ -723,6 +792,9 @@ impl AppDb {
             .execute("DELETE FROM chats_cache", [])
             .map_err(|error| format!("Failed to clear chats cache: {error}"))?;
         connection
+            .execute("DELETE FROM root_space_order", [])
+            .map_err(|error| format!("Failed to clear root space order: {error}"))?;
+        connection
             .execute("DELETE FROM message_cache_state", [])
             .map_err(|error| format!("Failed to clear message cache state: {error}"))?;
         connection
@@ -736,6 +808,9 @@ impl AppDb {
         connection
             .execute("DELETE FROM chats_cache", [])
             .map_err(|error| format!("Failed to clear chats cache: {error}"))?;
+        connection
+            .execute("DELETE FROM root_space_order", [])
+            .map_err(|error| format!("Failed to clear root space order: {error}"))?;
         connection
             .execute("DELETE FROM message_cache_state", [])
             .map_err(|error| format!("Failed to clear message cache state: {error}"))?;

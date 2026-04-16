@@ -1,8 +1,10 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::auth::AuthState;
+use crate::db::AppDb;
 use crate::rooms::types::{
     MatrixGetChatNavigationRequest, MatrixGetChatNavigationResponse, MatrixGetChatsResponse,
+    MatrixSetRootSpaceOrderRequest, MatrixSetRootSpaceOrderResponse,
 };
 use crate::rooms::{
     MatrixTriggerRoomUpdateRequest, MatrixTriggerRoomUpdateResponse, RoomRefreshTrigger,
@@ -11,6 +13,7 @@ use crate::rooms::{
 
 use super::super::persistence::{collect_and_store_chats, load_cached_chats};
 use super::image::has_stale_cached_chat_media;
+use super::navigation;
 use super::navigation::build_navigation_response;
 
 pub(super) async fn get_chats(
@@ -71,12 +74,48 @@ pub(super) fn get_chat_navigation(
 ) -> Result<MatrixGetChatNavigationResponse, String> {
     let payload = request.unwrap_or_default();
     let chats = load_cached_chats(app_handle)?.unwrap_or_default();
+    let saved_root_space_ids = {
+        let app_db = app_handle.state::<AppDb>();
+        app_db.load_root_space_order()?
+    };
+    let saved_root_space_ids =
+        (!saved_root_space_ids.is_empty()).then_some(saved_root_space_ids.as_slice());
 
     Ok(build_navigation_response(
         &chats,
+        saved_root_space_ids,
         payload.root_space_id.as_deref(),
         payload.selected_room_id.as_deref(),
     ))
+}
+
+pub(super) fn set_root_space_order(
+    request: MatrixSetRootSpaceOrderRequest,
+    app_db: &AppDb,
+) -> Result<MatrixSetRootSpaceOrderResponse, String> {
+    let chats = app_db.load_cached_chats()?.unwrap_or_default();
+    let orderable_root_space_ids = navigation::orderable_root_space_ids(&chats);
+
+    let mut seen = std::collections::HashSet::new();
+    let mut requested_root_space_ids = Vec::with_capacity(request.root_space_ids.len());
+
+    for root_space_id in request.root_space_ids {
+        if !orderable_root_space_ids.contains(&root_space_id) {
+            return Err(format!("Unknown root space id: {root_space_id}"));
+        }
+
+        if !seen.insert(root_space_id.clone()) {
+            return Err(format!("Duplicate root space id: {root_space_id}"));
+        }
+
+        requested_root_space_ids.push(root_space_id);
+    }
+
+    app_db.store_root_space_order(&requested_root_space_ids)?;
+
+    Ok(MatrixSetRootSpaceOrderResponse {
+        root_space_ids: requested_root_space_ids,
+    })
 }
 
 pub(super) fn trigger_room_update(

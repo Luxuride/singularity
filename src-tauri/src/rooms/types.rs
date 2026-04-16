@@ -55,3 +55,16 @@ pub struct MatrixGetChatNavigationResponse {
     pub root_spaces: Vec<MatrixChatSummary>,
     pub root_scoped_rooms: Vec<MatrixChatSummary>,
 }
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixSetRootSpaceOrderRequest {
+    #[serde(default)]
+    pub root_space_ids: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixSetRootSpaceOrderResponse {
+    pub root_space_ids: Vec<String>,
+}

@@ -18,6 +18,8 @@ import type {
   MatrixStreamChatMessagesResponse,
   MatrixToggleReactionRequest,
   MatrixToggleReactionResponse,
+  MatrixSetRootSpaceOrderRequest,
+  MatrixSetRootSpaceOrderResponse,
   MatrixGetUserDevicesResponse,
   MatrixOwnVerificationStatus,
   MatrixRequestVerificationResponse,
@@ -88,6 +90,18 @@ export async function matrixGetChatNavigation(
       rootSpaces: response.rootSpaces.map(normalizeChatSummaryImageUrl),
       rootScopedRooms: response.rootScopedRooms.map(normalizeChatSummaryImageUrl),
     };
+  } catch (error) {
+    throw new Error(toMessage(error));
+  }
+}
+
+export async function matrixSetRootSpaceOrder(
+  input: MatrixSetRootSpaceOrderRequest,
+): Promise<MatrixSetRootSpaceOrderResponse> {
+  try {
+    return await invoke<MatrixSetRootSpaceOrderResponse>("matrix_set_root_space_order", {
+      request: input,
+    });
   } catch (error) {
     throw new Error(toMessage(error));
   }

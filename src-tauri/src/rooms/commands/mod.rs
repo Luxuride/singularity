@@ -9,7 +9,8 @@ use crate::db::AppDb;
 
 use super::types::{
     MatrixGetChatNavigationRequest, MatrixGetChatNavigationResponse, MatrixGetChatsResponse,
-    MatrixGetRoomImageRequest, MatrixGetRoomImageResponse,
+    MatrixGetRoomImageRequest, MatrixGetRoomImageResponse, MatrixSetRootSpaceOrderRequest,
+    MatrixSetRootSpaceOrderResponse,
 };
 use super::{
     MatrixTriggerRoomUpdateRequest, MatrixTriggerRoomUpdateResponse, RoomUpdateTriggerState,
@@ -30,6 +31,14 @@ pub fn matrix_get_chat_navigation(
     app_handle: AppHandle,
 ) -> Result<MatrixGetChatNavigationResponse, String> {
     updates::get_chat_navigation(request, &app_handle)
+}
+
+#[tauri::command]
+pub fn matrix_set_root_space_order(
+    request: MatrixSetRootSpaceOrderRequest,
+    app_db: State<'_, AppDb>,
+) -> Result<MatrixSetRootSpaceOrderResponse, String> {
+    updates::set_root_space_order(request, &app_db)
 }
 
 #[tauri::command]

@@ -64,6 +64,7 @@ pub fn run() {
             rooms::commands::matrix_get_chats,
             rooms::commands::matrix_get_room_image,
             rooms::commands::matrix_get_chat_navigation,
+            rooms::commands::matrix_set_root_space_order,
             rooms::commands::matrix_trigger_room_update,
             messages::commands::chat::matrix_get_chat_messages,
             messages::commands::chat::matrix_stream_chat_messages,

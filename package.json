@@ -21,7 +21,8 @@
     "prosemirror-keymap": "^1.2.3",
     "prosemirror-model": "^1.25.4",
     "prosemirror-state": "^1.4.4",
-    "prosemirror-view": "^1.41.7"
+    "prosemirror-view": "^1.41.7",
+    "svelte-dnd-action": "^0.9.69"
   },
   "devDependencies": {
     "@skeletonlabs/skeleton": "^4.13.0",
