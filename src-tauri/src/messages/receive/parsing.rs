@@ -115,6 +115,7 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
 
             messages.push(MatrixChatMessage {
                 event_id: parsed.event_id,
+                in_reply_to_event_id: parsed.in_reply_to_event_id,
                 sender: parsed.sender,
                 timestamp: parsed.timestamp,
                 body: parsed.body,

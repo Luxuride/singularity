@@ -101,6 +101,7 @@ impl AppDb {
                     room_id TEXT NOT NULL,
                     sequence INTEGER NOT NULL,
                     event_id TEXT,
+                    in_reply_to_event_id TEXT,
                     sender TEXT NOT NULL,
                     timestamp INTEGER,
                     body TEXT NOT NULL,
@@ -248,6 +249,7 @@ impl AppDb {
 
         let mut has_message_type = false;
         let mut has_image_url = false;
+        let mut has_in_reply_to_event_id = false;
 
         while let Some(row) = rows
             .next()
@@ -264,6 +266,10 @@ impl AppDb {
             if column_name == "image_url" {
                 has_image_url = true;
             }
+
+            if column_name == "in_reply_to_event_id" {
+                has_in_reply_to_event_id = true;
+            }
         }
 
         if !has_message_type {
@@ -279,6 +285,17 @@ impl AppDb {
                 .execute("ALTER TABLE message_cache ADD COLUMN image_url TEXT", [])
                 .map_err(|error| {
                     format!("Failed to add message cache image_url column: {error}")
+                })?;
+        }
+
+        if !has_in_reply_to_event_id {
+            connection
+                .execute(
+                    "ALTER TABLE message_cache ADD COLUMN in_reply_to_event_id TEXT",
+                    [],
+                )
+                .map_err(|error| {
+                    format!("Failed to add message cache in_reply_to_event_id column: {error}")
                 })?;
         }
 
@@ -659,6 +676,7 @@ impl AppDb {
                         room_id,
                         sequence,
                         event_id,
+                        in_reply_to_event_id,
                         sender,
                         timestamp,
                         body,
@@ -669,7 +687,7 @@ impl AppDb {
                         verification_status,
                         updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, unixepoch())
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, unixepoch())
                     ",
                 )
                 .map_err(|error| format!("Failed to prepare message cache insert: {error}"))?;
@@ -680,6 +698,7 @@ impl AppDb {
                         room_id,
                         index as i64,
                         message.event_id.as_deref(),
+                        message.in_reply_to_event_id.as_deref(),
                         message.sender,
                         message.timestamp.map(|value| value as i64),
                         message.body,
@@ -720,7 +739,7 @@ impl AppDb {
         let mut statement = connection
             .prepare(
                 "
-                SELECT event_id, sender, timestamp, body, message_type, image_url, encrypted, decryption_status, verification_status
+                SELECT event_id, in_reply_to_event_id, sender, timestamp, body, message_type, image_url, encrypted, decryption_status, verification_status
                 FROM message_cache
                 WHERE room_id = ?1
                 ORDER BY sequence ASC
@@ -738,35 +757,38 @@ impl AppDb {
             .map_err(|error| format!("Failed to read message cache row: {error}"))?
         {
             let timestamp_raw: Option<i64> = row
-                .get(2)
+                .get(3)
                 .map_err(|error| format!("Failed to decode cached timestamp: {error}"))?;
             let encrypted_flag: i64 = row
-                .get(6)
+                .get(7)
                 .map_err(|error| format!("Failed to decode cached encrypted flag: {error}"))?;
             let decryption_status_raw: String = row
-                .get(7)
+                .get(8)
                 .map_err(|error| format!("Failed to decode cached decryption status: {error}"))?;
             let verification_status_raw: String = row
-                .get(8)
+                .get(9)
                 .map_err(|error| format!("Failed to decode cached verification status: {error}"))?;
 
             messages.push(MatrixChatMessage {
                 event_id: row
                     .get::<_, Option<String>>(0)
                     .map_err(|error| format!("Failed to decode cached event id: {error}"))?,
+                in_reply_to_event_id: row.get::<_, Option<String>>(1).map_err(|error| {
+                    format!("Failed to decode cached in-reply-to event id: {error}")
+                })?,
                 sender: row
-                    .get::<_, String>(1)
+                    .get::<_, String>(2)
                     .map_err(|error| format!("Failed to decode cached sender: {error}"))?,
                 timestamp: timestamp_raw.map(|value| value.max(0) as u64),
                 body: row
-                    .get::<_, String>(3)
+                    .get::<_, String>(4)
                     .map_err(|error| format!("Failed to decode cached body: {error}"))?,
                 formatted_body: None,
                 message_type: row
-                    .get::<_, Option<String>>(4)
+                    .get::<_, Option<String>>(5)
                     .map_err(|error| format!("Failed to decode cached message type: {error}"))?,
                 image_url: row
-                    .get::<_, Option<String>>(5)
+                    .get::<_, Option<String>>(6)
                     .map_err(|error| format!("Failed to decode cached image url: {error}"))?,
                 custom_emojis: Vec::new(),
                 reactions: Vec::new(),

@@ -23,6 +23,7 @@ mod tests {
     fn message_with_image(image_url: Option<&str>) -> MatrixChatMessage {
         MatrixChatMessage {
             event_id: Some(String::from("$event")),
+            in_reply_to_event_id: None,
             sender: String::from("@alice:example.org"),
             timestamp: Some(1),
             body: String::from("body"),

@@ -129,6 +129,7 @@ export interface MatrixReactionSummary {
 
 export interface MatrixChatMessage {
   eventId: string | null;
+  inReplyToEventId: string | null;
   sender: string;
   timestamp: number | null;
   body: string;
