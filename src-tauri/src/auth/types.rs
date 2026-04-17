@@ -19,6 +19,14 @@ pub struct MatrixCompleteOAuthRequest {
     pub callback_url: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixPasswordLoginRequest {
+    pub homeserver_url: String,
+    pub username: String,
+    pub password: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixSessionStatusResponse {
@@ -62,6 +70,15 @@ pub struct MatrixRecoverWithKeyResponse {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixCompleteOAuthResponse {
+    pub authenticated: bool,
+    pub homeserver_url: String,
+    pub user_id: String,
+    pub device_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixPasswordLoginResponse {
     pub authenticated: bool,
     pub homeserver_url: String,
     pub user_id: String,

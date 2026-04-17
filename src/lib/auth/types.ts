@@ -11,7 +11,20 @@ export interface MatrixCompleteOAuthRequest {
   callbackUrl: string;
 }
 
+export interface MatrixPasswordLoginRequest {
+  homeserverUrl: string;
+  username: string;
+  password: string;
+}
+
 export interface MatrixCompleteOAuthResponse {
+  authenticated: boolean;
+  homeserverUrl: string;
+  userId: string;
+  deviceId: string;
+}
+
+export interface MatrixPasswordLoginResponse {
   authenticated: boolean;
   homeserverUrl: string;
   userId: string;

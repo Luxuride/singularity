@@ -14,9 +14,9 @@ use super::persistence::{
 };
 use super::types::{
     MatrixClearCacheExceptAuthResponse, MatrixCompleteOAuthRequest, MatrixCompleteOAuthResponse,
-    MatrixLogoutResponse, MatrixRecoverWithKeyRequest, MatrixRecoverWithKeyResponse,
-    MatrixRecoveryStatusResponse, MatrixSessionStatusResponse, MatrixStartOAuthRequest,
-    MatrixStartOAuthResponse,
+    MatrixLogoutResponse, MatrixPasswordLoginRequest, MatrixPasswordLoginResponse,
+    MatrixRecoverWithKeyRequest, MatrixRecoverWithKeyResponse, MatrixRecoveryStatusResponse,
+    MatrixSessionStatusResponse, MatrixStartOAuthRequest, MatrixStartOAuthResponse,
 };
 use super::{
     cross_process_lock_holder_name, start_session_persistence_watcher,
@@ -155,6 +155,103 @@ pub async fn matrix_complete_oauth(
     start_verification_state_watcher(app_handle.clone(), client);
 
     Ok(MatrixCompleteOAuthResponse {
+        authenticated: true,
+        homeserver_url,
+        user_id,
+        device_id,
+    })
+}
+
+#[tauri::command]
+pub async fn matrix_password_login(
+    request: MatrixPasswordLoginRequest,
+    auth_state: State<'_, AuthState>,
+    app_handle: AppHandle,
+) -> Result<MatrixPasswordLoginResponse, String> {
+    let homeserver_url = normalize_homeserver_url(&request.homeserver_url)?;
+    let username = request.username.trim();
+
+    if username.is_empty() {
+        return Err(String::from("Username is required"));
+    }
+
+    if request.password.is_empty() {
+        return Err(String::from("Password is required"));
+    }
+
+    let store_path = prepare_matrix_sdk_store(&app_handle)?;
+    let client = matrix_sdk::Client::builder()
+        .server_name_or_homeserver_url(homeserver_url.clone())
+        .sqlite_store(&store_path, None)
+        .cross_process_store_locks_holder_name(cross_process_lock_holder_name())
+        .handle_refresh_tokens()
+        .build()
+        .await
+        .map_err(|error| format!("Failed to initialize Matrix client: {error}"))?;
+
+    let parsed = match client
+        .matrix_auth()
+        .login_username(username, &request.password)
+        .initial_device_display_name("Singularity Desktop")
+        .request_refresh_token()
+        .send()
+        .await
+    {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            let error_text = error.to_string();
+
+            if is_crypto_store_account_mismatch(&error_text) {
+                log::warn!(
+                    "Matrix login hit crypto-store account mismatch; resetting local auth and SDK store"
+                );
+
+                let _ = auth_state.clear_runtime_session();
+                let _ = clear_persisted_session(&app_handle);
+                let _ = clear_app_cache(&app_handle);
+                let _ = clear_matrix_sdk_store(&app_handle);
+
+                return Err(String::from("Sign-in failed. Please try again."));
+            }
+
+            return Err(String::from("Username/password sign-in failed"));
+        }
+    };
+
+    let user_id = parsed.user_id.to_string();
+    let device_id = parsed.device_id.to_string();
+
+    if let Err(error) = client
+        .encryption()
+        .enable_cross_process_store_lock(client.cross_process_store_locks_holder_name().to_owned())
+        .await
+    {
+        log::warn!("Failed to enable cross-process crypto store lock: {error}");
+    }
+
+    let persisted_matrix_session = client
+        .matrix_auth()
+        .session()
+        .ok_or_else(|| String::from("Missing Matrix session after login"))?;
+    persist_session(
+        &app_handle,
+        &PersistedMatrixSession::new(homeserver_url.clone(), persisted_matrix_session),
+    )?;
+
+    {
+        let mut state = auth_state.lock_inner()?;
+        state.client = Some(client.clone());
+        state.session = Some(MatrixSession {
+            homeserver_url: homeserver_url.clone(),
+            user_id: user_id.clone(),
+            device_id: device_id.clone(),
+        });
+    }
+
+    start_session_persistence_watcher(app_handle.clone(), client.clone());
+    start_verification_state_watcher(app_handle.clone(), client);
+
+    Ok(MatrixPasswordLoginResponse {
         authenticated: true,
         homeserver_url,
         user_id,
