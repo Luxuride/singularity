@@ -62,3 +62,15 @@ pub async fn matrix_copy_image_to_clipboard(
         })
         .map_err(|error| format!("Failed to write image to clipboard: {error}"))
 }
+
+#[tauri::command]
+pub async fn matrix_read_clipboard_text() -> Result<String, String> {
+    info!("matrix_read_clipboard_text requested");
+
+    let mut clipboard =
+        Clipboard::new().map_err(|error| format!("Failed to initialize clipboard: {error}"))?;
+
+    clipboard
+        .get_text()
+        .map_err(|error| format!("Failed to read clipboard text: {error}"))
+}

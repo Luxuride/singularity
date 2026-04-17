@@ -105,7 +105,10 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                 rewrite_formatted_body_custom_emoji(&body, &custom_emoji_urls_by_source)
             });
 
-            let image_url = if matches!(parsed.message_type.as_deref(), Some("m.image")) {
+            let image_url = if matches!(
+                parsed.message_type.as_deref(),
+                Some("m.image") | Some("m.video") | Some("m.file")
+            ) {
                 media_resolver
                     .resolve_image_cache_path(client, &event)
                     .await

@@ -30,6 +30,21 @@ pub struct MatrixSendChatMessageRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MatrixSendMediaFileRequest {
+    pub room_id: String,
+    pub file_path: String,
+    pub compress_media: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixCancelMediaTranscodeRequest {
+    pub room_id: String,
+    pub file_path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MatrixToggleReactionRequest {
     pub room_id: String,
     pub target_event_id: String,

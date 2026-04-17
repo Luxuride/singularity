@@ -18,6 +18,8 @@
     onSubmit?: (draft: string) => void;
     onDraftChange?: (draft: string) => void;
     onClearReply?: () => void;
+    onChooseAttachment?: () => void;
+    onPasteAttachmentPath?: (filePath: string) => void;
   }
 
   let {
@@ -32,6 +34,8 @@
     onSubmit,
     onDraftChange,
     onClearReply,
+    onChooseAttachment,
+    onPasteAttachmentPath,
   }: Props = $props();
 
   let composerEditor = $state<ComposerEditorHandle | null>(null);
@@ -201,6 +205,7 @@
       onSuggestionPositionChange={(position) => {
         suggestionPopupPosition = position;
       }}
+      onPasteAttachmentPath={onPasteAttachmentPath}
     />
   </div>
 
@@ -213,7 +218,7 @@
     />
   {/if}
 
-  <ComposerActions {isSending} {isDisabled} {draft} />
+  <ComposerActions {isSending} {isDisabled} {draft} {onChooseAttachment} />
 </form>
 
 <style>

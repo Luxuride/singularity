@@ -4,3 +4,4 @@ pub const ROOM_REMOVED: &str = "matrix://rooms/removed";
 pub const SELECTED_ROOM_MESSAGES: &str = "matrix://rooms/selected/messages";
 pub const CHAT_MESSAGES_STREAM: &str = "matrix://rooms/messages/stream";
 pub const VERIFICATION_STATE_CHANGED: &str = "matrix://verification/state";
+pub const MEDIA_TRANSCODE_PROGRESS: &str = "matrix://media/transcode/progress";

@@ -13,6 +13,10 @@ import type {
   MatrixPickerCustomEmoji,
   MatrixSendChatMessageRequest,
   MatrixSendChatMessageResponse,
+  MatrixCancelMediaTranscodeRequest,
+  MatrixCancelMediaTranscodeResponse,
+  MatrixSendMediaFileRequest,
+  MatrixSendMediaFileResponse,
   MatrixStreamChatMessagesRequest,
   MatrixStreamChatMessagesResponse,
   MatrixToggleReactionRequest,
@@ -115,6 +119,22 @@ export async function matrixSendChatMessage(
   });
 }
 
+export async function matrixSendMediaFile(
+  input: MatrixSendMediaFileRequest,
+): Promise<MatrixSendMediaFileResponse> {
+  return invokeMatrixCommand<MatrixSendMediaFileResponse>("matrix_send_media_file", {
+    request: input,
+  });
+}
+
+export async function matrixCancelMediaTranscode(
+  input: MatrixCancelMediaTranscodeRequest,
+): Promise<MatrixCancelMediaTranscodeResponse> {
+  return invokeMatrixCommand<MatrixCancelMediaTranscodeResponse>("matrix_cancel_media_transcode", {
+    request: input,
+  });
+}
+
 export async function matrixToggleReaction(
   input: MatrixToggleReactionRequest,
 ): Promise<MatrixToggleReactionResponse> {
@@ -129,6 +149,10 @@ export async function matrixCopyImageToClipboard(
   return invokeMatrixCommand<void>("matrix_copy_image_to_clipboard", {
     request: input,
   });
+}
+
+export async function matrixReadClipboardText(): Promise<string> {
+  return invokeMatrixCommand<string>("matrix_read_clipboard_text");
 }
 
 export async function matrixTriggerRoomUpdate(

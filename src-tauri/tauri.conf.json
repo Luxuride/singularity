@@ -22,7 +22,8 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$APPCACHE/media-cache/**"
+          "$APPCACHE/media-cache/**",
+          "$APPCACHE/transcode/**"
         ]
       }
     }
