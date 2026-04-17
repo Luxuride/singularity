@@ -7,7 +7,7 @@ use crate::rooms::{RoomRefreshTrigger, RoomUpdateTriggerState};
 
 use super::super::emoji::load_picker_assets_from_client;
 use super::super::send::{
-    build_formatted_body_from_custom_emoji_for_send, send_room_message_from_client,
+    build_display_formatted_body_from_custom_emoji_for_send, send_room_message_from_client,
 };
 use super::super::types::{MatrixSendChatMessageRequest, MatrixSendChatMessageResponse};
 
@@ -27,7 +27,7 @@ pub async fn matrix_send_chat_message(
 
     let room_id = request.room_id;
     let picker_custom_emoji = load_picker_assets_from_client(&client).await?;
-    let formatted_body = build_formatted_body_from_custom_emoji_for_send(
+    let formatted_body = build_display_formatted_body_from_custom_emoji_for_send(
         request.body.as_str(),
         &picker_custom_emoji,
     );

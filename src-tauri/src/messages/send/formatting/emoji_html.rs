@@ -12,16 +12,47 @@ pub(super) fn build_formatted_body_from_custom_emoji(
     body: &str,
     picker_custom_emoji: &[MatrixPickerCustomEmoji],
 ) -> Option<String> {
+    build_formatted_body_with_url_selector(body, picker_custom_emoji, |emoji| {
+        let source = emoji.source_url.trim();
+        if source.is_empty() || !source.starts_with("mxc://") {
+            return None;
+        }
+
+        Some(source.to_owned())
+    })
+}
+
+pub(super) fn build_display_formatted_body_from_custom_emoji(
+    body: &str,
+    picker_custom_emoji: &[MatrixPickerCustomEmoji],
+) -> Option<String> {
+    build_formatted_body_with_url_selector(body, picker_custom_emoji, |emoji| {
+        let image_url = emoji.url.trim();
+        if image_url.is_empty() {
+            return None;
+        }
+
+        Some(image_url.to_owned())
+    })
+}
+
+fn build_formatted_body_with_url_selector<F>(
+    body: &str,
+    picker_custom_emoji: &[MatrixPickerCustomEmoji],
+    mut url_selector: F,
+) -> Option<String>
+where
+    F: FnMut(&MatrixPickerCustomEmoji) -> Option<String>,
+{
     if !body.contains(':') {
         return None;
     }
 
     let mut source_by_shortcode = HashMap::<String, String>::new();
     for emoji in picker_custom_emoji {
-        let source = emoji.source_url.trim();
-        if source.is_empty() || !source.starts_with("mxc://") {
+        let Some(source) = url_selector(emoji) else {
             continue;
-        }
+        };
 
         for shortcode in &emoji.shortcodes {
             let shortcode_key = shortcode.trim().trim_matches(':').to_lowercase();
@@ -161,7 +192,9 @@ fn push_text_segments(segments: &mut Vec<HtmlSegment>, value: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::build_formatted_body_from_custom_emoji;
+    use super::{
+        build_display_formatted_body_from_custom_emoji, build_formatted_body_from_custom_emoji,
+    };
     use crate::messages::types::MatrixPickerCustomEmoji;
 
     fn picker_emoji(shortcode: &str) -> MatrixPickerCustomEmoji {
@@ -190,5 +223,21 @@ mod tests {
 
         assert!(html.contains("<img data-mx-emoticon"));
         assert!(html.contains("src=\"mxc://media.example.org/wave\""));
+    }
+
+    #[test]
+    fn display_formatted_body_uses_resolved_image_url() {
+        let emoji = MatrixPickerCustomEmoji {
+            name: String::from("Camera"),
+            shortcodes: vec![String::from("camera")],
+            url: String::from("asset://localhost/%2Fhome%2Flux%2F.cache%2Feu.luxuride.singularity%2Fmedia-cache%2Fimg-912143c7a4e8d624.bin"),
+            source_url: String::from("mxc://matrix.luxuride.eu/LdbvMTwIEbZMgJmDKaXRRvlx"),
+            category: None,
+        };
+
+        let html = build_display_formatted_body_from_custom_emoji(":camera:", &[emoji])
+            .expect("expected display formatted body html");
+
+        assert!(html.contains("src=\"asset://localhost/%2Fhome%2Flux%2F.cache%2Feu.luxuride.singularity%2Fmedia-cache%2Fimg-912143c7a4e8d624.bin\""));
     }
 }
