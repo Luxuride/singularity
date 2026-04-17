@@ -4,6 +4,8 @@ import type {
   MatrixCompleteOAuthRequest,
   MatrixCompleteOAuthResponse,
   MatrixLogoutResponse,
+  MatrixPasswordLoginRequest,
+  MatrixPasswordLoginResponse,
   MatrixRecoveryStatusResponse,
   MatrixRecoverWithKeyRequest,
   MatrixRecoverWithKeyResponse,
@@ -24,6 +26,14 @@ export async function matrixCompleteOAuth(
   input: MatrixCompleteOAuthRequest,
 ): Promise<MatrixCompleteOAuthResponse> {
   return invokeMatrixCommand<MatrixCompleteOAuthResponse>("matrix_complete_oauth", {
+    request: input,
+  });
+}
+
+export async function matrixPasswordLogin(
+  input: MatrixPasswordLoginRequest,
+): Promise<MatrixPasswordLoginResponse> {
+  return invokeMatrixCommand<MatrixPasswordLoginResponse>("matrix_password_login", {
     request: input,
   });
 }

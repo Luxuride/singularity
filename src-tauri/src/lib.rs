@@ -58,6 +58,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             auth::commands::matrix_start_oauth,
             auth::commands::matrix_complete_oauth,
+            auth::commands::matrix_password_login,
             auth::commands::matrix_session_status,
             auth::commands::matrix_recovery_status,
             auth::commands::matrix_recover_with_key,

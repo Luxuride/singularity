@@ -5,16 +5,23 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import {
     matrixCompleteOAuth,
+    matrixPasswordLogin,
     matrixSessionStatus,
     matrixStartOAuth,
   } from "../../lib/auth/api";
 
+  type SignInMethod = "oauth" | "password";
+
   let homeserverUrl = $state("https://matrix.org");
+  let signInMethod = $state<SignInMethod>("oauth");
+  let username = $state("");
+  let password = $state("");
 
   let loadingSession = $state(true);
   let startingOAuth = $state(false);
   let completingOAuth = $state(false);
   let waitingForCallback = $state(false);
+  let signingInWithPassword = $state(false);
 
   let errorMessage = $state("");
   let infoMessage = $state("");
@@ -121,6 +128,34 @@
     }
   }
 
+  async function startPasswordLogin(event: Event) {
+    event.preventDefault();
+    signingInWithPassword = true;
+    waitingForCallback = false;
+    errorMessage = "";
+    infoMessage = "";
+
+    try {
+      const response = await matrixPasswordLogin({
+        homeserverUrl,
+        username,
+        password,
+      });
+
+      authenticated = response.authenticated;
+      infoMessage = "Signed in successfully.";
+      password = "";
+
+      if (response.authenticated) {
+        await goto("/chats");
+      }
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : "Failed to sign in with password";
+    } finally {
+      signingInWithPassword = false;
+    }
+  }
+
   async function completeOAuthLogin(callbackUrl: string) {
     completingOAuth = true;
     errorMessage = "";
@@ -158,8 +193,43 @@
     {:else if authenticated}
       <p class="card p-3 text-sm bg-surface-100-900">Session active. Redirecting to chats...</p>
     {:else}
-      <form class="card p-4 space-y-3 preset-outlined-surface-200-800 bg-surface-100-900" onsubmit={startOAuthLogin}>
+      <section class="card p-4 space-y-4 preset-outlined-surface-200-800 bg-surface-100-900">
         <h2 class="h4">Start Login</h2>
+
+        <div class="flex gap-2" role="tablist" aria-label="Sign-in methods">
+          <button
+            class="btn"
+            class:preset-filled-primary-500={signInMethod === "oauth"}
+            class:preset-filled-surface-500={signInMethod !== "oauth"}
+            type="button"
+            role="tab"
+            aria-selected={signInMethod === "oauth"}
+            onclick={() => {
+              signInMethod = "oauth";
+              errorMessage = "";
+              infoMessage = "";
+            }}
+          >
+            OAuth
+          </button>
+          <button
+            class="btn"
+            class:preset-filled-primary-500={signInMethod === "password"}
+            class:preset-filled-surface-500={signInMethod !== "password"}
+            type="button"
+            role="tab"
+            aria-selected={signInMethod === "password"}
+            onclick={() => {
+              signInMethod = "password";
+              waitingForCallback = false;
+              errorMessage = "";
+              infoMessage = "";
+            }}
+          >
+            Password
+          </button>
+        </div>
+
         <label class="label" for="homeserver">Homeserver URL</label>
         <input
           class="input"
@@ -170,26 +240,66 @@
           required
         />
 
-        <button class="btn preset-filled-primary-500" type="submit" disabled={startingOAuth || completingOAuth}>
-          {#if startingOAuth}
-            Starting...
-          {:else if completingOAuth}
-            Completing Login...
-          {:else if waitingForCallback}
-            Waiting for Browser Sign-In...
-          {:else}
-            Start Matrix OAuth2
-          {/if}
-        </button>
+        {#if signInMethod === "oauth"}
+          <form class="space-y-3" onsubmit={startOAuthLogin}>
+            <button
+              class="btn preset-filled-primary-500"
+              type="submit"
+              disabled={startingOAuth || completingOAuth || signingInWithPassword}
+            >
+              {#if startingOAuth}
+                Starting...
+              {:else if completingOAuth}
+                Completing Login...
+              {:else if waitingForCallback}
+                Waiting for Browser Sign-In...
+              {:else}
+                Start Matrix OAuth2
+              {/if}
+            </button>
 
-        <p class="text-sm text-surface-700-300">
-          Sign-in completes automatically after browser authentication. No callback URL copy and paste is required.
-        </p>
+            <p class="text-sm text-surface-700-300">
+              Sign-in completes automatically after browser authentication. No callback URL copy and paste is required.
+            </p>
 
-        {#if waitingForCallback}
-          <p class="text-sm text-surface-700-300">Waiting for browser callback. You can restart sign-in at any time.</p>
+            {#if waitingForCallback}
+              <p class="text-sm text-surface-700-300">Waiting for browser callback. You can restart sign-in at any time.</p>
+            {/if}
+          </form>
+        {:else}
+          <form class="space-y-3" onsubmit={startPasswordLogin}>
+            <label class="label" for="username">Username</label>
+            <input
+              class="input"
+              id="username"
+              type="text"
+              bind:value={username}
+              required
+            />
+
+            <label class="label" for="password">Password</label>
+            <input
+              class="input"
+              id="password"
+              type="password"
+              bind:value={password}
+              required
+            />
+
+            <button
+              class="btn preset-filled-primary-500"
+              type="submit"
+              disabled={signingInWithPassword || startingOAuth || completingOAuth}
+            >
+              {#if signingInWithPassword}
+                Signing In...
+              {:else}
+                Sign In with Password
+              {/if}
+            </button>
+          </form>
         {/if}
-      </form>
+      </section>
     {/if}
 
     {#if errorMessage}
