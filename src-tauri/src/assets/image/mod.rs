@@ -9,6 +9,7 @@ use std::sync::{Mutex, OnceLock};
 use log::warn;
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
 use matrix_sdk::ruma::events::room::MediaSource;
+use percent_encoding::percent_decode_str;
 use tauri::Manager;
 static MEDIA_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
 static IN_MEMORY_MEDIA_CACHE: OnceLock<Mutex<InMemoryMediaCache>> = OnceLock::new();
@@ -335,6 +336,15 @@ pub(crate) fn cache_event_image(bytes: &[u8], key_parts: ImageCacheKeyParts) -> 
     persist_normalized_image(&request)
 }
 
+pub(crate) fn load_media_bytes_from_resolved_url(raw_url: &str) -> Option<Vec<u8>> {
+    if let Some(media_key) = matrix_media_key_from_url(raw_url) {
+        return load_cached_media_from_memory(&media_key).map(|(bytes, _)| bytes);
+    }
+
+    let file_path = resolved_media_file_path(raw_url)?;
+    fs::read(file_path).ok()
+}
+
 pub(crate) fn image_extension_from_mime(mime_type: &str) -> &'static str {
     match mime_type {
         "image/jpeg" | "image/jpg" => "jpg",
@@ -361,6 +371,43 @@ fn build_protocol_response(
         Ok(response) => response,
         Err(_) => tauri::http::Response::new(Vec::new()),
     }
+}
+
+fn resolved_media_file_path(raw_url: &str) -> Option<PathBuf> {
+    if raw_url.starts_with("asset://") {
+        let parsed = url::Url::parse(raw_url).ok()?;
+        let path = percent_decode_str(parsed.path()).decode_utf8().ok()?;
+        if path.is_empty() || path == "/" {
+            return None;
+        }
+
+        return Some(PathBuf::from(path.as_ref()));
+    }
+
+    if raw_url.starts_with("file://") {
+        let parsed = url::Url::parse(raw_url).ok()?;
+        return parsed.to_file_path().ok();
+    }
+
+    if raw_url.starts_with('/') {
+        return Some(PathBuf::from(raw_url));
+    }
+
+    None
+}
+
+fn matrix_media_key_from_url(raw_url: &str) -> Option<String> {
+    if !raw_url.starts_with("matrix-media://") {
+        return None;
+    }
+
+    let parsed = url::Url::parse(raw_url).ok()?;
+    let media_key = parsed.path().trim_start_matches('/');
+    if media_key.is_empty() {
+        return None;
+    }
+
+    Some(media_key.to_owned())
 }
 
 fn load_cached_media_from_memory(media_key: &str) -> Option<(Vec<u8>, String)> {
@@ -511,12 +558,7 @@ fn cached_media_path_for_source_url(source_url: &str) -> Option<String> {
         lock.get(source_url).cloned()
     }?;
 
-    if cached_path.starts_with("matrix-media://") {
-        let media_key = cached_path
-            .trim_start_matches("matrix-media://localhost/")
-            .trim_start_matches("matrix-media://")
-            .to_owned();
-
+    if let Some(media_key) = matrix_media_key_from_url(&cached_path) {
         if load_cached_media_from_memory(&media_key).is_some() {
             return Some(cached_path);
         }

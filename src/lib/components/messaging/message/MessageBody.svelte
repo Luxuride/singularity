@@ -3,10 +3,12 @@
 
   interface Props {
     message: TimelineMessage;
+    onImageContextMenu?: (event: MouseEvent) => void;
   }
 
   let {
     message,
+    onImageContextMenu,
   }: Props = $props();
 
   function stripMxReplyBlock(html: string): string {
@@ -26,6 +28,11 @@
         alt={message.body || "Image"}
         loading="lazy"
         class="max-h-[28rem] w-full rounded preset-outlined-surface-300-700 object-contain bg-surface-100-900"
+        oncontextmenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onImageContextMenu?.(event);
+        }}
       />
     {:else}
       <div class="rounded preset-outlined-surface-300-700 bg-surface-100-900 p-4 text-sm text-surface-700-300">

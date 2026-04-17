@@ -273,13 +273,13 @@
     <p class="card p-3 text-sm bg-surface-100-900">Loading session...</p>
   </main>
 {:else}
-  <main class="h-screen">
+  <main class="h-screen overflow-x-hidden">
     {#if $shellErrorMessage}
       <p class="card p-3 text-sm preset-filled-error-500 mx-4 md:mx-6 mt-4">{$shellErrorMessage}</p>
     {/if}
 
-    <div class="grid gap-4 lg:grid-cols-[220px_280px_1fr] p-4 md:p-6 min-h-0 h-full">
-      <div class="flex flex-col min-h-0 h-full gap-4">
+    <div class="grid gap-4 lg:grid-cols-[220px_280px_minmax(0,1fr)] p-4 md:p-6 min-h-0 h-full overflow-x-hidden">
+      <div class="flex flex-col min-h-0 min-w-0 h-full gap-4">
         <AppHeader userId={$shellCurrentUserId} />
           <RootSpaceList spaces={$shellRootSpaces} selectedRootSpaceId={$shellSelectedRootSpaceId} onSelectRootSpace={selectRootSpace} onReorderRootSpaces={reorderRootSpaces} />
         <section class="card p-2 preset-outlined-surface-200-800 bg-surface-50-950">
@@ -287,7 +287,7 @@
         </section>
       </div>
 
-      <div class="flex flex-col min-h-0 h-full gap-4">
+      <div class="flex flex-col min-h-0 min-w-0 h-full gap-4">
         <RoomList
           rooms={$shellRootScopedRooms}
           selectedRoomId={$shellSelectedRoomId}
@@ -298,7 +298,7 @@
         />
       </div>
 
-      <section class="lg:min-h-[60vh] h-full">
+      <section class="lg:min-h-[60vh] h-full min-w-0 overflow-x-hidden">
         {@render children()}
       </section>
     </div>

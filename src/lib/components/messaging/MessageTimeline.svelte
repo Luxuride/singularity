@@ -1,6 +1,11 @@
 <script lang="ts">
   import type { PickerCustomEmoji } from "$lib/emoji/picker";
-  import type { RetryMessageHandler, TimelineMessage, ToggleReactionHandler } from "./shared";
+  import type {
+    ReplyToMessageHandler,
+    RetryMessageHandler,
+    TimelineMessage,
+    ToggleReactionHandler,
+  } from "./shared";
   import {
     TimelineContent,
     TimelineEmptySelection,
@@ -27,6 +32,7 @@
     onLoadOlder?: () => void;
     onRetryMessage?: RetryMessageHandler;
     onToggleReaction?: ToggleReactionHandler;
+    onReplyToMessage?: ReplyToMessageHandler;
   }
 
   let { 
@@ -47,7 +53,8 @@
     onScroll,
     onLoadOlder,
     onRetryMessage,
-    onToggleReaction
+    onToggleReaction,
+    onReplyToMessage,
   }: Props = $props();
 
 </script>
@@ -79,6 +86,7 @@
       {onScroll}
       {onRetryMessage}
       {onToggleReaction}
+      {onReplyToMessage}
       {onTimelineElementChange}
     />
   {/if}

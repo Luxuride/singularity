@@ -8,8 +8,8 @@ pub(crate) use domain::{
     MatrixPickerCustomEmoji, MatrixReactionSummary,
 };
 pub(crate) use requests::{
-    MatrixGetChatMessagesRequest, MatrixGetUserAvatarRequest, MatrixSendChatMessageRequest,
-    MatrixStreamChatMessagesRequest, MatrixToggleReactionRequest,
+    MatrixCopyImageToClipboardRequest, MatrixGetChatMessagesRequest, MatrixGetUserAvatarRequest,
+    MatrixSendChatMessageRequest, MatrixStreamChatMessagesRequest, MatrixToggleReactionRequest,
 };
 pub(crate) use responses::{
     MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse, MatrixGetUserAvatarResponse,

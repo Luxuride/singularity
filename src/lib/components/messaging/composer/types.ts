@@ -6,4 +6,5 @@ export type ComposerEditorHandle = {
   clearDraft: () => void;
   insertAtCursor: (text: string) => void;
   replaceRange: (start: number, end: number, replacement: string) => void;
+  focusEditor: () => void;
 };

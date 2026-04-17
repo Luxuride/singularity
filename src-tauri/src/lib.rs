@@ -72,6 +72,7 @@ pub fn run() {
             messages::commands::avatar::matrix_get_user_avatar,
             messages::commands::send::matrix_send_chat_message,
             messages::commands::reactions::matrix_toggle_reaction,
+            messages::commands::clipboard::matrix_copy_image_to_clipboard,
             settings::commands::matrix_get_media_settings,
             settings::commands::matrix_set_media_settings,
             verification::commands::matrix_own_verification_status,

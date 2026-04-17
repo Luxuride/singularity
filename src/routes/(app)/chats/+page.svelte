@@ -40,6 +40,8 @@
   let composerErrorMessage = $state("");
   let messageDraft = $state("");
   let sendingMessage = $state(false);
+  let replyToMessage = $state<TimelineMessage | null>(null);
+  let composerFocusNonce = $state(0);
 
   let messages = $state<TimelineMessage[]>([]);
   let nextFrom = $state<string | null>(null);
@@ -106,6 +108,7 @@
       messageDraft = "";
       sendingMessage = false;
       composerErrorMessage = "";
+      replyToMessage = null;
       messages = [];
       nextFrom = null;
       return;
@@ -127,6 +130,7 @@
     messageDraft = "";
     sendingMessage = false;
     composerErrorMessage = "";
+    replyToMessage = null;
 
     messages = [];
     nextFrom = null;
@@ -505,12 +509,12 @@
     }
   }
 
-  function buildOptimisticMessage(body: string): TimelineMessage {
+  function buildOptimisticMessage(body: string, inReplyToEventId: string | null): TimelineMessage {
     const encryptedRoom = selectedRoomEncrypted();
 
     return {
       eventId: null,
-      inReplyToEventId: null,
+      inReplyToEventId,
       sender: $shellCurrentUserId || "You",
       timestamp: Date.now(),
       body,
@@ -587,11 +591,13 @@
     }
 
     const body = rawBody;
+    const inReplyToEventId = replyToMessage?.eventId ?? null;
 
     composerErrorMessage = "";
     messageDraft = "";
+    replyToMessage = null;
 
-    const optimistic = buildOptimisticMessage(body);
+    const optimistic = buildOptimisticMessage(body, inReplyToEventId);
     const localId = optimistic.localId;
 
     if (!localId) {
@@ -606,6 +612,7 @@
       {
         roomId,
         body,
+        inReplyToEventId,
       },
       localId,
     );
@@ -769,9 +776,23 @@
       {
         roomId,
         body: message.body,
+        inReplyToEventId: message.inReplyToEventId,
       },
       message.localId,
     );
+  }
+
+  function handleReplyToMessage(message: TimelineMessage) {
+    if (!message.eventId) {
+      return;
+    }
+
+    replyToMessage = message;
+    composerFocusNonce += 1;
+  }
+
+  function clearReplyToMessage() {
+    replyToMessage = null;
   }
 
   function handleComposerSubmit(event: SubmitEvent) {
@@ -915,7 +936,7 @@
     {/if}
   </section>
 {:else}
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col h-full min-w-0 overflow-x-hidden">
     <MessageTimeline
       {messages}
       roomId={$shellSelectedRoomId || ""}
@@ -935,6 +956,7 @@
       onLoadOlder={loadOlder}
       onRetryMessage={retryMessage}
       onToggleReaction={handleToggleReaction}
+      onReplyToMessage={handleReplyToMessage}
     />
 
     <MessageComposer
@@ -943,9 +965,12 @@
       isSending={sendingMessage}
       isDisabled={!$shellSelectedRoomId}
       pickerCustomEmoji={$shellPickerCustomEmoji}
+      {replyToMessage}
+      focusNonce={composerFocusNonce}
       placeholder={$shellSelectedRoomId ? "Write a message..." : "Select a room to compose"}
       onSubmit={sendDraftMessage}
       onDraftChange={(d) => messageDraft = d}
+      onClearReply={clearReplyToMessage}
     />
   </div>
 {/if}
