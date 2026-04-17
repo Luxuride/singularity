@@ -2,7 +2,12 @@
   import type { PickerCustomEmoji } from "$lib/emoji/picker";
 
   import MessageItem from "../message/MessageItem.svelte";
-  import type { RetryMessageHandler, TimelineMessage, ToggleReactionHandler } from "../shared";
+  import type {
+    ReplyToMessageHandler,
+    RetryMessageHandler,
+    TimelineMessage,
+    ToggleReactionHandler,
+  } from "../shared";
 
   interface Props {
     messages: TimelineMessage[];
@@ -13,6 +18,7 @@
     onScroll?: (event: Event) => void;
     onRetryMessage?: RetryMessageHandler;
     onToggleReaction?: ToggleReactionHandler;
+    onReplyToMessage?: ReplyToMessageHandler;
     onTimelineElementChange?: (element: HTMLElement | null) => void;
   }
 
@@ -25,6 +31,7 @@
     onScroll,
     onRetryMessage,
     onToggleReaction,
+    onReplyToMessage,
     onTimelineElementChange,
   }: Props = $props();
 
@@ -135,6 +142,7 @@
           {currentUserId}
           {pickerCustomEmoji}
           onToggleReaction={onToggleReaction}
+          onReplyToMessage={onReplyToMessage}
           isSending={isSending}
         />
       {/each}

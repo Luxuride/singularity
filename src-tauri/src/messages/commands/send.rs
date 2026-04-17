@@ -36,6 +36,7 @@ pub async fn matrix_send_chat_message(
         room_id.as_str(),
         request.body.as_str(),
         &picker_custom_emoji,
+        request.in_reply_to_event_id.as_deref(),
     )
     .await?;
 

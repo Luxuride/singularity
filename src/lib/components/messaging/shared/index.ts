@@ -3,6 +3,7 @@ export type {
   RetryMessageHandler,
   ToggleReactionHandler,
   JumpToMessageHandler,
+  ReplyToMessageHandler,
 } from "./types";
 
 export {

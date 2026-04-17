@@ -25,6 +25,7 @@ pub struct MatrixStreamChatMessagesRequest {
 pub struct MatrixSendChatMessageRequest {
     pub room_id: String,
     pub body: String,
+    pub in_reply_to_event_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -40,4 +41,10 @@ pub struct MatrixToggleReactionRequest {
 pub struct MatrixGetUserAvatarRequest {
     pub room_id: String,
     pub user_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixCopyImageToClipboardRequest {
+    pub image_url: String,
 }

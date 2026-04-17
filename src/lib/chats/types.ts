@@ -82,12 +82,17 @@ export interface MatrixStreamChatMessagesRequest {
 export interface MatrixSendChatMessageRequest {
   roomId: string;
   body: string;
+  inReplyToEventId?: string | null;
 }
 
 export interface MatrixToggleReactionRequest {
   roomId: string;
   targetEventId: string;
   key: string;
+}
+
+export interface MatrixCopyImageToClipboardRequest {
+  imageUrl: string;
 }
 
 export type MatrixMessageDecryptionStatus = "plaintext" | "decrypted" | "unableToDecrypt";

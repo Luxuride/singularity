@@ -288,6 +288,10 @@
     const next = currentDraft.slice(0, start) + replacement + currentDraft.slice(end);
     applyDraftToEditor(next, start + replacement.length);
   }
+
+  export function focusEditor() {
+    editorView?.focus();
+  }
 </script>
 
 <div bind:this={editorMountElement}></div>

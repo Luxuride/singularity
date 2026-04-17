@@ -19,6 +19,7 @@ import type {
   MatrixToggleReactionResponse,
   MatrixSetRootSpaceOrderRequest,
   MatrixSetRootSpaceOrderResponse,
+  MatrixCopyImageToClipboardRequest,
   MatrixGetUserDevicesResponse,
   MatrixOwnVerificationStatus,
   MatrixRequestVerificationResponse,
@@ -119,6 +120,14 @@ export async function matrixToggleReaction(
   input: MatrixToggleReactionRequest,
 ): Promise<MatrixToggleReactionResponse> {
   return invokeMatrixCommand<MatrixToggleReactionResponse>("matrix_toggle_reaction", {
+    request: input,
+  });
+}
+
+export async function matrixCopyImageToClipboard(
+  input: MatrixCopyImageToClipboardRequest,
+): Promise<void> {
+  return invokeMatrixCommand<void>("matrix_copy_image_to_clipboard", {
     request: input,
   });
 }
