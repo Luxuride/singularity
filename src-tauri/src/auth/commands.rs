@@ -88,7 +88,7 @@ pub async fn matrix_complete_oauth(
         .lock_inner()?
         .pending_client
         .take()
-        .ok_or_else(|| String::from("No login flow in progress. Start OAuth first."))?;
+        .ok_or_else(|| String::from("Sign-in session expired. Please start sign-in again."))?;
 
     let parsed = match client
         .matrix_auth()
@@ -113,9 +113,7 @@ pub async fn matrix_complete_oauth(
                 let _ = clear_app_cache(&app_handle);
                 let _ = clear_matrix_sdk_store(&app_handle);
 
-                return Err(String::from(
-                    "Matrix login failed because local crypto data belongs to a different device session. Local session data was reset. Please start sign-in again.",
-                ));
+                return Err(String::from("Sign-in failed. Please start sign-in again."));
             }
 
             return Err(format!("Matrix login completion failed: {error_text}"));

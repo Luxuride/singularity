@@ -10,8 +10,6 @@
   } from "../../lib/auth/api";
 
   let homeserverUrl = $state("https://matrix.org");
-  let authorizationUrl = $state("");
-  let redirectUri = $state("");
 
   let loadingSession = $state(true);
   let startingOAuth = $state(false);
@@ -111,12 +109,11 @@
 
     try {
       const result = await matrixStartOAuth({ homeserverUrl });
-      authorizationUrl = result.authorizationUrl;
-      redirectUri = result.redirectUri;
       waitingForCallback = true;
+      lastHandledCallbackUrl = "";
 
       await openUrl(result.authorizationUrl);
-      infoMessage = "Browser opened. Complete sign-in there and return to the app automatically.";
+      infoMessage = "Browser opened. Complete sign-in to continue.";
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : "Failed to start OAuth login";
     } finally {
@@ -132,9 +129,8 @@
       const response = await matrixCompleteOAuth({ callbackUrl });
       lastHandledCallbackUrl = callbackUrl;
       authenticated = response.authenticated;
-      authorizationUrl = "";
       waitingForCallback = false;
-      infoMessage = "Session created successfully.";
+      infoMessage = "Signed in successfully.";
 
       if (response.authenticated) {
         await goto("/chats");
@@ -174,7 +170,7 @@
           required
         />
 
-        <button class="btn preset-filled-primary-500" type="submit" disabled={startingOAuth || waitingForCallback || completingOAuth}>
+        <button class="btn preset-filled-primary-500" type="submit" disabled={startingOAuth || completingOAuth}>
           {#if startingOAuth}
             Starting...
           {:else if completingOAuth}
@@ -190,16 +186,8 @@
           Sign-in completes automatically after browser authentication. No callback URL copy and paste is required.
         </p>
 
-        {#if redirectUri}
-          <p class="text-sm text-surface-700-300">Expected redirect URI: <strong>{redirectUri}</strong></p>
-        {/if}
-
-        {#if authorizationUrl}
-          <p class="text-sm text-surface-700-300">Opened authorization URL: <strong>{authorizationUrl}</strong></p>
-        {/if}
-
         {#if waitingForCallback}
-          <p class="text-sm text-surface-700-300">Waiting for secure callback from browser...</p>
+          <p class="text-sm text-surface-700-300">Waiting for browser callback. You can restart sign-in at any time.</p>
         {/if}
       </form>
     {/if}
