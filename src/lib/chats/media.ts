@@ -7,21 +7,9 @@ import type {
   MatrixSelectedRoomMessagesEvent,
 } from "./types";
 
-function isLikelyAbsoluteFilePath(value: string): boolean {
-  if (!value) {
-    return false;
-  }
-
-  if (value.startsWith("/")) {
-    return true;
-  }
-
-  return /^[a-zA-Z]:[\\/]/.test(value);
-}
-
 export function normalizeImageUrl(imageUrl: string | null): string | null {
   if (!imageUrl) {
-    return imageUrl;
+    return null;
   }
 
   if (
@@ -29,13 +17,9 @@ export function normalizeImageUrl(imageUrl: string | null): string | null {
     imageUrl.startsWith("http://") ||
     imageUrl.startsWith("https://") ||
     imageUrl.startsWith("matrix-media://") ||
-    imageUrl.startsWith("asset:") ||
-    imageUrl.startsWith("tauri://")
+    imageUrl.startsWith("tauri://") ||
+    imageUrl.startsWith("asset://")
   ) {
-    return imageUrl;
-  }
-
-  if (!isLikelyAbsoluteFilePath(imageUrl)) {
     return imageUrl;
   }
 
@@ -48,7 +32,7 @@ export function normalizeMessageImageUrl(message: MatrixChatMessage): MatrixChat
     imageUrl: normalizeImageUrl(message.imageUrl),
     customEmojis: message.customEmojis.map((emoji) => ({
       ...emoji,
-      url: normalizeImageUrl(emoji.url) ?? emoji.url,
+      url: emoji.url,
     })),
   };
 }
@@ -80,4 +64,33 @@ export function normalizeChatMessageStreamEvent(
     ...payload,
     message: normalizeMessageImageUrl(payload.message),
   };
+}
+
+type VitestContext = {
+  describe: any;
+  it: any;
+  expect: any;
+  vi: any;
+};
+
+const vitest = (import.meta as unknown as { vitest?: VitestContext }).vitest;
+
+if (vitest) {
+  const { describe, it, expect, vi } = vitest;
+
+  vi.mock("@tauri-apps/api/core", () => ({
+    convertFileSrc: (input: string) => `converted:${input}`,
+  }));
+
+  describe("normalizeImageUrl", () => {
+    it("preserves asset path URLs from the backend", () => {
+      const raw = "asset://localhost/home/lux/.cache/eu.luxuride.singularity/media-cache/img%2D123.png";
+      expect(normalizeImageUrl(raw)).toBe(raw);
+    });
+
+    it("leaves matrix-media URLs unchanged", () => {
+      const raw = "matrix-media://localhost/img-123.png";
+      expect(normalizeImageUrl(raw)).toBe(raw);
+    });
+  });
 }

@@ -322,6 +322,41 @@ pub(crate) async fn cache_mxc_media_to_local_path(
     Some(resolved_path)
 }
 
+pub(crate) async fn resolve_pack_media_url(
+    client: &matrix_sdk::Client,
+    raw_url: &str,
+) -> Option<String> {
+    if raw_url.starts_with("mxc://") {
+        return cache_mxc_media_to_local_path(client, raw_url).await;
+    }
+
+    if raw_url.starts_with("http://") || raw_url.starts_with("https://") {
+        if let Some(mxc_url) = mxc_from_matrix_media_download_url(raw_url) {
+            return cache_mxc_media_to_local_path(client, &mxc_url).await;
+        }
+
+        warn!(
+            "Ignoring non-Matrix HTTP media URL because image fetching is Matrix SDK-only: {}",
+            raw_url
+        );
+        return None;
+    }
+
+    None
+}
+
+pub(crate) fn canonical_pack_source_url(raw_url: &str) -> String {
+    if raw_url.starts_with("mxc://") {
+        return raw_url.to_owned();
+    }
+
+    if let Some(mxc_url) = mxc_from_matrix_media_download_url(raw_url) {
+        return mxc_url;
+    }
+
+    raw_url.to_owned()
+}
+
 pub(crate) fn cache_event_image(bytes: &[u8], key_parts: ImageCacheKeyParts) -> Option<String> {
     let extension = image_extension_from_mime(&key_parts.mime_type);
     let file_stem = image_cache_key(&key_parts);
@@ -460,7 +495,7 @@ fn persist_cached_media_asset(request: &NormalizedImageLoad) -> Option<String> {
     let final_path = cache_dir.join(file_name);
 
     if final_path.exists() {
-        return Some(final_path.to_string_lossy().to_string());
+        return Some(to_asset_storage_url(&final_path));
     }
 
     let temp_path = cache_dir.join(format!("{}.tmp", request.file_stem));
@@ -472,13 +507,36 @@ fn persist_cached_media_asset(request: &NormalizedImageLoad) -> Option<String> {
     if let Err(error) = fs::rename(&temp_path, &final_path) {
         let _ = fs::remove_file(&temp_path);
         if final_path.exists() {
-            return Some(final_path.to_string_lossy().to_string());
+            return Some(to_asset_storage_url(&final_path));
         }
         warn!("Failed to finalize cached media file: {error}");
         return None;
     }
 
-    Some(final_path.to_string_lossy().to_string())
+    Some(to_asset_storage_url(&final_path))
+}
+
+fn to_asset_storage_url(path: &Path) -> String {
+    let absolute = path.to_string_lossy();
+    let encoded = percent_encode_asset_path(absolute.as_ref());
+    format!("asset://localhost/{encoded}")
+}
+
+fn percent_encode_asset_path(path: &str) -> String {
+    let mut encoded = String::with_capacity(path.len());
+    for byte in path.bytes() {
+        let is_unreserved =
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~');
+
+        if is_unreserved {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push('%');
+            encoded.push_str(&format!("{byte:02X}"));
+        }
+    }
+
+    encoded
 }
 
 fn mxc_image_cache_key(raw_url: &str, bytes: &[u8]) -> String {
@@ -518,6 +576,29 @@ fn image_extension_from_raw_url(raw_url: &str) -> &'static str {
         "svg" => "svg",
         _ => "bin",
     }
+}
+
+fn mxc_from_matrix_media_download_url(raw_url: &str) -> Option<String> {
+    let parsed = url::Url::parse(raw_url).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return None;
+    }
+
+    let segments: Vec<_> = parsed.path_segments()?.collect();
+    let download_index = segments.windows(4).position(|window| {
+        window.first() == Some(&"_matrix")
+            && window.get(1) == Some(&"media")
+            && window.get(3) == Some(&"download")
+    })?;
+
+    let server_name = segments.get(download_index + 4)?;
+    let media_id = segments.get(download_index + 5)?;
+
+    if server_name.is_empty() || media_id.is_empty() {
+        return None;
+    }
+
+    Some(format!("mxc://{server_name}/{media_id}"))
 }
 
 fn mime_type_from_extension(extension: &str) -> &'static str {
@@ -562,7 +643,7 @@ fn cached_media_path_for_source_url(source_url: &str) -> Option<String> {
         if load_cached_media_from_memory(&media_key).is_some() {
             return Some(cached_path);
         }
-    } else if Path::new(&cached_path).exists() {
+    } else if resolved_media_file_path(&cached_path).is_some_and(|path| path.exists()) {
         return Some(cached_path);
     }
 
@@ -597,7 +678,8 @@ fn media_cache_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        image_extension_from_mime, ImageCacheKeyParts, NormalizedImageLoad,
+        canonical_pack_source_url, image_extension_from_mime, percent_encode_asset_path,
+        resolve_pack_media_url, ImageCacheKeyParts, NormalizedImageLoad,
         NormalizedImageLoadBuilder,
     };
 
@@ -636,5 +718,34 @@ mod tests {
             .mime_type("image/png")
             .build();
         assert!(complete.is_some());
+    }
+
+    #[test]
+    fn canonical_pack_source_url_converts_matrix_download_http_url() {
+        let canonical = canonical_pack_source_url(
+            "https://matrix.example.org/_matrix/media/v3/download/media.example.org/abc123",
+        );
+        assert_eq!(canonical, "mxc://media.example.org/abc123");
+    }
+
+    #[tokio::test]
+    async fn resolve_pack_media_url_rejects_non_matrix_http_urls() {
+        let homeserver_url = url::Url::parse("https://example.org")
+            .expect("homeserver URL should parse for test setup");
+        let client = matrix_sdk::Client::new(homeserver_url)
+            .await
+            .expect("client should construct for URL-only validation");
+
+        let resolved = resolve_pack_media_url(&client, "https://example.org/image.png").await;
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn percent_encodes_absolute_asset_path() {
+        let encoded = percent_encode_asset_path("/home/lux/.cache/media-cache/img-123.bin");
+        assert_eq!(
+            encoded,
+            "%2Fhome%2Flux%2F.cache%2Fmedia-cache%2Fimg-123.bin"
+        );
     }
 }

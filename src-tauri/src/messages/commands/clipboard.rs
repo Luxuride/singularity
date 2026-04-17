@@ -12,11 +12,12 @@ pub async fn matrix_copy_image_to_clipboard(
 ) -> Result<(), String> {
     info!("matrix_copy_image_to_clipboard requested");
 
-    let image_bytes = if let Some(bytes) = assets::image::load_media_bytes_from_resolved_url(
-        request.image_url.as_str(),
-    ) {
+    let image_bytes = if let Some(bytes) =
+        assets::image::load_media_bytes_from_resolved_url(request.image_url.as_str())
+    {
         bytes
-    } else if request.image_url.starts_with("http://") || request.image_url.starts_with("https://") {
+    } else if request.image_url.starts_with("http://") || request.image_url.starts_with("https://")
+    {
         let response = reqwest::get(request.image_url.as_str())
             .await
             .map_err(|error| format!("Failed to fetch image URL: {error}"))?;
@@ -45,13 +46,13 @@ pub async fn matrix_copy_image_to_clipboard(
         .map_err(|error| format!("Failed to decode image bytes: {error}"))?;
 
     let rgba = decoded.to_rgba8();
-    let width = usize::try_from(rgba.width())
-        .map_err(|_| String::from("Image width is out of range"))?;
-    let height = usize::try_from(rgba.height())
-        .map_err(|_| String::from("Image height is out of range"))?;
+    let width =
+        usize::try_from(rgba.width()).map_err(|_| String::from("Image width is out of range"))?;
+    let height =
+        usize::try_from(rgba.height()).map_err(|_| String::from("Image height is out of range"))?;
 
-    let mut clipboard = Clipboard::new()
-        .map_err(|error| format!("Failed to initialize clipboard: {error}"))?;
+    let mut clipboard =
+        Clipboard::new().map_err(|error| format!("Failed to initialize clipboard: {error}"))?;
 
     clipboard
         .set_image(ImageData {
