@@ -5,7 +5,7 @@ mod media;
 mod persistence;
 mod reactions;
 mod receive;
-mod send;
+pub(crate) mod send;
 mod types;
 
 pub(crate) use media::cache_mxc_media_to_local_path;

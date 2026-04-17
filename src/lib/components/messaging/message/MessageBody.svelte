@@ -45,6 +45,38 @@
       </figcaption>
     {/if}
   </figure>
+{:else if message.messageType === "m.video"}
+  <figure class="space-y-2">
+    {#if message.imageUrl}
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video
+        src={message.imageUrl}
+        controls
+        playsinline
+        class="max-h-[28rem] w-full rounded preset-outlined-surface-300-700 bg-surface-100-900"
+      ></video>
+    {:else}
+      <div class="rounded preset-outlined-surface-300-700 bg-surface-100-900 p-4 text-sm text-surface-700-300">
+        Video unavailable
+      </div>
+    {/if}
+    {#if message.body}
+      <figcaption class="text-base whitespace-pre-wrap break-words text-surface-700-300">
+        {message.body}
+      </figcaption>
+    {/if}
+  </figure>
+{:else if message.messageType === "m.file"}
+  <div class="rounded preset-outlined-surface-300-700 bg-surface-100-900 p-4 text-sm text-surface-700-300">
+    {#if message.imageUrl}
+      <a class="underline" href={message.imageUrl} target="_blank" rel="noreferrer">Open file</a>
+    {:else}
+      File attachment
+    {/if}
+    {#if message.body}
+      <div class="mt-2 whitespace-pre-wrap break-words">{message.body}</div>
+    {/if}
+  </div>
 {:else if renderedFormattedBody}
   <div class="message-formatted-body whitespace-pre-wrap break-words text-base">
     {@html renderedFormattedBody}

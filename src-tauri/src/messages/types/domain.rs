@@ -50,6 +50,16 @@ pub struct MatrixReactionSummary {
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MatrixMediaTranscodeProgressEvent {
+    pub room_id: String,
+    pub file_path: String,
+    pub stage: String,
+    pub progress: f64,
+    pub hardware_mode: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MatrixChatMessage {
     pub event_id: Option<String>,
     pub in_reply_to_event_id: Option<String>,

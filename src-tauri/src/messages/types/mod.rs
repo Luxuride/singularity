@@ -4,14 +4,16 @@ mod responses;
 
 pub(crate) use domain::{
     MatrixChatMessage, MatrixChatMessageStreamEvent, MatrixCustomEmoji,
-    MatrixMessageDecryptionStatus, MatrixMessageLoadKind, MatrixMessageVerificationStatus,
-    MatrixPickerCustomEmoji, MatrixReactionSummary,
+    MatrixMediaTranscodeProgressEvent, MatrixMessageDecryptionStatus, MatrixMessageLoadKind,
+    MatrixMessageVerificationStatus, MatrixPickerCustomEmoji, MatrixReactionSummary,
 };
 pub(crate) use requests::{
-    MatrixCopyImageToClipboardRequest, MatrixGetChatMessagesRequest, MatrixGetUserAvatarRequest,
-    MatrixSendChatMessageRequest, MatrixStreamChatMessagesRequest, MatrixToggleReactionRequest,
+    MatrixCancelMediaTranscodeRequest, MatrixCopyImageToClipboardRequest,
+    MatrixGetChatMessagesRequest, MatrixGetUserAvatarRequest, MatrixSendChatMessageRequest,
+    MatrixSendMediaFileRequest, MatrixStreamChatMessagesRequest, MatrixToggleReactionRequest,
 };
 pub(crate) use responses::{
-    MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse, MatrixGetUserAvatarResponse,
-    MatrixSendChatMessageResponse, MatrixStreamChatMessagesResponse, MatrixToggleReactionResponse,
+    MatrixCancelMediaTranscodeResponse, MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse,
+    MatrixGetUserAvatarResponse, MatrixSendChatMessageResponse, MatrixSendMediaFileResponse,
+    MatrixStreamChatMessagesResponse, MatrixToggleReactionResponse,
 };

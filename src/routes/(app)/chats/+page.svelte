@@ -2,9 +2,14 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { onMount, tick } from "svelte";
+  import { listen } from "@tauri-apps/api/event";
+  import { convertFileSrc } from "@tauri-apps/api/core";
+  import { open } from "@tauri-apps/plugin-dialog";
 
   import {
+    matrixCancelMediaTranscode,
     matrixSendChatMessage,
+    matrixSendMediaFile,
     matrixStreamChatMessages,
     matrixToggleReaction,
   } from "$lib/chats/api";
@@ -21,6 +26,7 @@
   import type {
     MatrixChatMessage,
     MatrixChatMessageStreamEvent,
+    MatrixMediaTranscodeProgressEvent,
     MatrixSelectedRoomMessagesEvent,
     MatrixSendChatMessageRequest,
     MatrixMessageLoadKind,
@@ -42,6 +48,18 @@
   let sendingMessage = $state(false);
   let replyToMessage = $state<TimelineMessage | null>(null);
   let composerFocusNonce = $state(0);
+  let pendingMedia = $state<{
+    filePath: string;
+    fileName: string;
+    messageType: "m.image" | "m.video" | "m.file";
+    compressMedia: boolean;
+  } | null>(null);
+  let sendingMedia = $state(false);
+  let mediaErrorMessage = $state("");
+  let activeMediaFilePath = $state("");
+  let mediaTranscodeProgress = $state<MatrixMediaTranscodeProgressEvent | null>(null);
+
+  const EVENT_MEDIA_TRANSCODE_PROGRESS = "matrix://media/transcode/progress";
 
   let messages = $state<TimelineMessage[]>([]);
   let nextFrom = $state<string | null>(null);
@@ -75,6 +93,7 @@
 
   onMount(() => {
     let unlisten = () => {};
+    let unlistenTranscode = () => {};
 
     void (async () => {
       unlisten = await subscribeToRoomUpdates({
@@ -84,10 +103,22 @@
         onSelectedRoomMessages: applySelectedRoomMessages,
         onChatMessagesStream: applyChatMessageStream,
       });
+
+      unlistenTranscode = await listen<MatrixMediaTranscodeProgressEvent>(
+        EVENT_MEDIA_TRANSCODE_PROGRESS,
+        (event) => {
+          if (event.payload.filePath !== activeMediaFilePath) {
+            return;
+          }
+
+          mediaTranscodeProgress = event.payload;
+        },
+      );
     })();
 
     return () => {
       unlisten();
+      unlistenTranscode();
     };
   });
 
@@ -108,6 +139,10 @@
       messageDraft = "";
       sendingMessage = false;
       composerErrorMessage = "";
+      pendingMedia = null;
+      mediaErrorMessage = "";
+      activeMediaFilePath = "";
+      mediaTranscodeProgress = null;
       replyToMessage = null;
       messages = [];
       nextFrom = null;
@@ -130,6 +165,10 @@
     messageDraft = "";
     sendingMessage = false;
     composerErrorMessage = "";
+    pendingMedia = null;
+    mediaErrorMessage = "";
+    activeMediaFilePath = "";
+    mediaTranscodeProgress = null;
     replyToMessage = null;
 
     messages = [];
@@ -529,6 +568,207 @@
       localId: createStreamId(),
       sendState: "sending",
     };
+  }
+
+  function buildOptimisticMediaMessage(): TimelineMessage {
+    const encryptedRoom = selectedRoomEncrypted();
+
+    if (!pendingMedia) {
+      return buildOptimisticMessage("Attachment", null);
+    }
+
+    return {
+      eventId: null,
+      inReplyToEventId: null,
+      sender: $shellCurrentUserId || "You",
+      timestamp: Date.now(),
+      body: pendingMedia.fileName,
+      formattedBody: null,
+      messageType: pendingMedia.messageType,
+      imageUrl:
+        pendingMedia.messageType === "m.file"
+          ? null
+          : convertFileSrc(pendingMedia.filePath),
+      customEmojis: [],
+      reactions: [],
+      encrypted: encryptedRoom,
+      decryptionStatus: encryptedRoom ? "decrypted" : "plaintext",
+      verificationStatus: "unknown",
+      localId: createStreamId(),
+      sendState: "sending",
+    };
+  }
+
+  function detectMediaKind(filePath: string): "m.image" | "m.video" | "m.file" {
+    const extension = filePath.split(".").pop()?.toLowerCase() ?? "";
+
+    if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(extension)) {
+      return "m.image";
+    }
+
+    if (["mp4", "mkv", "mov", "webm", "avi"].includes(extension)) {
+      return "m.video";
+    }
+
+    return "m.file";
+  }
+
+  function createPendingMedia(filePath: string) {
+    pendingMedia = {
+      filePath,
+      fileName: filePath.split(/[\\/]/).pop() || "attachment",
+      messageType: detectMediaKind(filePath),
+      compressMedia: true,
+    };
+    mediaErrorMessage = "";
+  }
+
+  async function chooseAttachment() {
+    const selected = await open({
+      multiple: false,
+      directory: false,
+      title: "Choose a file to send",
+    });
+
+    if (typeof selected === "string" && selected.length > 0) {
+      createPendingMedia(selected);
+    }
+  }
+
+  function handlePendingMediaEscape(event: KeyboardEvent) {
+    if (event.key !== "Escape" || !pendingMedia) {
+      return;
+    }
+
+    event.preventDefault();
+    void cancelPendingMedia();
+  }
+
+  function handlePendingMediaBackdropClick(event: MouseEvent) {
+    if (!pendingMedia || event.currentTarget !== event.target) {
+      return;
+    }
+
+    void cancelPendingMedia();
+  }
+
+  function handlePendingMediaBackdropKeydown(event: KeyboardEvent) {
+    if (!pendingMedia) {
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      void cancelPendingMedia();
+    }
+  }
+
+  onMount(() => {
+    window.addEventListener("keydown", handlePendingMediaEscape);
+
+    return () => {
+      window.removeEventListener("keydown", handlePendingMediaEscape);
+    };
+  });
+
+  async function sendPendingMedia() {
+    if (!pendingMedia || sendingMedia || !$shellSelectedRoomId) {
+      return;
+    }
+
+    const mediaDraft = pendingMedia;
+    activeMediaFilePath = mediaDraft.filePath;
+    mediaTranscodeProgress = {
+      roomId: $shellSelectedRoomId,
+      filePath: mediaDraft.filePath,
+      stage: mediaDraft.compressMedia ? "preparing" : "uploading",
+      progress: 0,
+      hardwareMode: "",
+    };
+    const optimistic = buildOptimisticMediaMessage();
+    const localId = optimistic.localId;
+
+    if (!localId) {
+      return;
+    }
+
+    messages = [...messages, optimistic];
+    queuePinTimelineToBottom($shellSelectedRoomId);
+
+    sendingMedia = true;
+    mediaErrorMessage = "";
+
+    try {
+      await matrixSendMediaFile({
+        roomId: $shellSelectedRoomId,
+        filePath: mediaDraft.filePath,
+        compressMedia: mediaDraft.compressMedia,
+      });
+
+      pendingMedia = null;
+      mediaTranscodeProgress = null;
+
+      messages = messages.map((message) => {
+        if (message.localId !== localId) {
+          return message;
+        }
+
+        return {
+          ...message,
+          sendState: undefined,
+          localId: undefined,
+        };
+      });
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : "Failed to send media";
+      const cancelled = errorText.toLowerCase().includes("cancelled by user");
+      mediaTranscodeProgress = null;
+
+      if (cancelled) {
+        mediaErrorMessage = "";
+        messages = messages.filter((message) => message.localId !== localId);
+      } else {
+        mediaErrorMessage = errorText;
+        messages = messages.map((message) => {
+          if (message.localId !== localId) {
+            return message;
+          }
+
+          return {
+            ...message,
+            sendState: "failed",
+          };
+        });
+      }
+    } finally {
+      sendingMedia = false;
+      activeMediaFilePath = "";
+    }
+  }
+
+  async function cancelPendingMedia() {
+    if (!pendingMedia) {
+      return;
+    }
+
+    const roomId = $shellSelectedRoomId;
+    const mediaDraft = pendingMedia;
+
+    if (sendingMedia && roomId && mediaDraft.compressMedia && mediaDraft.messageType !== "m.file") {
+      try {
+        await matrixCancelMediaTranscode({
+          roomId,
+          filePath: mediaDraft.filePath,
+        });
+      } catch {
+        // Ignore cancellation command errors and close preview anyway.
+      }
+    }
+
+    mediaErrorMessage = "";
+    mediaTranscodeProgress = null;
+    activeMediaFilePath = "";
+    pendingMedia = null;
   }
 
   async function sendOptimisticMessage(
@@ -970,7 +1210,125 @@
       placeholder={$shellSelectedRoomId ? "Write a message..." : "Select a room to compose"}
       onSubmit={sendDraftMessage}
       onDraftChange={(d) => messageDraft = d}
+      onChooseAttachment={chooseAttachment}
+      onPasteAttachmentPath={createPendingMedia}
       onClearReply={clearReplyToMessage}
     />
+
+    {#if pendingMedia}
+      <div
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+        role="button"
+        tabindex="0"
+        onclick={handlePendingMediaBackdropClick}
+        onkeydown={handlePendingMediaBackdropKeydown}
+      >
+        <div class="w-full max-w-5xl rounded-2xl border border-surface-300-700 bg-surface-100-900 shadow-2xl">
+          <div class="flex items-center justify-between border-b border-surface-300-700 px-5 py-4">
+            <div>
+              <p class="text-lg font-semibold text-surface-900-100">Send file</p>
+              <p class="text-sm text-surface-600-400">{pendingMedia.fileName}</p>
+            </div>
+            <button class="btn preset-outlined" type="button" onclick={cancelPendingMedia}>
+              Cancel
+            </button>
+          </div>
+
+          <div class="grid gap-4 p-5 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
+            <div class="flex min-h-[24rem] items-center justify-center rounded-xl bg-surface-200-800 p-4">
+              {#if pendingMedia.messageType === "m.image"}
+                <img
+                  src={convertFileSrc(pendingMedia.filePath)}
+                  alt={pendingMedia.fileName}
+                  class="max-h-[70vh] w-full rounded-lg object-contain"
+                />
+              {:else if pendingMedia.messageType === "m.video"}
+                <!-- svelte-ignore a11y_media_has_caption -->
+                <video
+                  src={convertFileSrc(pendingMedia.filePath)}
+                  controls
+                  playsinline
+                  class="max-h-[70vh] w-full rounded-lg bg-black"
+                ></video>
+              {:else}
+                <div class="text-center">
+                  <div class="text-5xl">📎</div>
+                  <p class="mt-3 text-lg font-medium">{pendingMedia.fileName}</p>
+                </div>
+              {/if}
+            </div>
+
+            <div class="space-y-4 rounded-xl border border-surface-300-700 bg-surface-100-900 p-4">
+              {#if pendingMedia.messageType !== "m.file"}
+                <label class="flex items-start gap-3 rounded-lg border border-surface-300-700 p-3">
+                  <input type="checkbox" bind:checked={pendingMedia.compressMedia} class="mt-1" />
+                  <span>
+                    <span class="block font-medium">Compress before sending</span>
+                    <span class="block text-sm text-surface-600-400">
+                      Images become WebP. Videos become VP9 WebM.
+                    </span>
+                  </span>
+                </label>
+              {/if}
+
+              {#if sendingMedia}
+                <div class="space-y-2 rounded-lg border border-surface-300-700 p-3">
+                  <div class="flex items-center justify-between gap-3 text-xs uppercase tracking-wide text-surface-600-400">
+                    <span>
+                      {#if mediaTranscodeProgress?.stage === "uploading"}
+                        Upload
+                      {:else if mediaTranscodeProgress?.hardwareMode === "vaapi"}
+                        VA
+                      {:else if mediaTranscodeProgress?.hardwareMode === "cuda"}
+                        CUDA
+                      {:else if mediaTranscodeProgress?.hardwareMode === "software"}
+                        Software
+                      {:else}
+                        Detecting...
+                      {/if}
+                    </span>
+                    <span>{Math.round(mediaTranscodeProgress?.progress ?? 0)}%</span>
+                  </div>
+                  <div class="h-2 overflow-hidden rounded-full bg-surface-300-700">
+                    <div
+                      class="h-full rounded-full bg-primary-500 transition-[width] duration-200"
+                      style={`width: ${Math.max(4, mediaTranscodeProgress?.progress ?? 0)}%`}
+                    ></div>
+                  </div>
+                  <p class="text-sm text-surface-600-400">
+                    {#if mediaTranscodeProgress?.stage === "transcoding"}
+                      {pendingMedia.messageType === "m.video" ? "Transcoding video..." : "Transcoding image..."}
+                    {:else if mediaTranscodeProgress?.stage === "uploading"}
+                      Uploading media...
+                    {:else if mediaTranscodeProgress?.stage === "finalizing"}
+                      Finalizing the output...
+                    {:else if mediaTranscodeProgress?.stage === "cancelled"}
+                      Cancelling transcode...
+                    {:else}
+                      Preparing media...
+                    {/if}
+                  </p>
+                </div>
+              {/if}
+
+              {#if mediaErrorMessage}
+                <div class="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-700">
+                  {mediaErrorMessage}
+                </div>
+              {/if}
+
+              <button
+                type="button"
+                class="btn preset-filled w-full"
+                disabled={sendingMedia || !$shellSelectedRoomId}
+                onclick={sendPendingMedia}
+              >
+                {#if sendingMedia}Sending...{:else}Send file{/if}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    {/if}
   </div>
 {/if}

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
+  import { matrixReadClipboardText } from "$lib/chats/api";
 
   import type { PickerCustomEmoji } from "$lib/emoji/picker";
   import "prosemirror-view/style/prosemirror.css";
@@ -25,6 +26,7 @@
     onCursorChange?: (cursor: number) => void;
     onSubmit?: (draft: string) => void;
     onSuggestionPositionChange?: (position: SuggestionPosition | null) => void;
+    onPasteAttachmentPath?: (filePath: string) => void;
   }
 
   let {
@@ -39,6 +41,7 @@
     onCursorChange,
     onSubmit,
     onSuggestionPositionChange,
+    onPasteAttachmentPath,
   }: Props = $props();
 
   let editorMountElement = $state<HTMLDivElement | null>(null);
@@ -83,6 +86,18 @@
           return "";
         }),
       handleKeyDown: (view, event) => {
+        const isPasteShortcut =
+          (event.metaKey || event.ctrlKey) &&
+          event.key.toLowerCase() === "v" &&
+          !event.shiftKey &&
+          !event.altKey;
+
+        if (isPasteShortcut) {
+          event.preventDefault();
+          void handleKeyboardPaste();
+          return true;
+        }
+
         if (event.key !== "Enter") {
           return false;
         }
@@ -292,6 +307,89 @@
   export function focusEditor() {
     editorView?.focus();
   }
+
+  async function handleKeyboardPaste() {
+    let clipboardText = "";
+
+    try {
+      clipboardText = await matrixReadClipboardText();
+    } catch {
+      return;
+    }
+
+    const attachmentPath = parseClipboardTextPath(clipboardText);
+    if (attachmentPath) {
+      onPasteAttachmentPath?.(attachmentPath);
+      return;
+    }
+
+    if (!clipboardText) {
+      return;
+    }
+
+    const selection = editorView
+      ? getSelectionOffsetsFromState(editorView.state)
+      : { start: cursorPosition, end: cursorPosition };
+    const currentDraft = editorView ? docToDraft(editorView.state.doc) : draft;
+    const next =
+      currentDraft.slice(0, selection.start) + clipboardText + currentDraft.slice(selection.end);
+    applyDraftToEditor(next, selection.start + clipboardText.length);
+  }
+
+  function parseClipboardTextPath(rawPayload: string): string | null {
+    if (!rawPayload) {
+      return null;
+    }
+
+    const lines = rawPayload
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#"));
+
+    for (const line of lines) {
+      if (line === "copy" || line === "cut") {
+        continue;
+      }
+
+      const withoutQuotes = line.replace(/^['"]|['"]$/g, "");
+
+      if (withoutQuotes.startsWith("file://")) {
+        const decoded = fileUrlToLocalPath(withoutQuotes);
+        if (decoded) {
+          return decoded;
+        }
+      }
+
+      if (withoutQuotes.startsWith("/") || /^[A-Za-z]:[\\/]/.test(withoutQuotes)) {
+        return withoutQuotes;
+      }
+    }
+
+    return null;
+  }
+
+  function fileUrlToLocalPath(fileUrl: string): string | null {
+    try {
+      const url = new URL(fileUrl);
+      if (url.protocol !== "file:") {
+        return null;
+      }
+
+      const decodedPath = decodeURIComponent(url.pathname);
+      if (!decodedPath) {
+        return null;
+      }
+
+      if (decodedPath.startsWith("/") || /^[A-Za-z]:\//.test(decodedPath)) {
+        return decodedPath;
+      }
+    } catch {
+      // Ignore malformed URL.
+    }
+
+    return null;
+  }
+
 </script>
 
 <div bind:this={editorMountElement}></div>

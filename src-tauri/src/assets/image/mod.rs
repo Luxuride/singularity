@@ -681,6 +681,10 @@ fn media_cache_dir() -> PathBuf {
         .clone()
 }
 
+pub(crate) fn media_cache_dir_path() -> PathBuf {
+    media_cache_dir()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

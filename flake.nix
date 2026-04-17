@@ -22,6 +22,19 @@
           toolchain
           nodejs_22
           pnpm
+
+          mesa
+          libGL
+          libGLU
+          libgbm
+
+          gst_all_1.gstreamer
+          gst_all_1."gst-plugins-base"
+          gst_all_1."gst-plugins-good"
+          gst_all_1."gst-plugins-bad"
+          gst_all_1."gst-plugins-ugly"
+          gst_all_1."gst-libav"
+          gst_all_1."gst-vaapi"
         ];
 
         nativeBuildPackages = with pkgs; [
@@ -45,6 +58,13 @@
           dbus
           openssl
           librsvg
+          gst_all_1.gstreamer
+          gst_all_1."gst-plugins-base"
+          gst_all_1."gst-plugins-good"
+          gst_all_1."gst-plugins-bad"
+          gst_all_1."gst-plugins-ugly"
+          gst_all_1."gst-libav"
+          gst_all_1."gst-vaapi"
         ];
 
       in {

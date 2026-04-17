@@ -26,6 +26,18 @@ pub struct MatrixSendChatMessageResponse {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MatrixSendMediaFileResponse {
+    pub event_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixCancelMediaTranscodeResponse {
+    pub cancelled: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MatrixToggleReactionResponse {
     pub added: bool,
     pub event_id: Option<String>,

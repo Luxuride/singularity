@@ -85,6 +85,17 @@ export interface MatrixSendChatMessageRequest {
   inReplyToEventId?: string | null;
 }
 
+export interface MatrixSendMediaFileRequest {
+  roomId: string;
+  filePath: string;
+  compressMedia: boolean;
+}
+
+export interface MatrixCancelMediaTranscodeRequest {
+  roomId: string;
+  filePath: string;
+}
+
 export interface MatrixToggleReactionRequest {
   roomId: string;
   targetEventId: string;
@@ -132,6 +143,14 @@ export interface MatrixReactionSummary {
   senders: string[];
 }
 
+export interface MatrixMediaTranscodeProgressEvent {
+  roomId: string;
+  filePath: string;
+  stage: string;
+  progress: number;
+  hardwareMode: string;
+}
+
 export interface MatrixChatMessage {
   eventId: string | null;
   inReplyToEventId: string | null;
@@ -162,6 +181,14 @@ export interface MatrixStreamChatMessagesResponse {
 export interface MatrixSendChatMessageResponse {
   eventId: string;
   formattedBody?: string;
+}
+
+export interface MatrixSendMediaFileResponse {
+  eventId: string;
+}
+
+export interface MatrixCancelMediaTranscodeResponse {
+  cancelled: boolean;
 }
 
 export interface MatrixToggleReactionResponse {
