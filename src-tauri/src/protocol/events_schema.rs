@@ -487,7 +487,10 @@ mod tests {
 
         assert_eq!(parsed.custom_emojis.len(), 1);
         assert_eq!(parsed.custom_emojis[0].shortcode, ":image-1:");
-        assert_eq!(parsed.custom_emojis[0].url, "mxc://media.example.org/inline-image");
+        assert_eq!(
+            parsed.custom_emojis[0].url,
+            "mxc://media.example.org/inline-image"
+        );
     }
 
     #[test]

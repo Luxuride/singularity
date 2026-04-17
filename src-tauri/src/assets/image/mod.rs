@@ -233,6 +233,8 @@ pub(crate) fn media_storage_mode() -> MediaStorageMode {
 
 pub(crate) fn set_media_storage_mode(mode: MediaStorageMode) {
     MEDIA_STORAGE_MODE.store(mode as u8, Ordering::Relaxed);
+    clear_cached_media_urls();
+
     if matches!(mode, MediaStorageMode::AssetStorage) {
         clear_in_memory_media_cache();
     }
@@ -619,6 +621,10 @@ fn clear_in_memory_media_cache() {
         cache.clear();
     }
 
+    clear_cached_media_urls();
+}
+
+fn clear_cached_media_urls() {
     if let Ok(mut cached_urls) = cached_media_urls().lock() {
         cached_urls.clear();
     }
