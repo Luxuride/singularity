@@ -39,11 +39,21 @@ type PickerAssets = {
 export async function matrixGetPickerAssets(): Promise<PickerAssets> {
   const response = await invokeMatrixCommand<MatrixGetEmojiPacksResponse>("matrix_get_emoji_packs");
 
-  return {
-    customEmoji: response.customEmoji.map((emoji: MatrixPickerCustomEmoji) => ({
+  const customEmoji = response.customEmoji.flatMap((emoji: MatrixPickerCustomEmoji) => {
+    const normalizedUrl = normalizeImageUrl(emoji.url);
+    if (!normalizedUrl) {
+      return [];
+    }
+
+    return [{
       ...emoji,
+      url: normalizedUrl,
       category: emoji.category ?? undefined,
-    })),
+    }];
+  });
+
+  return {
+    customEmoji,
   };
 }
 
