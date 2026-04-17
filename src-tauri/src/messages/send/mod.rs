@@ -4,7 +4,9 @@ use matrix_sdk::ruma::events::room::message::{Relation, RoomMessageEventContent}
 use super::types::MatrixPickerCustomEmoji;
 use crate::protocol::{parse_event_id, parse_room_id};
 mod formatting;
-use formatting::build_formatted_body_from_custom_emoji;
+use formatting::{
+    build_display_formatted_body_from_custom_emoji, build_formatted_body_from_custom_emoji,
+};
 
 pub(crate) trait MessageSender {
     async fn send_room_message(
@@ -83,9 +85,9 @@ pub(crate) async fn send_room_message_from_client(
         .await
 }
 
-pub(crate) fn build_formatted_body_from_custom_emoji_for_send(
+pub(crate) fn build_display_formatted_body_from_custom_emoji_for_send(
     body: &str,
     picker_custom_emoji: &[MatrixPickerCustomEmoji],
 ) -> Option<String> {
-    build_formatted_body_from_custom_emoji(body, picker_custom_emoji)
+    build_display_formatted_body_from_custom_emoji(body, picker_custom_emoji)
 }

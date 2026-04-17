@@ -238,17 +238,14 @@ fn parse_custom_emojis_from_formatted_body(formatted_body: &str) -> Vec<ParsedCu
 
         search_index = tag_end;
 
-        // Check for both data-mx-emoticon (hyphens) and data_mx_emoticon (underscores)
-        if !tag.contains("data-mx-emoticon") && !tag.contains("data_mx_emoticon") {
-            continue;
-        }
-
-        let Some(shortcode) = extract_html_attribute(tag, "alt") else {
-            continue;
-        };
         let Some(raw_src) = extract_html_attribute(tag, "src") else {
             continue;
         };
+
+        let shortcode = extract_html_attribute(tag, "alt")
+            .or_else(|| extract_html_attribute(tag, "title"))
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| format!(":image-{}:", emojis.len() + 1));
 
         if shortcode.is_empty() {
             continue;
@@ -262,7 +259,6 @@ fn parse_custom_emojis_from_formatted_body(formatted_body: &str) -> Vec<ParsedCu
 
     emojis
 }
-
 fn extract_html_attribute(tag: &str, attribute: &str) -> Option<String> {
     let quoted_pattern = format!("{attribute}=\"");
     if let Some(start_index) = tag.find(&quoted_pattern) {
@@ -440,6 +436,58 @@ mod tests {
         assert_eq!(parsed.custom_emojis.len(), 1);
         assert_eq!(parsed.custom_emojis[0].shortcode, ":wave:");
         assert_eq!(parsed.custom_emojis[0].url, "mxc://media.example.org/wave");
+    }
+
+    #[test]
+    fn parses_custom_emoji_from_alt_shortcode_without_data_marker() {
+        let homeserver = Url::parse("https://matrix.example.org").expect("homeserver");
+        let event = json!({
+            "type": "m.room.message",
+            "sender": "@alice:example.org",
+            "content": {
+                "msgtype": "m.text",
+                "body": "hello :wave:",
+                "formatted_body": "<p>hello <img src=\"mxc://media.example.org/wave\" alt=\":wave:\"></p>"
+            }
+        });
+
+        let parsed = parse_timeline_message(
+            &event,
+            &homeserver,
+            MatrixMessageDecryptionStatus::Plaintext,
+            MatrixMessageVerificationStatus::Unknown,
+        )
+        .expect("message should parse");
+
+        assert_eq!(parsed.custom_emojis.len(), 1);
+        assert_eq!(parsed.custom_emojis[0].shortcode, ":wave:");
+        assert_eq!(parsed.custom_emojis[0].url, "mxc://media.example.org/wave");
+    }
+
+    #[test]
+    fn parses_img_url_without_alt_marker_or_title() {
+        let homeserver = Url::parse("https://matrix.example.org").expect("homeserver");
+        let event = json!({
+            "type": "m.room.message",
+            "sender": "@alice:example.org",
+            "content": {
+                "msgtype": "m.text",
+                "body": "image",
+                "formatted_body": "<p><img src=\"mxc://media.example.org/inline-image\"></p>"
+            }
+        });
+
+        let parsed = parse_timeline_message(
+            &event,
+            &homeserver,
+            MatrixMessageDecryptionStatus::Plaintext,
+            MatrixMessageVerificationStatus::Unknown,
+        )
+        .expect("message should parse");
+
+        assert_eq!(parsed.custom_emojis.len(), 1);
+        assert_eq!(parsed.custom_emojis[0].shortcode, ":image-1:");
+        assert_eq!(parsed.custom_emojis[0].url, "mxc://media.example.org/inline-image");
     }
 
     #[test]
