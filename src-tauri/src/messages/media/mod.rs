@@ -5,10 +5,7 @@ use serde_json::Value;
 use crate::assets::image::{self, ImageCacheKeyParts};
 
 mod url_parsing;
-use url_parsing::{
-    image_media_source_from_event, image_mime_type_from_event, image_source_key,
-    mxc_from_matrix_media_download_url,
-};
+use url_parsing::{image_media_source_from_event, image_mime_type_from_event, image_source_key};
 
 pub(crate) trait MediaResolver {
     async fn resolve_pack_media_url(
@@ -38,39 +35,11 @@ impl MediaResolver for DefaultMediaResolver {
         client: &matrix_sdk::Client,
         raw_url: &str,
     ) -> Option<String> {
-        if raw_url.starts_with("mxc://") {
-            return image::cache_mxc_media_to_local_path(client, raw_url).await;
-        }
-
-        if raw_url.starts_with("http://") || raw_url.starts_with("https://") {
-            if let Some(mxc_url) = mxc_from_matrix_media_download_url(raw_url) {
-                if let Some(local) = image::cache_mxc_media_to_local_path(client, &mxc_url).await {
-                    return Some(local);
-                }
-
-                return None;
-            }
-
-            warn!(
-                "Ignoring non-Matrix HTTP media URL because image fetching is Matrix SDK-only: {}",
-                raw_url
-            );
-            return None;
-        }
-
-        None
+        image::resolve_pack_media_url(client, raw_url).await
     }
 
     fn canonical_pack_source_url(&self, raw_url: &str) -> String {
-        if raw_url.starts_with("mxc://") {
-            return raw_url.to_owned();
-        }
-
-        if let Some(mxc_url) = mxc_from_matrix_media_download_url(raw_url) {
-            return mxc_url;
-        }
-
-        raw_url.to_owned()
+        image::canonical_pack_source_url(raw_url)
     }
 
     async fn resolve_image_cache_path(

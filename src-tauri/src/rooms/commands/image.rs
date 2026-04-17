@@ -173,7 +173,7 @@ mod tests {
         let response = MatrixGetChatsResponse {
             chats: vec![
                 chat_with_image(None),
-                chat_with_image(Some("asset://localhost/tmp/img-123.png")),
+                chat_with_image(Some("asset://localhost/home/user/.cache/eu.luxuride.singularity/media-cache/img-123.png")),
                 chat_with_image(Some("https://example.org/avatar.png")),
             ],
         };

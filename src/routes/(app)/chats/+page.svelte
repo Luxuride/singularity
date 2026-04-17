@@ -457,12 +457,12 @@
         }
 
         if (index < firstSeenIndex) {
-          newerCandidates.push(message);
+          olderCandidates.push(message);
           continue;
         }
 
         if (index > lastSeenIndex) {
-          olderCandidates.push(message);
+          newerCandidates.push(message);
         }
       }
     }
@@ -484,7 +484,7 @@
     }
 
     const appendNewer: TimelineMessage[] = [];
-    for (const message of [...newerCandidates].reverse()) {
+    for (const message of newerCandidates) {
       if (tryReplaceOptimisticWithRemote(message)) {
         if (message.eventId) {
           seenEventIds.add(message.eventId);
@@ -503,7 +503,7 @@
       return;
     }
 
-    messages = [...prependOlder.reverse(), ...messages, ...appendNewer];
+    messages = [...prependOlder, ...messages, ...appendNewer];
     if (appendNewer.length) {
       queuePinTimelineToBottom(payload.roomId);
     }

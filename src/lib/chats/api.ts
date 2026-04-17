@@ -38,7 +38,6 @@ export async function matrixGetPickerAssets(): Promise<PickerAssets> {
   return {
     customEmoji: response.customEmoji.map((emoji: MatrixPickerCustomEmoji) => ({
       ...emoji,
-      url: normalizeImageUrl(emoji.url) ?? emoji.url,
       category: emoji.category ?? undefined,
     })),
   };

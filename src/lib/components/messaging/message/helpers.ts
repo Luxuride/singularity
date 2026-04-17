@@ -14,8 +14,11 @@ export function emojiName(value: string): string {
 export function buildPickerEmojiBySourceUrl(pickerCustomEmoji: PickerCustomEmoji[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const emoji of pickerCustomEmoji) {
-    if (emoji.sourceUrl?.trim()) {
-      map.set(emoji.sourceUrl.trim(), emoji.url);
+    const sourceUrl = emoji.sourceUrl?.trim();
+    const imageUrl = emoji.url?.trim();
+
+    if (sourceUrl && imageUrl) {
+      map.set(sourceUrl, imageUrl);
     }
   }
 
@@ -31,7 +34,10 @@ export function buildEmojiByShortcodeToken(
   for (const emoji of message.customEmojis ?? []) {
     const token = shortcodeToken(emoji.shortcode);
     if (token && !map.has(token)) {
-      map.set(token, emoji.url);
+      const imageUrl = emoji.url?.trim();
+      if (imageUrl) {
+        map.set(token, imageUrl);
+      }
     }
   }
 
@@ -39,7 +45,10 @@ export function buildEmojiByShortcodeToken(
     for (const shortcode of emoji.shortcodes ?? []) {
       const token = shortcodeToken(shortcode);
       if (token && !map.has(token)) {
-        map.set(token, emoji.url);
+        const imageUrl = emoji.url?.trim();
+        if (imageUrl) {
+          map.set(token, imageUrl);
+        }
       }
     }
   }
@@ -57,7 +66,12 @@ export function customEmojiUrlForToken(
     return null;
   }
 
-  if (trimmed.startsWith("mxc://") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+  if (
+    trimmed.startsWith("mxc://") ||
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("asset://")
+  ) {
     const bySource = pickerEmojiBySourceUrl.get(trimmed);
     if (bySource) {
       return bySource;
@@ -84,12 +98,16 @@ export function reactionDisplayName(key: string, message: TimelineMessage, picke
     trimmed.startsWith("https://");
 
   if (isSourceKey) {
-    const fromMessageEmoji = (message.customEmojis ?? []).find((emoji) => emoji.url?.trim() === trimmed);
+    const fromMessageEmoji = (message.customEmojis ?? []).find(
+      (emoji) => emoji.url?.trim() === trimmed,
+    );
     if (fromMessageEmoji?.shortcode) {
       return emojiName(fromMessageEmoji.shortcode);
     }
 
-    const fromPickerEmoji = pickerCustomEmoji.find((emoji) => emoji.sourceUrl?.trim() === trimmed);
+    const fromPickerEmoji = pickerCustomEmoji.find(
+      (emoji) => emoji.sourceUrl?.trim() === trimmed,
+    );
     const pickerShortcode = fromPickerEmoji?.shortcodes?.find((entry) => entry.trim().length > 0);
     if (pickerShortcode) {
       return emojiName(pickerShortcode);

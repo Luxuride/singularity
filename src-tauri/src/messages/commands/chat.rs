@@ -69,6 +69,12 @@ pub async fn matrix_get_chat_messages(
         Err(error) => return Err(error),
     };
 
+    let response = MatrixGetChatMessagesResponse {
+        room_id: response.room_id,
+        next_from: response.next_from,
+        messages: response.messages.into_iter().rev().collect(),
+    };
+
     if cacheable_initial_request {
         store_initial_room_messages(&app_db, &response)?;
     }

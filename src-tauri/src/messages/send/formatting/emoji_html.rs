@@ -24,13 +24,13 @@ pub(super) fn build_formatted_body_from_custom_emoji(
         }
 
         for shortcode in &emoji.shortcodes {
-            let shortcode_key = shortcode.trim().trim_matches(':');
+            let shortcode_key = shortcode.trim().trim_matches(':').to_lowercase();
             if shortcode_key.is_empty() {
                 continue;
             }
 
             source_by_shortcode
-                .entry(shortcode_key.to_owned())
+                .entry(shortcode_key)
                 .or_insert_with(|| source.to_owned());
         }
     }
@@ -85,7 +85,9 @@ pub(super) fn build_formatted_body_from_custom_emoji(
             continue;
         }
 
-        let Some(source_url) = source_by_shortcode.get(shortcode) else {
+        let shortcode_key = shortcode.to_lowercase();
+
+        let Some(source_url) = source_by_shortcode.get(&shortcode_key) else {
             push_text_segments(&mut segments, &body[start..=end_idx]);
             let _ = chars.next();
             text_start = end_idx + 1;
@@ -154,5 +156,39 @@ fn push_text_segments(segments: &mut Vec<HtmlSegment>, value: &str) {
 
     if start < value.len() {
         segments.push(HtmlSegment::Text(value[start..].to_owned()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_formatted_body_from_custom_emoji;
+    use crate::messages::types::MatrixPickerCustomEmoji;
+
+    fn picker_emoji(shortcode: &str) -> MatrixPickerCustomEmoji {
+        MatrixPickerCustomEmoji {
+            name: String::from("Wave"),
+            shortcodes: vec![shortcode.to_owned()],
+            url: String::from("matrix-media://localhost/wave"),
+            source_url: String::from("mxc://media.example.org/wave"),
+            category: None,
+        }
+    }
+
+    #[test]
+    fn formats_custom_emoji_when_input_shortcode_case_differs() {
+        let html = build_formatted_body_from_custom_emoji("Hello :WAVE:", &[picker_emoji("wave")])
+            .expect("expected formatted custom emoji html");
+
+        assert!(html.contains("<img data-mx-emoticon"));
+        assert!(html.contains("src=\"mxc://media.example.org/wave\""));
+    }
+
+    #[test]
+    fn formats_custom_emoji_when_picker_shortcode_has_uppercase() {
+        let html = build_formatted_body_from_custom_emoji("Hello :wave:", &[picker_emoji("WAVE")])
+            .expect("expected formatted custom emoji html");
+
+        assert!(html.contains("<img data-mx-emoticon"));
+        assert!(html.contains("src=\"mxc://media.example.org/wave\""));
     }
 }
