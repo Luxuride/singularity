@@ -4,16 +4,6 @@ runtime-version: '49'
 sdk: org.gnome.Sdk
 command: singularity
 
-add-extensions:
-  org.freedesktop.Platform.VAAPI.Intel:
-    version: '25.08'
-    directory: lib/dri
-    add-ld-path: lib
-  org.freedesktop.Platform.VAAPI.nvidia:
-    version: '25.08'
-    directory: lib/dri
-    add-ld-path: lib
-
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
   - org.freedesktop.Sdk.Extension.node22
@@ -24,7 +14,6 @@ build-options:
     CARGO_HOME: /run/build/singularity/cargo
     CARGO_TARGET_DIR: /run/build/singularity/target
     XDG_CACHE_HOME: /run/build/singularity/.cache
-    LIBVA_DRIVERS_PATH: /usr/lib/x86_64-linux-gnu/dri:/app/lib/dri
 
 finish-args:
   - --share=network
@@ -46,22 +35,6 @@ cleanup:
   - /share/man
 
 modules:
-  - name: gst-plugins-bad-vaapi
-    buildsystem: meson
-    config-opts:
-      - --prefix=/app
-      - --libdir=/app/lib
-      - -Dauto_features=disabled
-      - -Dgpl=disabled
-      - -Dexamples=disabled
-      - -Dtests=disabled
-      - -Dintrospection=disabled
-      - -Ddoc=disabled
-      - -Dvaapi=enabled
-    sources:
-      - type: git
-        url: https://gitlab.freedesktop.org/gstreamer/gst-plugins-bad.git
-        tag: 1.26.10
   - name: singularity
     buildsystem: simple
     build-commands:

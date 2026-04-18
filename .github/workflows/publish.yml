@@ -43,7 +43,7 @@ jobs:
     uses: ./.github/workflows/build-tauri-job.yml
     with:
       platform: 'ubuntu-22.04'
-      args: ''
+      args: '--bundles deb,rpm,appimage'
       rust-targets: ''
       artifact-name: 'singularity-linux-x64'
       artifact-path: |
