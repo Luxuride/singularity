@@ -1,10 +1,9 @@
-name: 'publish'
+name: 'release'
 
 on:
   push:
-    branches:
-      - master
-      - release
+    tags:
+      - '*'
 
 jobs:
   cargo-fmt:
@@ -22,14 +21,14 @@ jobs:
     with:
       check: pnpm-check
 
-  publish-tauri:
+  release-tauri:
     needs:
       - cargo-fmt
       - cargo-clippy
       - pnpm-check
     uses: ./.github/workflows/build-tauri-job.yml
     with:
-      release: false
+      release: true
       platform: 'macos-latest'
       args: '--target aarch64-apple-darwin'
       rust-targets: 'aarch64-apple-darwin'
@@ -37,14 +36,14 @@ jobs:
       artifact-path: 'src-tauri/target/aarch64-apple-darwin/release/bundle/**'
     secrets: inherit
 
-  publish-tauri-linux:
+  release-tauri-linux:
     needs:
       - cargo-fmt
       - cargo-clippy
       - pnpm-check
     uses: ./.github/workflows/build-tauri-job.yml
     with:
-      release: false
+      release: true
       platform: 'ubuntu-22.04'
       args: ''
       rust-targets: ''
@@ -55,14 +54,14 @@ jobs:
         src-tauri/target/release/bundle/**/*.rpm
     secrets: inherit
 
-  publish-tauri-windows:
+  release-tauri-windows:
     needs:
       - cargo-fmt
       - cargo-clippy
       - pnpm-check
     uses: ./.github/workflows/build-tauri-job.yml
     with:
-      release: false
+      release: true
       platform: 'windows-latest'
       args: ''
       rust-targets: ''
