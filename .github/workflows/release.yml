@@ -1,0 +1,70 @@
+name: 'release'
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  cargo-fmt:
+    uses: ./.github/workflows/quality-checks.yml
+    with:
+      check: cargo-fmt
+
+  cargo-clippy:
+    uses: ./.github/workflows/quality-checks.yml
+    with:
+      check: cargo-clippy
+
+  pnpm-check:
+    uses: ./.github/workflows/quality-checks.yml
+    with:
+      check: pnpm-check
+
+  release-tauri:
+    needs:
+      - cargo-fmt
+      - cargo-clippy
+      - pnpm-check
+    uses: ./.github/workflows/build-tauri-job.yml
+    with:
+      release: true
+      platform: 'macos-latest'
+      args: '--target aarch64-apple-darwin'
+      rust-targets: 'aarch64-apple-darwin'
+      artifact-name: 'singularity-macos-aarch64'
+      artifact-path: 'src-tauri/target/aarch64-apple-darwin/release/bundle/**'
+    secrets: inherit
+
+  release-tauri-linux:
+    needs:
+      - cargo-fmt
+      - cargo-clippy
+      - pnpm-check
+    uses: ./.github/workflows/build-tauri-job.yml
+    with:
+      release: true
+      platform: 'ubuntu-22.04'
+      args: ''
+      rust-targets: ''
+      artifact-name: 'singularity-linux-x64'
+      artifact-path: |
+        src-tauri/target/release/bundle/**/*.deb
+        src-tauri/target/release/bundle/**/*.AppImage
+        src-tauri/target/release/bundle/**/*.rpm
+    secrets: inherit
+
+  release-tauri-windows:
+    needs:
+      - cargo-fmt
+      - cargo-clippy
+      - pnpm-check
+    uses: ./.github/workflows/build-tauri-job.yml
+    with:
+      release: true
+      platform: 'windows-latest'
+      args: ''
+      rust-targets: ''
+      artifact-name: 'singularity-windows-x64'
+      artifact-path: 'src-tauri/target/release/bundle/**'
+    secrets: inherit

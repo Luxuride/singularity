@@ -5,8 +5,6 @@ on:
     branches:
       - master
       - release
-    tags:
-      - '*'
 
 jobs:
   cargo-fmt:
@@ -29,74 +27,45 @@ jobs:
       - cargo-fmt
       - cargo-clippy
       - pnpm-check
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: 'macos-latest' # for Arm based macs (M1 and above).
-            args: '--target aarch64-apple-darwin'
-            artifact_name: 'singularity-macos-aarch64'
-            artifact_path: 'src-tauri/target/aarch64-apple-darwin/release/bundle/**'
-          - platform: 'ubuntu-22.04' # for Tauri v1 you could replace this with ubuntu-20.04.
-            args: ''
-            artifact_name: 'singularity-linux-x64'
-            artifact_path: |
-              src-tauri/target/release/bundle/**/*.deb
-              src-tauri/target/release/bundle/**/*.AppImage
-              src-tauri/target/release/bundle/**/*.rpm
-          - platform: 'windows-latest'
-            args: ''
-            artifact_name: 'singularity-windows-x64'
-            artifact_path: 'src-tauri/target/release/bundle/**'
+    uses: ./.github/workflows/build-tauri-job.yml
+    with:
+      release: false
+      platform: 'macos-latest'
+      args: '--target aarch64-apple-darwin'
+      rust-targets: 'aarch64-apple-darwin'
+      artifact-name: 'singularity-macos-aarch64'
+      artifact-path: 'src-tauri/target/aarch64-apple-darwin/release/bundle/**'
+    secrets: inherit
 
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - uses: actions/checkout@v4
+  publish-tauri-linux:
+    needs:
+      - cargo-fmt
+      - cargo-clippy
+      - pnpm-check
+    uses: ./.github/workflows/build-tauri-job.yml
+    with:
+      release: false
+      platform: 'ubuntu-22.04'
+      args: ''
+      rust-targets: ''
+      artifact-name: 'singularity-linux-x64'
+      artifact-path: |
+        src-tauri/target/release/bundle/**/*.deb
+        src-tauri/target/release/bundle/**/*.AppImage
+        src-tauri/target/release/bundle/**/*.rpm
+    secrets: inherit
 
-      - name: rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri -> target
-
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-      
-      - name: install pnpm
-        run: npm install -g pnpm
-
-      - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
-
-      - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04' # This must match the platform value defined above.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: install frontend dependencies
-        run: pnpm install # change this to npm, pnpm or bun depending on which one you use.
-
-      # On tag pushes, tauri-action will create/update the GitHub release for that tag.
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: ${{ matrix.args }}
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Singularity {0}', github.ref_name) || '' }}
-          releaseBody: ${{ startsWith(github.ref, 'refs/tags/') && format('Release for {0}', github.ref_name) || '' }}
-          releaseDraft: false
-          prerelease: ${{ startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, '-') || false }}
-
-      - name: upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_path }}
-          if-no-files-found: error
+  publish-tauri-windows:
+    needs:
+      - cargo-fmt
+      - cargo-clippy
+      - pnpm-check
+    uses: ./.github/workflows/build-tauri-job.yml
+    with:
+      release: false
+      platform: 'windows-latest'
+      args: ''
+      rust-targets: ''
+      artifact-name: 'singularity-windows-x64'
+      artifact-path: 'src-tauri/target/release/bundle/**'
+    secrets: inherit

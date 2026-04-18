@@ -1,0 +1,88 @@
+name: 'build-tauri-job'
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        required: false
+        type: boolean
+        default: false
+      platform:
+        required: true
+        type: string
+      args:
+        required: false
+        type: string
+        default: ''
+      rust-targets:
+        required: false
+        type: string
+        default: ''
+      artifact-name:
+        required: true
+        type: string
+      artifact-path:
+        required: true
+        type: string
+
+jobs:
+  build-tauri:
+    permissions:
+      contents: write
+    runs-on: ${{ inputs.platform }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+
+      - name: setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+
+      - name: install pnpm
+        run: npm install -g pnpm
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ inputs.rust-targets }}
+
+      - name: install dependencies (ubuntu only)
+        if: inputs.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: install frontend dependencies
+        run: pnpm install
+
+      - name: build and upload release assets
+        if: inputs.release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: ${{ inputs.args }}
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ format('Singularity {0}', github.ref_name) }}
+          releaseBody: ${{ format('Release for {0}', github.ref_name) }}
+          releaseDraft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+      - name: build bundles only
+        if: ${{ !inputs.release }}
+        uses: tauri-apps/tauri-action@v1
+        with:
+          args: ${{ inputs.args }}
+
+      - name: upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.artifact-path }}
+          if-no-files-found: error

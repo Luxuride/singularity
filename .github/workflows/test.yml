@@ -42,7 +42,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: rust cache
         uses: Swatinem/rust-cache@v2
@@ -51,7 +51,7 @@ jobs:
             src-tauri -> target
 
       - name: setup node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: lts/*
 
