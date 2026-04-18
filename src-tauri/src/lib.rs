@@ -32,7 +32,9 @@ pub fn run() {
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
 
-                if let Err(error) = app.deep_link().register_all() {
+                if std::env::var_os("FLATPAK_ID").is_some() {
+                    log::info!("Skipping deep-link runtime registration inside Flatpak sandbox");
+                } else if let Err(error) = app.deep_link().register_all() {
                     log::warn!("Skipping deep-link runtime registration: {error}");
                 }
             }
