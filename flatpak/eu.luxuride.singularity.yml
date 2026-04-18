@@ -1,6 +1,6 @@
 app-id: eu.luxuride.singularity
 runtime: org.gnome.Platform
-runtime-version: '48'
+runtime-version: '49'
 sdk: org.gnome.Sdk
 command: singularity
 
@@ -63,10 +63,8 @@ modules:
   - name: singularity
     buildsystem: simple
     build-commands:
-      - corepack enable
-      - corepack prepare pnpm@10.13.1 --activate
-      - pnpm install --frozen-lockfile
-      - pnpm run build
+      - npx --yes pnpm@10.13.1 install --frozen-lockfile
+      - npx --yes pnpm@10.13.1 run build
       - cargo build --manifest-path src-tauri/Cargo.toml --release --locked
       - install -Dm755 src-tauri/target/release/singularity /app/bin/singularity
       - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/eu.luxuride.singularity.png
