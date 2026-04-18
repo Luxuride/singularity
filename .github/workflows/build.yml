@@ -1,9 +1,9 @@
-name: 'release'
+name: 'build'
 
 on:
   push:
-    tags:
-      - '*'
+    branches:
+      - master
 
 jobs:
   cargo-fmt:
@@ -21,7 +21,7 @@ jobs:
     with:
       check: pnpm-check
 
-  release-tauri:
+  build-tauri-macos:
     needs:
       - cargo-fmt
       - cargo-clippy
@@ -35,7 +35,7 @@ jobs:
       artifact-path: 'src-tauri/target/aarch64-apple-darwin/release/bundle/**'
     secrets: inherit
 
-  release-tauri-linux:
+  build-tauri-linux:
     needs:
       - cargo-fmt
       - cargo-clippy
@@ -52,7 +52,7 @@ jobs:
         src-tauri/target/release/bundle/**/*.rpm
     secrets: inherit
 
-  release-tauri-windows:
+  build-tauri-windows:
     needs:
       - cargo-fmt
       - cargo-clippy
@@ -66,7 +66,7 @@ jobs:
       artifact-path: 'src-tauri/target/release/bundle/**'
     secrets: inherit
 
-  release-flatpak:
+  build-flatpak:
     needs:
       - cargo-fmt
       - cargo-clippy
@@ -78,29 +78,27 @@ jobs:
       artifact-name: 'singularity-linux-flatpak'
     secrets: inherit
 
-  create-release:
+  package-artifacts:
     needs:
-      - release-tauri
-      - release-tauri-linux
-      - release-tauri-windows
-      - release-flatpak
+      - build-tauri-macos
+      - build-tauri-linux
+      - build-tauri-windows
+      - build-flatpak
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
     steps:
-      - name: download artifacts
+      - name: download build artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: 'singularity-*'
           merge-multiple: true
-          path: 'release-assets'
+          path: 'build-assets'
 
-      - name: publish github release
-        uses: softprops/action-gh-release@v2
+      - name: package build bundle
+        run: tar -czf singularity-build-assets.tar.gz -C build-assets .
+
+      - name: upload build bundle
+        uses: actions/upload-artifact@v7
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ format('Singularity {0}', github.ref_name) }}
-          body: ${{ format('Release for {0}', github.ref_name) }}
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          files: release-assets/**
+          name: 'singularity-build-assets'
+          path: 'singularity-build-assets.tar.gz'
+          if-no-files-found: error

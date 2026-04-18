@@ -2,8 +2,8 @@ name: 'publish'
 
 on:
   push:
-    branches:
-      - master
+    tags:
+      - '*'
 
 jobs:
   cargo-fmt:
@@ -21,7 +21,7 @@ jobs:
     with:
       check: pnpm-check
 
-  publish-tauri:
+  publish-tauri-macos:
     needs:
       - cargo-fmt
       - cargo-clippy
@@ -77,3 +77,30 @@ jobs:
       bundle-name: 'singularity-linux-flatpak.flatpak'
       artifact-name: 'singularity-linux-flatpak'
     secrets: inherit
+
+  publish:
+    needs:
+      - publish-tauri-macos
+      - publish-tauri-linux
+      - publish-tauri-windows
+      - publish-flatpak
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: 'singularity-*'
+          merge-multiple: true
+          path: 'release-assets'
+
+      - name: publish github release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ format('Singularity {0}', github.ref_name) }}
+          body: ${{ format('Release for {0}', github.ref_name) }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: release-assets/**
