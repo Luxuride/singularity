@@ -73,7 +73,7 @@ jobs:
       - pnpm-check
     uses: ./.github/workflows/build-flatpak-job.yml
     with:
-      manifest-path: 'flatpak/io.github.singularity.Singularity.yml'
+      manifest-path: 'flatpak/eu.luxuride.singularity.yml'
       bundle-name: 'singularity-linux-flatpak.flatpak'
       artifact-name: 'singularity-linux-flatpak'
     secrets: inherit

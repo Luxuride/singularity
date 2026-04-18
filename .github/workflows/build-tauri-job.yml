@@ -56,7 +56,7 @@ jobs:
         run: pnpm install
 
       - name: build bundles
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         with:
           args: ${{ inputs.args }}
 

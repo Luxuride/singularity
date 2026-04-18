@@ -6,7 +6,7 @@ on:
       manifest-path:
         required: false
         type: string
-        default: 'flatpak/io.github.singularity.Singularity.yml'
+        default: 'flatpak/eu.luxuride.singularity.yml'
       bundle-name:
         required: false
         type: string
