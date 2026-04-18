@@ -88,6 +88,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
       - name: download macos artifact
         uses: actions/download-artifact@v8
         with:
