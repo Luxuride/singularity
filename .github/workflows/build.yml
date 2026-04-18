@@ -78,27 +78,3 @@ jobs:
       artifact-name: 'singularity-linux-flatpak'
     secrets: inherit
 
-  package-artifacts:
-    needs:
-      - build-tauri-macos
-      - build-tauri-linux
-      - build-tauri-windows
-      - build-flatpak
-    runs-on: ubuntu-22.04
-    steps:
-      - name: download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: 'singularity-*'
-          merge-multiple: true
-          path: 'build-assets'
-
-      - name: package build bundle
-        run: tar -czf singularity-build-assets.tar.gz -C build-assets .
-
-      - name: upload build bundle
-        uses: actions/upload-artifact@v7
-        with:
-          name: 'singularity-build-assets'
-          path: 'singularity-build-assets.tar.gz'
-          if-no-files-found: error
