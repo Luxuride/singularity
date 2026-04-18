@@ -2,7 +2,7 @@
 Name=Singularity
 Comment=Singularity Matrix Client
 Exec=singularity
-Icon=io.github.singularity.Singularity
+Icon=eu.luxuride.singularity
 Terminal=false
 Type=Application
 Categories=Network;Chat;InstantMessaging;

@@ -1,4 +1,4 @@
-app-id: io.github.singularity.Singularity
+app-id: eu.luxuride.singularity
 runtime: org.gnome.Platform
 runtime-version: '47'
 sdk: org.gnome.Sdk
@@ -69,9 +69,9 @@ modules:
       - pnpm run build
       - cargo build --manifest-path src-tauri/Cargo.toml --release --locked
       - install -Dm755 src-tauri/target/release/singularity /app/bin/singularity
-      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.singularity.Singularity.png
-      - install -Dm644 flatpak/io.github.singularity.Singularity.desktop /app/share/applications/io.github.singularity.Singularity.desktop
-      - install -Dm644 flatpak/io.github.singularity.Singularity.metainfo.xml /app/share/metainfo/io.github.singularity.Singularity.metainfo.xml
+      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/eu.luxuride.singularity.png
+      - install -Dm644 flatpak/eu.luxuride.singularity.desktop /app/share/applications/eu.luxuride.singularity.desktop
+      - install -Dm644 flatpak/eu.luxuride.singularity.metainfo.xml /app/share/metainfo/eu.luxuride.singularity.metainfo.xml
     sources:
       - type: dir
         path: ..
