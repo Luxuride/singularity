@@ -5,6 +5,8 @@ on:
     branches:
       - master
       - release
+    tags:
+      - '*'
 
 jobs:
   cargo-fmt:
@@ -80,10 +82,17 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install # change this to npm, pnpm or bun depending on which one you use.
 
-      # Omitting tag/release fields makes tauri-action build only.
+      # On tag pushes, tauri-action will create/update the GitHub release for that tag.
       - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: ${{ matrix.args }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Singularity {0}', github.ref_name) || '' }}
+          releaseBody: ${{ startsWith(github.ref, 'refs/tags/') && format('Release for {0}', github.ref_name) || '' }}
+          releaseDraft: false
+          prerelease: ${{ startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, '-') || false }}
 
       - name: upload build artifacts
         uses: actions/upload-artifact@v4
