@@ -13,16 +13,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: install Rust stable
+        if: inputs.check == 'cargo-fmt' || inputs.check == 'cargo-clippy'
+        uses: dtolnay/rust-toolchain@stable
+
       - name: rust cache
         if: inputs.check == 'cargo-fmt' || inputs.check == 'cargo-clippy'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             src-tauri -> target
-
-      - name: install Rust stable
-        if: inputs.check == 'cargo-fmt' || inputs.check == 'cargo-clippy'
-        uses: dtolnay/rust-toolchain@stable
 
       - name: install tauri dependencies
         if: inputs.check == 'cargo-fmt' || inputs.check == 'cargo-clippy'

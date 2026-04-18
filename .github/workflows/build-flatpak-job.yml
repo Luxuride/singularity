@@ -41,16 +41,16 @@ jobs:
         with:
           node-version: lts/*
 
+      - name: install Rust stable
+        if: steps.manifest.outputs.exists == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
       - name: rust cache
         if: steps.manifest.outputs.exists == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             src-tauri -> target
-
-      - name: install Rust stable
-        if: steps.manifest.outputs.exists == 'true'
-        uses: dtolnay/rust-toolchain@stable
 
       - name: install pnpm
         if: steps.manifest.outputs.exists == 'true'
