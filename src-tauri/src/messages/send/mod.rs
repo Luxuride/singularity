@@ -642,21 +642,21 @@ fn temp_output_path(path: &Path, extension: &str) -> PathBuf {
 }
 
 fn detect_video_transcode_plan() -> VideoTranscodePlan {
-    if gst_element_available("vaapivp9enc") {
+    if gst_element_available("vavp9enc") {
         return VideoTranscodePlan {
             mode: VideoTranscodeMode::Vaapi,
             codec: VideoCodec::Vp9,
         };
     }
 
-    if gst_element_available("vaapivp8enc") {
+    if gst_element_available("vavp8enc") {
         return VideoTranscodePlan {
             mode: VideoTranscodeMode::Vaapi,
             codec: VideoCodec::Vp8,
         };
     }
 
-    if gst_element_available("vaapih264enc") {
+    if gst_element_available("vah264enc") {
         return VideoTranscodePlan {
             mode: VideoTranscodeMode::Vaapi,
             codec: VideoCodec::H264,
@@ -731,17 +731,17 @@ fn build_video_transcode_pipeline(
 
     match plan.mode {
         VideoTranscodeMode::Vaapi => {
-            if gst_element_available("vaapipostproc") {
-                pipeline.push(String::from("vaapipostproc"));
+            if gst_element_available("vapostproc") {
+                pipeline.push(String::from("vapostproc"));
                 pipeline.push(String::from("!"));
             } else {
                 pipeline.push(String::from("videoconvert"));
                 pipeline.push(String::from("!"));
             }
             match plan.codec {
-                VideoCodec::Vp9 => pipeline.push(String::from("vaapivp9enc")),
-                VideoCodec::Vp8 => pipeline.push(String::from("vaapivp8enc")),
-                VideoCodec::H264 => pipeline.push(String::from("vaapih264enc")),
+                VideoCodec::Vp9 => pipeline.push(String::from("vavp9enc")),
+                VideoCodec::Vp8 => pipeline.push(String::from("vavp8enc")),
+                VideoCodec::H264 => pipeline.push(String::from("vah264enc")),
             }
         }
         VideoTranscodeMode::Cuda => {
@@ -826,8 +826,8 @@ fn build_image_transcode_pipeline(
 
     match mode {
         VideoTranscodeMode::Vaapi => {
-            if gst_element_available("vaapidecodebin") {
-                pipeline.push(String::from("vaapidecodebin"));
+            if gst_element_available("vadecodebin") {
+                pipeline.push(String::from("vadecodebin"));
             } else {
                 pipeline.push(String::from("decodebin"));
             }
