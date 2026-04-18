@@ -45,6 +45,10 @@ jobs:
         working-directory: src-tauri
         run: rustup component add clippy
 
+      - name: create build directory
+        if: inputs.check == 'cargo-clippy'
+        run: mkdir -p build
+
       - name: run clippy linter
         if: inputs.check == 'cargo-clippy'
         working-directory: src-tauri
