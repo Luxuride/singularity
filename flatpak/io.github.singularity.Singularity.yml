@@ -1,0 +1,77 @@
+app-id: io.github.singularity.Singularity
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+command: singularity
+
+add-extensions:
+  org.freedesktop.Platform.GStreamer:
+    version: '24.08'
+    directory: lib/gstreamer-1.0
+    subdirectories: true
+    no-autodownload: true
+    add-ld-path: .
+  org.freedesktop.Platform.GStreamer.gstreamer-plugins-base:
+    version: '24.08'
+    directory: lib/gstreamer-1.0
+    no-autodownload: false
+    add-ld-path: .
+  org.freedesktop.Platform.GStreamer.gstreamer-plugins-good:
+    version: '24.08'
+    directory: lib/gstreamer-1.0
+    no-autodownload: false
+    add-ld-path: .
+  org.freedesktop.Platform.GStreamer.gstreamer-plugins-bad:
+    version: '24.08'
+    directory: lib/gstreamer-1.0
+    no-autodownload: false
+    add-ld-path: .
+  org.freedesktop.Platform.GStreamer.gstreamer-plugins-ugly:
+    version: '24.08'
+    directory: lib/gstreamer-1.0
+    no-autodownload: false
+    add-ld-path: .
+
+cleanup-commands:
+  - mkdir -p ${FLATPAK_DEST}/lib/gstreamer-1.0
+
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.node22
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node22/bin
+  env:
+    CARGO_HOME: /run/build/singularity/cargo
+    CARGO_TARGET_DIR: /run/build/singularity/target
+    XDG_CACHE_HOME: /run/build/singularity/.cache
+
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+
+modules:
+  - name: singularity
+    buildsystem: simple
+    build-commands:
+      - corepack enable
+      - corepack prepare pnpm@10.13.1 --activate
+      - pnpm install --frozen-lockfile
+      - pnpm run build
+      - cargo build --manifest-path src-tauri/Cargo.toml --release --locked
+      - install -Dm755 src-tauri/target/release/singularity /app/bin/singularity
+      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.singularity.Singularity.png
+      - install -Dm644 flatpak/io.github.singularity.Singularity.desktop /app/share/applications/io.github.singularity.Singularity.desktop
+      - install -Dm644 flatpak/io.github.singularity.Singularity.metainfo.xml /app/share/metainfo/io.github.singularity.Singularity.metainfo.xml
+    sources:
+      - type: dir
+        path: ..
