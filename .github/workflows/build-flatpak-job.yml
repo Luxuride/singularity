@@ -66,6 +66,28 @@ jobs:
           mkdir -p .cargo
           cargo vendor --manifest-path src-tauri/Cargo.toml --locked vendor > .cargo/config.toml
 
+      - name: patch matrix-sdk via local source override
+        if: steps.manifest.outputs.exists == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p vendor-patches
+          rm -rf vendor-patches/matrix-sdk
+          cp -a vendor/matrix-sdk vendor-patches/matrix-sdk
+          MATRIX_SDK_LIB="vendor-patches/matrix-sdk/src/lib.rs"
+          if test -f "$MATRIX_SDK_LIB"; then
+            if ! grep -q '^#!\[recursion_limit = "256"\]' "$MATRIX_SDK_LIB"; then
+              sed -i '1i #![recursion_limit = "256"]' "$MATRIX_SDK_LIB"
+            fi
+          else
+            echo "Expected vendored matrix-sdk at $MATRIX_SDK_LIB but it was not found."
+            exit 1
+          fi
+
+          printf '\n[patch.crates-io]\n' >> .cargo/config.toml
+          printf 'matrix-sdk = { path = "vendor-patches/matrix-sdk" }\n' >> .cargo/config.toml
+
+          cargo update -p matrix-sdk --manifest-path src-tauri/Cargo.toml --offline
+
       - name: build flatpak bundle
         if: steps.manifest.outputs.exists == 'true'
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
