@@ -27,6 +27,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ inputs.rust-targets }}
+
       - name: rust cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -40,11 +45,6 @@ jobs:
 
       - name: install pnpm
         run: npm install -g pnpm
-
-      - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ inputs.rust-targets }}
 
       - name: install dependencies (ubuntu only)
         if: inputs.platform == 'ubuntu-22.04'
