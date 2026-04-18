@@ -65,7 +65,7 @@ modules:
   - name: singularity
     buildsystem: simple
     build-commands:
-      - npm run tauri build --no-bundle --config flatpak/tauri.flatpak.conf.json -- --locked --offline
+      - npm run tauri -- build --no-bundle --config flatpak/tauri.flatpak.conf.json -- --locked --offline
       - install -Dm755 target/release/singularity /app/bin/singularity
       - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/eu.luxuride.singularity.png
       - install -Dm644 flatpak/eu.luxuride.singularity.desktop /app/share/applications/eu.luxuride.singularity.desktop
