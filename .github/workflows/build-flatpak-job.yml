@@ -19,6 +19,9 @@ on:
 jobs:
   build-flatpak:
     runs-on: ubuntu-22.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
+      options: --privileged
     steps:
       - uses: actions/checkout@v6
 
@@ -38,6 +41,7 @@ jobs:
         with:
           bundle: ${{ inputs.bundle-name }}
           manifest-path: ${{ inputs.manifest-path }}
+          cache-key: flatpak-builder-${{ github.sha }}
 
       - name: upload flatpak artifact
         if: steps.manifest.outputs.exists == 'true'
