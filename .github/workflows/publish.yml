@@ -78,7 +78,7 @@ jobs:
       artifact-name: 'singularity-linux-flatpak'
     secrets: inherit
 
-  publish:
+  publish-release:
     needs:
       - publish-tauri-macos
       - publish-tauri-linux
@@ -88,19 +88,40 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: download artifacts
-        uses: actions/download-artifact@v4
+      - name: download macos artifact
+        uses: actions/download-artifact@v8
         with:
-          pattern: 'singularity-*'
-          merge-multiple: true
-          path: 'release-assets'
+          name: 'singularity-macos-aarch64'
+          path: 'release-assets/macos-aarch64'
+
+      - name: download linux artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: 'singularity-linux-x64'
+          path: 'release-assets/linux-x64'
+
+      - name: download windows artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: 'singularity-windows-x64'
+          path: 'release-assets/windows-x64'
+
+      - name: download flatpak artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: 'singularity-linux-flatpak'
+          path: 'release-assets/linux-flatpak'
+
+      - name: package release assets by package type
+        run: bash scripts/package-release-assets.sh "${{ github.ref_name }}"
 
       - name: publish github release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ format('Singularity {0}', github.ref_name) }}
           body: ${{ format('Release for {0}', github.ref_name) }}
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          files: release-assets/**
+          files: release-packages/*
+          overwrite_files: true
