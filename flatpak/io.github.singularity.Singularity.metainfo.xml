@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.singularity.Singularity</id>
+  <name>Singularity</name>
+  <summary>Matrix desktop client</summary>
+  <description>
+    <p>Singularity is a desktop Matrix client built with Tauri and Svelte.</p>
+  </description>
+  <launchable type="desktop-id">io.github.singularity.Singularity.desktop</launchable>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <developer_name>Singularity Contributors</developer_name>
+</component>

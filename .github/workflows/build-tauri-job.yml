@@ -3,10 +3,6 @@ name: 'build-tauri-job'
 on:
   workflow_call:
     inputs:
-      release:
-        required: false
-        type: boolean
-        default: false
       platform:
         required: true
         type: string
@@ -27,8 +23,6 @@ on:
 
 jobs:
   build-tauri:
-    permissions:
-      contents: write
     runs-on: ${{ inputs.platform }}
     steps:
       - uses: actions/checkout@v6
@@ -61,21 +55,7 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install
 
-      - name: build and upload release assets
-        if: inputs.release
-        uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: ${{ inputs.args }}
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ format('Singularity {0}', github.ref_name) }}
-          releaseBody: ${{ format('Release for {0}', github.ref_name) }}
-          releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-
-      - name: build bundles only
-        if: ${{ !inputs.release }}
+      - name: build bundles
         uses: tauri-apps/tauri-action@v1
         with:
           args: ${{ inputs.args }}

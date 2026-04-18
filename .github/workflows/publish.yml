@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - master
-      - release
 
 jobs:
   cargo-fmt:
@@ -29,7 +28,6 @@ jobs:
       - pnpm-check
     uses: ./.github/workflows/build-tauri-job.yml
     with:
-      release: false
       platform: 'macos-latest'
       args: '--target aarch64-apple-darwin'
       rust-targets: 'aarch64-apple-darwin'
@@ -44,7 +42,6 @@ jobs:
       - pnpm-check
     uses: ./.github/workflows/build-tauri-job.yml
     with:
-      release: false
       platform: 'ubuntu-22.04'
       args: ''
       rust-targets: ''
@@ -62,10 +59,21 @@ jobs:
       - pnpm-check
     uses: ./.github/workflows/build-tauri-job.yml
     with:
-      release: false
       platform: 'windows-latest'
       args: ''
       rust-targets: ''
       artifact-name: 'singularity-windows-x64'
       artifact-path: 'src-tauri/target/release/bundle/**'
+    secrets: inherit
+
+  publish-flatpak:
+    needs:
+      - cargo-fmt
+      - cargo-clippy
+      - pnpm-check
+    uses: ./.github/workflows/build-flatpak-job.yml
+    with:
+      manifest-path: 'flatpak/io.github.singularity.Singularity.yml'
+      bundle-name: 'singularity-linux-flatpak.flatpak'
+      artifact-name: 'singularity-linux-flatpak'
     secrets: inherit
