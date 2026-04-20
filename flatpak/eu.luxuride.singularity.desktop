@@ -1,9 +1,10 @@
 [Desktop Entry]
 Name=Singularity
 Comment=Singularity Matrix Client
-Exec=singularity
+Exec=singularity %U
 Icon=eu.luxuride.singularity
 Terminal=false
 Type=Application
 Categories=Network;Chat;InstantMessaging;
 StartupNotify=true
+MimeType=x-scheme-handler/singularity;
