@@ -11,8 +11,8 @@ sdk-extensions:
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node22/bin
   env:
-    CARGO_HOME: /run/build/singularity/cargo
-    CARGO_TARGET_DIR: /run/build/singularity/target
+    CARGO_HOME: /run/ccache/cargo
+    CARGO_TARGET_DIR: /run/ccache/target
     XDG_CACHE_HOME: /run/build/singularity/.cache
 
 finish-args:

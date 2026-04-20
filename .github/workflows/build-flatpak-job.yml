@@ -45,13 +45,6 @@ jobs:
         if: steps.manifest.outputs.exists == 'true'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: rust cache
-        if: steps.manifest.outputs.exists == 'true'
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri -> target
-
       - name: install pnpm
         if: steps.manifest.outputs.exists == 'true'
         run: npm install -g pnpm
@@ -94,7 +87,8 @@ jobs:
         with:
           bundle: ${{ inputs.bundle-name }}
           manifest-path: ${{ inputs.manifest-path }}
-          cache-key: flatpak-builder-${{ github.sha }}
+          cache: true
+          cache-key: flatpak-builder-${{ hashFiles('src-tauri/Cargo.lock') }}
 
       - name: upload flatpak artifact
         if: steps.manifest.outputs.exists == 'true'
