@@ -1,5 +1,5 @@
-mod join;
 mod image;
+mod join;
 mod navigation;
 mod updates;
 
@@ -10,8 +10,8 @@ use crate::db::AppDb;
 
 use super::types::{
     MatrixGetChatNavigationRequest, MatrixGetChatNavigationResponse, MatrixGetChatsResponse,
-    MatrixGetRoomImageRequest, MatrixGetRoomImageResponse, MatrixSetRootSpaceOrderRequest,
-    MatrixSetRootSpaceOrderResponse, MatrixJoinRoomRequest, MatrixJoinRoomResponse,
+    MatrixGetRoomImageRequest, MatrixGetRoomImageResponse, MatrixJoinRoomRequest,
+    MatrixJoinRoomResponse, MatrixSetRootSpaceOrderRequest, MatrixSetRootSpaceOrderResponse,
 };
 use super::{
     MatrixTriggerRoomUpdateRequest, MatrixTriggerRoomUpdateResponse, RoomUpdateTriggerState,

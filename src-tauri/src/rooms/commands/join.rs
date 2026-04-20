@@ -1,5 +1,5 @@
-use std::convert::TryFrom;
 use matrix_sdk::ruma::{OwnedServerName, RoomOrAliasId};
+use std::convert::TryFrom;
 use tauri::{AppHandle, State};
 
 use crate::auth::AuthState;
@@ -19,7 +19,11 @@ pub async fn join_room(
         .server_names
         .unwrap_or_default()
         .iter()
-        .filter_map(|s| <&matrix_sdk::ruma::ServerName>::try_from(s.as_str()).ok().map(|name| name.to_owned()))
+        .filter_map(|s| {
+            <&matrix_sdk::ruma::ServerName>::try_from(s.as_str())
+                .ok()
+                .map(|name| name.to_owned())
+        })
         .collect();
 
     let response = client
