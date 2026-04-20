@@ -3,6 +3,7 @@
   import { page } from "$app/state";
   import { onMount } from "svelte";
   import { get } from "svelte/store";
+  import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 
   import { matrixLogout, matrixRecoveryStatus, matrixSessionStatus } from "$lib/auth/api";
   import {
@@ -11,6 +12,7 @@
     matrixGetPickerAssets,
     matrixSetRootSpaceOrder,
     matrixTriggerRoomUpdate,
+    matrixJoinRoom,
   } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
   import {
@@ -40,6 +42,7 @@
 
   onMount(() => {
     let unlisten = () => {};
+    let unlistenDeepLink = () => {};
 
     void (async () => {
       unlisten = await subscribeToRoomUpdates({
@@ -50,6 +53,17 @@
         onChatMessagesStream: () => {},
       });
 
+      try {
+        const currentUrls = await getCurrent();
+        void handleDeepLinks(currentUrls);
+
+        unlistenDeepLink = await onOpenUrl((urls) => {
+          void handleDeepLinks(urls);
+        });
+      } catch (error) {
+        console.error("Failed to initialize deep-link listener", error);
+      }
+
       await loadShell();
       await requestRefresh();
       checkingAuth = false;
@@ -57,8 +71,39 @@
 
     return () => {
       unlisten();
+      unlistenDeepLink();
     };
   });
+
+  async function handleDeepLinks(urls: string[] | null) {
+    if (!urls) return;
+
+    for (const urlString of urls) {
+      try {
+        const parsed = new URL(urlString);
+        
+        if (parsed.protocol === "singularity:") {
+          // singularity://join/#example:matrix.org
+          if (parsed.hostname === "join" || parsed.hostname === "room" || parsed.hostname === "space") {
+            const targetOrAlias = parsed.hash.length > 0 ? parsed.hash : parsed.pathname.slice(1);
+            if (!targetOrAlias) continue;
+            
+            // Support `?via=example.com&via=another.com`
+            const serverNames = parsed.searchParams.getAll("via");
+            
+            try {
+              const res = await matrixJoinRoom(targetOrAlias, serverNames);
+              await syncRoute("", res.roomId);
+            } catch (error) {
+              shellErrorMessage.set(error instanceof Error ? error.message : `Failed to join from link: ${targetOrAlias}`);
+            }
+          }
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
 
   function applyRoomUpsert(chat: MatrixChatSummary) {
     shellChats.update((currentChats) => {

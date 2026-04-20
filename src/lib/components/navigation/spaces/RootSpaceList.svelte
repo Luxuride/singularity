@@ -5,6 +5,7 @@
   import { isVirtualRoomId, roomImageCache } from "../shared";
   import FixedRootSpaceItem from "./FixedRootSpaceItem.svelte";
   import SortableRootSpaceItem from "./SortableRootSpaceItem.svelte";
+  import JoinRoomDialog from "./JoinRoomDialog.svelte";
 
   interface Props {
     spaces: MatrixChatSummary[];
@@ -24,6 +25,7 @@
   let draggableItems = $state<RootSpaceDndItem[]>([]);
   let lastPersistedOrder = $state<string[]>([]);
   let lazyImageUrlsByRoomId = $state<Record<string, string | null>>({});
+  let joinRoomDialogOpen = $state(false);
 
   $effect(() => {
     const nextSpaces = spaces.filter((space) => !isVirtualRoomId(space.roomId));
@@ -162,6 +164,20 @@
           {/if}
         {/each}
       </ul>
+      
+      <button
+        class="mt-2 mx-[1px] flex h-12 w-[calc(100%-2px)] items-center justify-center rounded border border-dashed border-surface-400-600 text-surface-500 transition-colors hover:bg-surface-200-800 hover:text-surface-900-50"
+        title="Join room or space"
+        onclick={() => (joinRoomDialogOpen = true)}
+        aria-label="Join Room"
+      >
+        <span class="text-xl">+</span>
+      </button>
     {/if}
   </div>
 </aside>
+
+<JoinRoomDialog
+  open={joinRoomDialogOpen}
+  onClose={() => (joinRoomDialogOpen = false)}
+/>
