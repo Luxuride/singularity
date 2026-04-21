@@ -68,3 +68,16 @@ pub struct MatrixSetRootSpaceOrderRequest {
 pub struct MatrixSetRootSpaceOrderResponse {
     pub root_space_ids: Vec<String>,
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixJoinRoomRequest {
+    pub room_id_or_alias: String,
+    pub server_names: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixJoinRoomResponse {
+    pub room_id: String,
+}

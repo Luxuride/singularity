@@ -242,3 +242,11 @@ export async function matrixConfirmSasVerification(
     flowId,
   });
 }
+
+export async function matrixJoinRoom(
+  roomIdOrAlias: string,
+  serverNames?: string[],
+): Promise<{ roomId: string }> {
+  return await invokeMatrixCommand<{ roomId: string }>("matrix_join_room", { request: { roomIdOrAlias, serverNames }});
+}
+
