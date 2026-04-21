@@ -161,7 +161,7 @@ fn dedupe_preserve_order(values: Vec<String>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_join_link_input;
+    use super::{merge_server_name_candidates, parse_join_link_input};
 
     #[test]
     fn parses_matrix_to_fragment_via_values() {
@@ -189,5 +189,37 @@ mod tests {
 
         assert_eq!(target, "#room:matrix.org");
         assert_eq!(via, vec!["matrix.org"]);
+    }
+
+    #[test]
+    fn parses_multiple_via_from_query_and_fragment_query() {
+        let (target, via) = parse_join_link_input(
+            "https://matrix.to/#/%23room:matrix.org?via=matrix-a.org&via=matrix-b.org&via=matrix-c.org",
+        );
+
+        assert_eq!(target, "#room:matrix.org");
+        assert_eq!(via, vec!["matrix-a.org", "matrix-b.org", "matrix-c.org"]);
+    }
+
+    #[test]
+    fn merges_explicit_and_parsed_via_values() {
+        let merged = merge_server_name_candidates(
+            Some(vec!["client-a.org".to_owned(), "client-b.org".to_owned()]),
+            vec![
+                "matrix-a.org".to_owned(),
+                "client-b.org".to_owned(),
+                "matrix-c.org".to_owned(),
+            ],
+        );
+
+        assert_eq!(
+            merged,
+            vec![
+                "client-a.org",
+                "client-b.org",
+                "matrix-a.org",
+                "matrix-c.org",
+            ]
+        );
     }
 }
