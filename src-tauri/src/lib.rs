@@ -32,9 +32,7 @@ pub fn run() {
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
 
-                if std::env::var_os("FLATPAK_ID").is_some() {
-                    log::info!("Skipping deep-link runtime registration inside Flatpak sandbox");
-                } else if let Err(error) = app.deep_link().register_all() {
+                if let Err(error) = app.deep_link().register_all() {
                     log::warn!("Skipping deep-link runtime registration: {error}");
                 }
             }
@@ -69,6 +67,7 @@ pub fn run() {
             rooms::commands::matrix_get_chats,
             rooms::commands::matrix_get_room_image,
             rooms::commands::matrix_get_chat_navigation,
+            rooms::commands::matrix_join_room,
             rooms::commands::matrix_set_root_space_order,
             rooms::commands::matrix_trigger_room_update,
             messages::commands::chat::matrix_get_chat_messages,
