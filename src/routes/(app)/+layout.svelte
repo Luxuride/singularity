@@ -8,11 +8,11 @@
   import { matrixLogout, matrixRecoveryStatus, matrixSessionStatus } from "$lib/auth/api";
   import {
     matrixGetChatNavigation,
+    matrixGetSpaceBrowse,
     matrixGetChats,
     matrixGetPickerAssets,
     matrixSetRootSpaceOrder,
     matrixTriggerRoomUpdate,
-    matrixJoinRoom,
   } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
   import {
@@ -24,21 +24,31 @@
     shellRefreshing,
     shellPickerCustomEmoji,
     shellRootScopedRooms,
+    shellRootBrowseRooms,
     shellRootSpaces,
     shellSelectedRootSpaceId,
     shellSelectedRoomId,
   } from "$lib/chats/shell";
   import type {
+    MatrixJoinBatchResult,
+    MatrixJoinTargetPreview,
     MatrixChatSummary,
     MatrixRoomRemovedEvent,
     MatrixSelectedRoomMessagesEvent,
   } from "$lib/chats/types";
   import { AppHeader, RootSpaceList, RoomList } from "$lib/components/navigation";
+  import JoinRoomDialog from "$lib/components/navigation/spaces/JoinRoomDialog.svelte";
 
   let { children } = $props();
 
   let checkingAuth = $state(true);
   let loggingOut = $state(false);
+  let deepLinkJoinDialogOpen = $state(false);
+  let deepLinkJoinTargets = $state<MatrixJoinTargetPreview[]>([]);
+  let deepLinkJoinTitle = $state("Confirm link join");
+  let deepLinkJoinQueue = $state<
+    { title: string; targets: MatrixJoinTargetPreview[] }[]
+  >([]);
 
   onMount(() => {
     let unlisten = () => {};
@@ -87,22 +97,70 @@
           if (parsed.hostname === "join" || parsed.hostname === "room" || parsed.hostname === "space") {
             const targetOrAlias = parsed.hash.length > 0 ? parsed.hash : parsed.pathname.slice(1);
             if (!targetOrAlias) continue;
-            
-            // Support `?via=example.com&via=another.com`
+
             const serverNames = parsed.searchParams.getAll("via");
-            
-            try {
-              const res = await matrixJoinRoom(targetOrAlias, serverNames);
-              await syncRoute("", res.roomId);
-            } catch (error) {
-              shellErrorMessage.set(error instanceof Error ? error.message : `Failed to join from link: ${targetOrAlias}`);
-            }
+            const joinKind = parsed.hostname === "space" ? "space" : "room";
+
+            enqueueDeepLinkJoin({
+              title: `Confirm link join: ${targetOrAlias}`,
+              targets: [{
+                roomIdOrAlias: targetOrAlias,
+                displayName: targetOrAlias,
+                kind: joinKind,
+                serverNames,
+              }],
+            });
           }
         }
       } catch {
         continue;
       }
     }
+
+    openNextDeepLinkJoin();
+  }
+
+  function enqueueDeepLinkJoin(item: {
+    title: string;
+    targets: MatrixJoinTargetPreview[];
+  }) {
+    deepLinkJoinQueue = [...deepLinkJoinQueue, item];
+  }
+
+  function openNextDeepLinkJoin() {
+    if (deepLinkJoinDialogOpen || deepLinkJoinQueue.length === 0) {
+      return;
+    }
+
+    const [next, ...remaining] = deepLinkJoinQueue;
+    deepLinkJoinQueue = remaining;
+    deepLinkJoinTitle = next.title;
+    deepLinkJoinTargets = next.targets;
+    deepLinkJoinDialogOpen = true;
+  }
+
+  function closeDeepLinkJoinDialog() {
+    deepLinkJoinDialogOpen = false;
+    deepLinkJoinTargets = [];
+    openNextDeepLinkJoin();
+  }
+
+  async function handleDeepLinkJoinConfirmed(result: MatrixJoinBatchResult) {
+    const plannedTargets = deepLinkJoinTargets;
+    const shouldFocusRoom = plannedTargets.some((target) => target.kind === "room");
+
+    closeDeepLinkJoinDialog();
+
+    await matrixTriggerRoomUpdate();
+
+    if (shouldFocusRoom) {
+      const joinedRoomId = result.joinedRoomIds.at(-1) ?? "";
+      if (joinedRoomId) {
+        shellSelectedRoomId.set(joinedRoomId);
+      }
+    }
+
+    await refreshChatNavigationAndRoute();
   }
 
   function applyRoomUpsert(chat: MatrixChatSummary) {
@@ -241,6 +299,30 @@
     shellRootScopedRooms.set(response.rootScopedRooms);
     shellSelectedRootSpaceId.set(nextRootSpaceId);
 
+    if (!nextRootSpaceId) {
+      shellRootBrowseRooms.set([]);
+      return nextRootSpaceId;
+    }
+
+    if (nextRootSpaceId.startsWith("virtual:")) {
+      shellRootBrowseRooms.set(response.rootScopedRooms);
+      return nextRootSpaceId;
+    }
+
+    try {
+      const browse = await matrixGetSpaceBrowse(nextRootSpaceId);
+      if (get(shellSelectedRootSpaceId) !== nextRootSpaceId) {
+        return nextRootSpaceId;
+      }
+      shellRootBrowseRooms.set(browse.rooms);
+    } catch {
+      // Fallback keeps root view functional if hierarchy discovery is unavailable.
+      if (get(shellSelectedRootSpaceId) !== nextRootSpaceId) {
+        return nextRootSpaceId;
+      }
+      shellRootBrowseRooms.set(response.rootScopedRooms);
+    }
+
     return nextRootSpaceId;
   }
 
@@ -256,6 +338,8 @@
 
   async function selectRootSpace(rootSpaceId: string) {
     shellSelectedRoomId.set("");
+    shellSelectedRootSpaceId.set(rootSpaceId);
+    shellRootBrowseRooms.set([]);
     const nextRootSpaceId = await refreshChatNavigation({ rootSpaceId });
     await syncRoute(nextRootSpaceId, "");
   }
@@ -300,6 +384,7 @@
       shellChats.set([]);
       shellRootSpaces.set([]);
       shellRootScopedRooms.set([]);
+      shellRootBrowseRooms.set([]);
       shellSelectedRootSpaceId.set("");
       shellSelectedRoomId.set("");
       shellCurrentUserId.set("");
@@ -347,5 +432,14 @@
         {@render children()}
       </section>
     </div>
+
+    <JoinRoomDialog
+      open={deepLinkJoinDialogOpen}
+      onClose={closeDeepLinkJoinDialog}
+      targets={deepLinkJoinTargets}
+      title={deepLinkJoinTitle}
+      confirmLabel="Join"
+      onJoined={handleDeepLinkJoinConfirmed}
+    />
   </main>
 {/if}

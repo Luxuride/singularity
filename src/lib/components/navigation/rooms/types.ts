@@ -5,4 +5,8 @@ export type FlatEntry = {
   room: MatrixChatSummary;
   depth: number;
   hasChildren: boolean;
+  unresolvedChildCount: number;
+  placeholderForParentRoomId?: string;
+  placeholderChildId?: string;
+  placeholderLoading?: boolean;
 };

@@ -153,6 +153,9 @@ mod tests {
             kind: MatrixRoomKind::Room,
             joined: true,
             is_direct: false,
+            join_rule: None,
+            world_readable: None,
+            guest_can_join: None,
             children_room_ids: vec![],
         }
     }

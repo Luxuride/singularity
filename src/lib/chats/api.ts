@@ -5,6 +5,7 @@ import type {
   MatrixGetEmojiPacksResponse,
   MatrixGetChatNavigationRequest,
   MatrixGetChatNavigationResponse,
+  MatrixGetSpaceBrowseResponse,
   MatrixGetChatsResponse,
   MatrixGetRoomImageResponse,
   MatrixGetUserAvatarResponse,
@@ -25,6 +26,8 @@ import type {
   MatrixSetRootSpaceOrderResponse,
   MatrixCopyImageToClipboardRequest,
   MatrixGetUserDevicesResponse,
+  MatrixJoinBatchResult,
+  MatrixJoinTargetPreview,
   MatrixOwnVerificationStatus,
   MatrixRequestVerificationResponse,
   MatrixVerificationFlowResponse,
@@ -89,6 +92,17 @@ export async function matrixGetChatNavigation(
     ...response,
     rootSpaces: response.rootSpaces.map(normalizeChatSummaryImageUrl),
     rootScopedRooms: response.rootScopedRooms.map(normalizeChatSummaryImageUrl),
+  };
+}
+
+export async function matrixGetSpaceBrowse(rootSpaceId: string): Promise<MatrixGetSpaceBrowseResponse> {
+  const response = await invokeMatrixCommand<MatrixGetSpaceBrowseResponse>("matrix_get_space_browse", {
+    request: { rootSpaceId },
+  });
+
+  return {
+    ...response,
+    rooms: response.rooms.map(normalizeChatSummaryImageUrl),
   };
 }
 
@@ -248,5 +262,18 @@ export async function matrixJoinRoom(
   serverNames?: string[],
 ): Promise<{ roomId: string }> {
   return await invokeMatrixCommand<{ roomId: string }>("matrix_join_room", { request: { roomIdOrAlias, serverNames }});
+}
+
+export async function matrixJoinRoomsBatch(
+  targets: MatrixJoinTargetPreview[],
+): Promise<MatrixJoinBatchResult> {
+  const joinedRoomIds: string[] = [];
+
+  for (const target of targets) {
+    const response = await matrixJoinRoom(target.roomIdOrAlias, target.serverNames);
+    joinedRoomIds.push(response.roomId);
+  }
+
+  return { joinedRoomIds };
 }
 

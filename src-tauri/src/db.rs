@@ -619,6 +619,9 @@ impl AppDb {
                 kind,
                 joined: joined_flag != 0,
                 is_direct: is_direct_flag != 0,
+                join_rule: None,
+                world_readable: None,
+                guest_can_join: None,
                 children_room_ids: {
                     let raw_children_room_ids =
                         row.get::<_, Option<String>>(8).map_err(|error| {

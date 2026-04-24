@@ -1,3 +1,4 @@
+mod browse;
 mod image;
 mod join;
 mod navigation;
@@ -10,8 +11,9 @@ use crate::db::AppDb;
 
 use super::types::{
     MatrixGetChatNavigationRequest, MatrixGetChatNavigationResponse, MatrixGetChatsResponse,
-    MatrixGetRoomImageRequest, MatrixGetRoomImageResponse, MatrixJoinRoomRequest,
-    MatrixJoinRoomResponse, MatrixSetRootSpaceOrderRequest, MatrixSetRootSpaceOrderResponse,
+    MatrixGetRoomImageRequest, MatrixGetRoomImageResponse, MatrixGetSpaceBrowseRequest,
+    MatrixGetSpaceBrowseResponse, MatrixJoinRoomRequest, MatrixJoinRoomResponse,
+    MatrixSetRootSpaceOrderRequest, MatrixSetRootSpaceOrderResponse,
 };
 use super::{
     MatrixTriggerRoomUpdateRequest, MatrixTriggerRoomUpdateResponse, RoomUpdateTriggerState,
@@ -24,6 +26,15 @@ pub async fn matrix_join_room(
     app_handle: AppHandle,
 ) -> Result<MatrixJoinRoomResponse, String> {
     join::join_room(request, auth_state, app_handle).await
+}
+
+#[tauri::command]
+pub async fn matrix_get_space_browse(
+    request: MatrixGetSpaceBrowseRequest,
+    auth_state: State<'_, AuthState>,
+    app_handle: AppHandle,
+) -> Result<MatrixGetSpaceBrowseResponse, String> {
+    browse::get_space_browse(request, auth_state, app_handle).await
 }
 
 #[tauri::command]

@@ -9,6 +9,9 @@ export interface MatrixChatSummary {
   kind: MatrixRoomKind;
   joined: boolean;
   isDirect: boolean;
+  joinRule?: string | null;
+  worldReadable?: boolean | null;
+  guestCanJoin?: boolean | null;
   childrenRoomIds: string[];
 }
 
@@ -36,12 +39,32 @@ export interface MatrixGetChatNavigationResponse {
   rootScopedRooms: MatrixChatSummary[];
 }
 
+export interface MatrixGetSpaceBrowseRequest {
+  rootSpaceId: string;
+}
+
+export interface MatrixGetSpaceBrowseResponse {
+  rootSpaceId: string;
+  rooms: MatrixChatSummary[];
+}
+
 export interface MatrixSetRootSpaceOrderRequest {
   rootSpaceIds: string[];
 }
 
 export interface MatrixSetRootSpaceOrderResponse {
   rootSpaceIds: string[];
+}
+
+export interface MatrixJoinTargetPreview {
+  roomIdOrAlias: string;
+  displayName: string;
+  kind: MatrixRoomKind;
+  serverNames?: string[];
+}
+
+export interface MatrixJoinBatchResult {
+  joinedRoomIds: string[];
 }
 
 export interface MatrixTriggerRoomUpdateRequest {

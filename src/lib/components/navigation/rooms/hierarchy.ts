@@ -12,7 +12,9 @@ export function sortRooms(a: MatrixChatSummary, b: MatrixChatSummary): number {
 export function buildRoomHierarchy(
   rooms: MatrixChatSummary[],
   expandedSpaceIds: Record<string, boolean>,
+  options?: { includeUnresolvedPlaceholders?: boolean },
 ): FlatEntry[] {
+  const includeUnresolvedPlaceholders = options?.includeUnresolvedPlaceholders === true;
   const roomsById = new Map(rooms.map((room) => [room.roomId, room]));
   const childrenByParent = new Map<string, MatrixChatSummary[]>();
   const childRoomIds = new Set<string>();
@@ -42,7 +44,16 @@ export function buildRoomHierarchy(
     .sort(sortRooms);
 
   for (const room of rootRooms) {
-    appendRoom(room, 0, new Set<string>(), entries, childrenByParent, room.roomId, expandedSpaceIds);
+    appendRoom(
+      room,
+      0,
+      new Set<string>(),
+      entries,
+      childrenByParent,
+      room.roomId,
+      expandedSpaceIds,
+      includeUnresolvedPlaceholders,
+    );
   }
 
   return entries;
@@ -56,15 +67,19 @@ function appendRoom(
   childrenByParent: Map<string, MatrixChatSummary[]>,
   keySeed: string,
   expandedSpaceIds: Record<string, boolean>,
+  includeUnresolvedPlaceholders: boolean,
 ) {
   const children = childrenByParent.get(room.roomId) ?? [];
-  const hasChildren = children.length > 0;
+  const childIds = room.childrenRoomIds ?? [];
+  const unresolvedChildIds = childIds.filter((childRoomId) => !children.some((child) => child.roomId === childRoomId));
+  const hasChildren = (room.childrenRoomIds?.length ?? 0) > 0 || children.length > 0;
 
   entries.push({
     key: `${keySeed}:${room.roomId}`,
     room,
     depth,
     hasChildren,
+    unresolvedChildCount: unresolvedChildIds.length,
   });
 
   if (!hasChildren) {
@@ -75,7 +90,7 @@ function appendRoom(
     return;
   }
 
-  if (room.kind === "space" && expandedSpaceIds[room.roomId] === false) {
+  if (expandedSpaceIds[room.roomId] !== true) {
     return;
   }
 
@@ -92,6 +107,24 @@ function appendRoom(
       childrenByParent,
       `${keySeed}:${room.roomId}:${index}`,
       expandedSpaceIds,
+      includeUnresolvedPlaceholders,
     );
+  }
+
+  if (!includeUnresolvedPlaceholders) {
+    return;
+  }
+
+  for (let index = 0; index < unresolvedChildIds.length; index += 1) {
+    const unresolvedChildId = unresolvedChildIds[index];
+    entries.push({
+      key: `${keySeed}:${room.roomId}:placeholder:${index}:${unresolvedChildId}`,
+      room,
+      depth: depth + 1,
+      hasChildren: false,
+      unresolvedChildCount: 0,
+      placeholderForParentRoomId: room.roomId,
+      placeholderChildId: unresolvedChildId,
+    });
   }
 }
