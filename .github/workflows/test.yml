@@ -17,16 +17,16 @@ jobs:
     with:
       check: cargo-clippy
 
-  pnpm-check:
+  npm-check:
     uses: ./.github/workflows/quality-checks.yml
     with:
-      check: pnpm-check
+      check: npm-check
 
   test-tauri:
     needs:
       - cargo-fmt
       - cargo-clippy
-      - pnpm-check
+      - npm-check
     strategy:
       fail-fast: false
       matrix:
@@ -67,7 +67,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: install frontend dependencies
-        run: yarn install # change this to npm, pnpm or bun depending on which one you use.
+        run: npm ci
 
       # If tagName and releaseId are omitted tauri-action will only build the app and won't try to upload any assets.
       - uses: tauri-apps/tauri-action@v0
