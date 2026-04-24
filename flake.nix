@@ -21,7 +21,6 @@
           cargo-tauri
           toolchain
           nodejs_22
-          pnpm
 
           mesa
           libGL
