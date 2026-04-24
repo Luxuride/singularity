@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "eu.luxuride.singularity",
   "build": {
-    "beforeDevCommand": "pnpm run dev",
+    "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "pnpm run build",
     "frontendDist": "../build"
