@@ -15,6 +15,7 @@ export const shellRecoveryState = writable<MatrixRecoveryState | null>(null);
 export const shellChats = writable<MatrixChatSummary[]>([]);
 export const shellRootSpaces = writable<MatrixChatSummary[]>([]);
 export const shellRootScopedRooms = writable<MatrixChatSummary[]>([]);
+export const shellRootBrowseRooms = writable<MatrixChatSummary[]>([]);
 export const shellSelectedRootSpaceId = writable("");
 export const shellSelectedRoomId = writable("");
 export const shellPickerCustomEmoji = writable<MatrixPickerCustomEmoji[]>([]);

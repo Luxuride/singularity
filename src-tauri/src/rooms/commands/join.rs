@@ -20,6 +20,8 @@ pub async fn join_room(
     let room_id_or_alias = <&RoomOrAliasId>::try_from(room_id_or_alias_raw.as_str())
         .map_err(|e| format!("Invalid room ID or alias: {e}"))?;
 
+    let merged_server_names = ensure_room_target_server_name(merged_server_names, room_id_or_alias);
+
     let server_names: Vec<OwnedServerName> = merged_server_names
         .iter()
         .filter_map(|s| {
@@ -147,6 +149,21 @@ fn merge_server_name_candidates(
     let mut merged = primary.unwrap_or_default();
     merged.extend(secondary);
     dedupe_preserve_order(merged)
+}
+
+fn ensure_room_target_server_name(
+    mut server_names: Vec<String>,
+    room_id_or_alias: &RoomOrAliasId,
+) -> Vec<String> {
+    if !server_names.is_empty() {
+        return server_names;
+    }
+
+    if let Some(server_name) = room_id_or_alias.server_name() {
+        server_names.push(server_name.to_string());
+    }
+
+    server_names
 }
 
 fn dedupe_preserve_order(values: Vec<String>) -> Vec<String> {

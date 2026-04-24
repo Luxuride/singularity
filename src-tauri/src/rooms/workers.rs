@@ -61,6 +61,9 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
             kind,
             joined: true,
             is_direct,
+            join_rule: None,
+            world_readable: None,
+            guest_can_join: None,
             children_room_ids,
         });
     }

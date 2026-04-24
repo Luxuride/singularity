@@ -8,9 +8,11 @@
 
   import {
     matrixCancelMediaTranscode,
+    matrixGetSpaceBrowse,
     matrixSendChatMessage,
     matrixSendMediaFile,
     matrixStreamChatMessages,
+    matrixTriggerRoomUpdate,
     matrixToggleReaction,
   } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
@@ -18,14 +20,18 @@
     shellChats,
     shellCurrentUserId,
     shellPickerCustomEmoji,
+    shellRootBrowseRooms,
     shellRootScopedRooms,
     shellRootSpaces,
     shellSelectedRootSpaceId,
     shellSelectedRoomId,
   } from "$lib/chats/shell";
   import type {
+    MatrixChatSummary,
     MatrixChatMessage,
     MatrixChatMessageStreamEvent,
+    MatrixJoinBatchResult,
+    MatrixJoinTargetPreview,
     MatrixMediaTranscodeProgressEvent,
     MatrixSelectedRoomMessagesEvent,
     MatrixSendChatMessageRequest,
@@ -36,7 +42,8 @@
     normalizeReactionKey,
     normalizeShortcodesToEmoji,
   } from "$lib/emoji/picker";
-  import { RoomList } from "$lib/components/navigation";
+  import { RootSpaceBrowseList } from "$lib/components/navigation";
+  import JoinRoomDialog from "$lib/components/navigation/spaces/JoinRoomDialog.svelte";
   import { MessageComposer } from "$lib/components/messaging/composer";
   import { MessageTimeline } from "$lib/components/messaging/timeline";
   import type { TimelineMessage } from "$lib/components/messaging/shared";
@@ -67,6 +74,15 @@
   let activeStreamId = $state("");
   let activeLoadKind = $state<MatrixMessageLoadKind | null>(null);
   let streamMessageCount = $state(0);
+  let joinDialogOpen = $state(false);
+  let joinDialogTitle = $state("Confirm join");
+  let joinDialogConfirmLabel = $state("Join");
+  let joinDialogTargets = $state<MatrixJoinTargetPreview[]>([]);
+  let expandedSpacePollTargets = $state<string[]>([]);
+  let hydratingBrowseSpaceIds = $state<string[]>([]);
+
+  const expandedSpacePollInFlight = new Set<string>();
+  let expandedSpaceRefreshQueued = false;
 
   const seenEventIds = new Set<string>();
 
@@ -97,9 +113,11 @@
 
     void (async () => {
       unlisten = await subscribeToRoomUpdates({
-        onRoomAdded: () => {},
-        onRoomUpdated: () => {},
-        onRoomRemoved: () => {},
+        onRoomAdded: queueExpandedSpaceRefresh,
+        onRoomUpdated: queueExpandedSpaceRefresh,
+        onRoomRemoved: () => {
+          queueExpandedSpaceRefresh();
+        },
         onSelectedRoomMessages: applySelectedRoomMessages,
         onChatMessagesStream: applyChatMessageStream,
       });
@@ -120,6 +138,19 @@
       unlisten();
       unlistenTranscode();
     };
+  });
+
+  $effect(() => {
+    const rootSpaceId = $shellSelectedRootSpaceId;
+    if (!rootSpaceId || rootSpaceId.startsWith("virtual:")) {
+      expandedSpacePollTargets = [];
+      expandedSpacePollInFlight.clear();
+      return;
+    }
+
+    expandedSpacePollTargets = expandedSpacePollTargets.filter(
+      (spaceId) => spaceId === rootSpaceId || $shellRootBrowseRooms.some((room) => room.roomId === spaceId),
+    );
   });
 
   $effect(() => {
@@ -1145,6 +1176,101 @@
       keepFocus: true,
     });
   }
+
+  function openJoinDialog(request: {
+    title: string;
+    confirmLabel?: string;
+    targets: MatrixJoinTargetPreview[];
+  }) {
+    if (request.targets.length === 0) {
+      return;
+    }
+
+    joinDialogTitle = request.title;
+    joinDialogConfirmLabel = request.confirmLabel ?? "Join";
+    joinDialogTargets = request.targets;
+    joinDialogOpen = true;
+  }
+
+  async function handleJoinDialogJoined(result: MatrixJoinBatchResult) {
+    const plannedTargets = joinDialogTargets;
+    const joinedRoomTargets = plannedTargets.filter((target) => target.kind === "room");
+    const includesSpaceTargets = plannedTargets.some((target) => target.kind === "space");
+    const shouldOpenJoinedRoom = !includesSpaceTargets && joinedRoomTargets.length === 1;
+    const joinedRoomId = shouldOpenJoinedRoom ? (result.joinedRoomIds.at(-1) ?? "") : "";
+
+    joinDialogOpen = false;
+    joinDialogTargets = [];
+
+    await matrixTriggerRoomUpdate();
+
+    if (joinedRoomId) {
+      await selectRoomFromOverview(joinedRoomId);
+    }
+  }
+
+  async function hydrateSpaceBrowse(spaceId: string) {
+    if (!spaceId || spaceId.startsWith("virtual:")) {
+      return;
+    }
+
+    const selectedRootSpaceId = $shellSelectedRootSpaceId;
+    if (!selectedRootSpaceId || selectedRootSpaceId.startsWith("virtual:")) {
+      return;
+    }
+
+    const inFlightKey = `root:${selectedRootSpaceId}`;
+
+    if (expandedSpacePollInFlight.has(inFlightKey)) {
+      return;
+    }
+
+    expandedSpacePollInFlight.add(inFlightKey);
+    if (!hydratingBrowseSpaceIds.includes(spaceId)) {
+      hydratingBrowseSpaceIds = [...hydratingBrowseSpaceIds, spaceId];
+    }
+
+    try {
+      const browse = await matrixGetSpaceBrowse(selectedRootSpaceId);
+      if ($shellSelectedRootSpaceId !== selectedRootSpaceId) {
+        return;
+      }
+
+      shellRootBrowseRooms.set(browse.rooms);
+    } catch {
+      // Ignore lazy hydrate failures; the existing hierarchy remains usable.
+    } finally {
+      expandedSpacePollInFlight.delete(inFlightKey);
+      hydratingBrowseSpaceIds = hydratingBrowseSpaceIds.filter((candidate) => candidate !== spaceId);
+    }
+  }
+
+  function queueExpandedSpaceRefresh() {
+    if (expandedSpaceRefreshQueued || expandedSpacePollTargets.length === 0) {
+      return;
+    }
+
+    expandedSpaceRefreshQueued = true;
+    queueMicrotask(() => {
+      expandedSpaceRefreshQueued = false;
+      for (const spaceId of expandedSpacePollTargets) {
+        void hydrateSpaceBrowse(spaceId);
+      }
+    });
+  }
+
+  async function hydrateExpandedSpace(spaceId: string, expanded: boolean) {
+    if (!expanded) {
+      expandedSpacePollTargets = expandedSpacePollTargets.filter((candidate) => candidate !== spaceId);
+      return;
+    }
+
+    if (!expandedSpacePollTargets.includes(spaceId)) {
+      expandedSpacePollTargets = [...expandedSpacePollTargets, spaceId];
+    }
+
+    await hydrateSpaceBrowse(spaceId);
+  }
 </script>
 
 {#if !$shellSelectedRoomId}
@@ -1162,18 +1288,34 @@
     {:else}
       <section class="space-y-2">
         <h2 class="text-sm font-medium">{selectedRootSpaceName} Hierarchy</h2>
-        {#if $shellRootScopedRooms.length === 0}
+        {#if $shellRootBrowseRooms.length === 0}
           <p class="text-sm text-surface-700-300">No spaces or rooms found under this root space.</p>
         {:else}
-          <RoomList
-            rooms={$shellRootScopedRooms}
+          <RootSpaceBrowseList
+            rooms={$shellRootBrowseRooms}
             selectedRoomId={$shellSelectedRoomId}
+            loadingSpaceIds={hydratingBrowseSpaceIds}
             onSelectRoom={selectRoomFromOverview}
+            onJoinTargets={openJoinDialog}
+            onExpandSpace={hydrateExpandedSpace}
             emptyMessage="No spaces or rooms found under this root space."
           />
         {/if}
       </section>
     {/if}
+
+    <JoinRoomDialog
+      open={joinDialogOpen}
+      onClose={() => {
+        joinDialogOpen = false;
+        joinDialogTargets = [];
+      }}
+      targets={joinDialogTargets}
+      title={joinDialogTitle}
+      confirmLabel={joinDialogConfirmLabel}
+      allowManualEntry={false}
+      onJoined={handleJoinDialogJoined}
+    />
   </section>
 {:else}
   <div class="flex flex-col h-full min-w-0 overflow-x-hidden">

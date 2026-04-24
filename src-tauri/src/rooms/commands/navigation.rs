@@ -169,6 +169,9 @@ impl<'a> NavigationIndex<'a> {
             kind: MatrixRoomKind::Space,
             joined: true,
             is_direct: false,
+            join_rule: None,
+            world_readable: None,
+            guest_can_join: None,
             children_room_ids: vec![],
         };
 
@@ -181,6 +184,9 @@ impl<'a> NavigationIndex<'a> {
             kind: MatrixRoomKind::Space,
             joined: true,
             is_direct: false,
+            join_rule: None,
+            world_readable: None,
+            guest_can_join: None,
             children_room_ids: vec![],
         };
 
@@ -218,6 +224,7 @@ impl<'a> NavigationIndex<'a> {
         }
 
         let mut descendants = Vec::<MatrixChatSummary>::new();
+        let mut discovered = HashSet::<&str>::new();
         let mut stack: Vec<(&str, HashSet<&str>)> = self
             .children_by_parent
             .get(root_space_id)
@@ -235,6 +242,36 @@ impl<'a> NavigationIndex<'a> {
             let Some(candidate) = self.chat(room_id) else {
                 continue;
             };
+
+            if !discovered.insert(candidate.room_id.as_str()) {
+                continue;
+            }
+
+            if candidate.kind == MatrixRoomKind::Space && candidate.joined_members == 0 {
+                let mut next_ancestry = ancestry;
+                next_ancestry.insert(room_id);
+
+                if let Some(children) = self.children_by_parent.get(room_id) {
+                    for child_id in children {
+                        stack.push((child_id, next_ancestry.clone()));
+                    }
+                }
+
+                continue;
+            }
+
+            if !candidate.joined {
+                let mut next_ancestry = ancestry;
+                next_ancestry.insert(room_id);
+
+                if let Some(children) = self.children_by_parent.get(room_id) {
+                    for child_id in children {
+                        stack.push((child_id, next_ancestry.clone()));
+                    }
+                }
+
+                continue;
+            }
 
             descendants.push(candidate.clone());
 
@@ -358,6 +395,9 @@ mod tests {
             kind,
             joined: true,
             is_direct,
+            join_rule: None,
+            world_readable: None,
+            guest_can_join: None,
             children_room_ids: children_room_ids
                 .iter()
                 .map(|value| (*value).to_string())

@@ -19,6 +19,12 @@ pub struct MatrixChatSummary {
     pub joined: bool,
     pub is_direct: bool,
     #[serde(default)]
+    pub join_rule: Option<String>,
+    #[serde(default)]
+    pub world_readable: Option<bool>,
+    #[serde(default)]
+    pub guest_can_join: Option<bool>,
+    #[serde(default)]
     pub children_room_ids: Vec<String>,
 }
 
@@ -80,4 +86,17 @@ pub struct MatrixJoinRoomRequest {
 #[serde(rename_all = "camelCase")]
 pub struct MatrixJoinRoomResponse {
     pub room_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetSpaceBrowseRequest {
+    pub root_space_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetSpaceBrowseResponse {
+    pub root_space_id: String,
+    pub rooms: Vec<MatrixChatSummary>,
 }
