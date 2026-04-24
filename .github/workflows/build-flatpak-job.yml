@@ -45,13 +45,9 @@ jobs:
         if: steps.manifest.outputs.exists == 'true'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: install pnpm
-        if: steps.manifest.outputs.exists == 'true'
-        run: npm install -g pnpm
-
       - name: install frontend dependencies
         if: steps.manifest.outputs.exists == 'true'
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: vendor cargo dependencies
         if: steps.manifest.outputs.exists == 'true'

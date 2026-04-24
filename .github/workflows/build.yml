@@ -16,16 +16,16 @@ jobs:
     with:
       check: cargo-clippy
 
-  pnpm-check:
+  npm-check:
     uses: ./.github/workflows/quality-checks.yml
     with:
-      check: pnpm-check
+      check: npm-check
 
   build-tauri-macos:
     needs:
       - cargo-fmt
       - cargo-clippy
-      - pnpm-check
+      - npm-check
     uses: ./.github/workflows/build-tauri-job.yml
     with:
       platform: 'macos-latest'
@@ -39,7 +39,7 @@ jobs:
     needs:
       - cargo-fmt
       - cargo-clippy
-      - pnpm-check
+      - npm-check
     uses: ./.github/workflows/build-tauri-job.yml
     with:
       platform: 'ubuntu-22.04'
@@ -56,7 +56,7 @@ jobs:
     needs:
       - cargo-fmt
       - cargo-clippy
-      - pnpm-check
+      - npm-check
     uses: ./.github/workflows/build-tauri-job.yml
     with:
       platform: 'windows-latest'
@@ -70,7 +70,7 @@ jobs:
     needs:
       - cargo-fmt
       - cargo-clippy
-      - pnpm-check
+      - npm-check
     uses: ./.github/workflows/build-flatpak-job.yml
     with:
       manifest-path: 'flatpak/eu.luxuride.singularity.yml'
