@@ -143,14 +143,23 @@
   $effect(() => {
     const rootSpaceId = $shellSelectedRootSpaceId;
     if (!rootSpaceId || rootSpaceId.startsWith("virtual:")) {
-      expandedSpacePollTargets = [];
+      if (expandedSpacePollTargets.length > 0) {
+        expandedSpacePollTargets = [];
+      }
       expandedSpacePollInFlight.clear();
       return;
     }
 
-    expandedSpacePollTargets = expandedSpacePollTargets.filter(
+    const filteredTargets = expandedSpacePollTargets.filter(
       (spaceId) => spaceId === rootSpaceId || $shellRootBrowseRooms.some((room) => room.roomId === spaceId),
     );
+
+    if (
+      filteredTargets.length !== expandedSpacePollTargets.length ||
+      filteredTargets.some((spaceId, index) => expandedSpacePollTargets[index] !== spaceId)
+    ) {
+      expandedSpacePollTargets = filteredTargets;
+    }
   });
 
   $effect(() => {

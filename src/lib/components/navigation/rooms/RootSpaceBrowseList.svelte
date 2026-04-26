@@ -63,10 +63,14 @@
 
   $effect(() => {
     const nextImages: Record<string, string | null> = { ...lazyImageUrlsByRoomId };
+    let changed = false;
 
     for (const room of rooms) {
       if (room.imageUrl !== null) {
-        nextImages[room.roomId] = room.imageUrl;
+        if (nextImages[room.roomId] !== room.imageUrl) {
+          nextImages[room.roomId] = room.imageUrl;
+          changed = true;
+        }
         roomImageCache.prime(room.roomId, room.imageUrl);
         continue;
       }
@@ -77,12 +81,18 @@
 
       const cachedImage = roomImageCache.getCached(room.roomId);
       if (cachedImage !== undefined) {
-        nextImages[room.roomId] = cachedImage;
+        if (nextImages[room.roomId] !== cachedImage) {
+          nextImages[room.roomId] = cachedImage;
+          changed = true;
+        }
         continue;
       }
 
       if (isVirtualRoomId(room.roomId)) {
-        nextImages[room.roomId] = null;
+        if (nextImages[room.roomId] !== null) {
+          nextImages[room.roomId] = null;
+          changed = true;
+        }
         continue;
       }
 
@@ -94,6 +104,10 @@
             return;
           }
 
+          if (lazyImageUrlsByRoomId[roomId] === imageUrl) {
+            return;
+          }
+
           lazyImageUrlsByRoomId = {
             ...lazyImageUrlsByRoomId,
             [roomId]: imageUrl,
@@ -101,7 +115,9 @@
         });
     }
 
-    lazyImageUrlsByRoomId = nextImages;
+    if (changed) {
+      lazyImageUrlsByRoomId = nextImages;
+    }
   });
 
   const flatEntries = $derived.by<FlatEntry[]>(() => buildRoomHierarchy(rooms, expandedSpaceIds));
