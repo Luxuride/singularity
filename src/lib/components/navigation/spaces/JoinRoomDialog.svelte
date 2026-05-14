@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { matrixJoinRoom } from "$lib/chats/api";
-  import { shellSelectedRoomId, shellErrorMessage } from "$lib/chats/shell";
+  import { matrixGetRoomPreview, matrixJoinRoom, matrixTriggerRoomUpdate } from "$lib/chats/api";
+  import { shellSelectedRootSpaceId, shellSelectedRoomId, shellErrorMessage } from "$lib/chats/shell";
+  import type { MatrixRoomPreview } from "$lib/chats/types";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
+  import JoinConfirmDialog from "../rooms/JoinConfirmDialog.svelte";
 
   interface Props {
     open: boolean;
@@ -12,14 +14,21 @@
   let { open, onClose }: Props = $props();
 
   let dialogElement: HTMLDialogElement | undefined = $state();
-  let loading = $state(false);
+  let previewing = $state(false);
+  let joining = $state(false);
   let roomInput = $state("");
+  let confirmOpen = $state(false);
+  let previewRoom = $state<MatrixRoomPreview | null>(null);
+  let previewTarget = $state<{ roomIdOrAlias: string; serverNames: string[] } | null>(null);
 
   $effect(() => {
     if (open && dialogElement) {
       if (!dialogElement.open) {
         dialogElement.showModal();
         roomInput = "";
+        previewRoom = null;
+        previewTarget = null;
+        confirmOpen = false;
       }
     } else if (!open && dialogElement && dialogElement.open) {
       dialogElement.close();
@@ -31,34 +40,107 @@
   }
 
   function handleClose() {
+    confirmOpen = false;
+    previewRoom = null;
+    previewTarget = null;
     onClose();
+  }
+
+  function normalizeRoomTarget(raw: string): { roomIdOrAlias: string; serverNames: string[] } {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return { roomIdOrAlias: "", serverNames: [] };
+    }
+
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+      try {
+        const parsed = new URL(trimmed);
+        if (parsed.hostname === "matrix.to") {
+          const hash = parsed.hash.startsWith("#/") ? parsed.hash.slice(2) : parsed.hash.slice(1);
+          if (hash) {
+            const [target, query] = hash.split("?");
+            const params = new URLSearchParams(query ?? "");
+            return { roomIdOrAlias: target, serverNames: params.getAll("via") };
+          }
+        }
+      } catch {
+        // Fall through to raw input parsing.
+      }
+    }
+
+    let target = trimmed;
+    if (!target.startsWith("#") && !target.startsWith("!")) {
+      target = "#" + target;
+    }
+
+    return { roomIdOrAlias: target, serverNames: [] };
   }
 
   async function joinRoom(event: Event) {
     event.preventDefault();
-    if (!roomInput.trim() || loading) return;
+    if (!roomInput.trim() || previewing || joining) return;
 
-    let targetIdOrAlias = roomInput.trim();
-    if (!targetIdOrAlias.startsWith("#") && !targetIdOrAlias.startsWith("!")) {
-      targetIdOrAlias = "#" + targetIdOrAlias;
-    }
+    const { roomIdOrAlias, serverNames } = normalizeRoomTarget(roomInput);
+    if (!roomIdOrAlias) return;
 
-    loading = true;
+    previewing = true;
     shellErrorMessage.set("");
 
     try {
-      const { roomId } = await matrixJoinRoom(targetIdOrAlias);
-      
-      const searchParams = new URLSearchParams(page.url.searchParams);
-      searchParams.set("roomId", roomId);
-      shellSelectedRoomId.set(roomId);
+      const preview = await matrixGetRoomPreview({ roomIdOrAlias, serverNames });
+      previewRoom = preview;
+      previewTarget = { roomIdOrAlias, serverNames };
+      confirmOpen = true;
+    } catch (e) {
+      shellErrorMessage.set(e instanceof Error ? e.message : "Failed to preview room");
+    } finally {
+      previewing = false;
+    }
+  }
 
-      await goto(`/chats?${searchParams.toString()}`);
-      onClose();
+  function closeConfirm() {
+    confirmOpen = false;
+    previewRoom = null;
+    previewTarget = null;
+  }
+
+  async function confirmJoin() {
+    if (!previewTarget || joining) return;
+
+    joining = true;
+    shellErrorMessage.set("");
+
+    try {
+      const { roomId } = await matrixJoinRoom(
+        previewTarget.roomIdOrAlias,
+        previewTarget.serverNames,
+      );
+
+      await matrixTriggerRoomUpdate();
+
+      const searchParams = new URLSearchParams(page.url.searchParams);
+
+      if (previewRoom?.kind === "space") {
+        shellSelectedRootSpaceId.set(roomId);
+        shellSelectedRoomId.set("");
+        searchParams.set("rootSpaceId", roomId);
+        searchParams.delete("roomId");
+      } else {
+        shellSelectedRoomId.set(roomId);
+        searchParams.set("roomId", roomId);
+      }
+
+      const search = searchParams.toString();
+      await goto(search ? `/chats?${search}` : "/chats", {
+        replaceState: true,
+        noScroll: true,
+        keepFocus: true,
+      });
+      handleClose();
     } catch (e) {
       shellErrorMessage.set(e instanceof Error ? e.message : "Failed to join room");
     } finally {
-      loading = false;
+      joining = false;
     }
   }
 </script>
@@ -80,7 +162,7 @@
         placeholder="#room:server.com"
         bind:value={roomInput}
         class="input preset-outlined-surface-200-800 bg-surface-50-950 px-3 py-2 w-full"
-        disabled={loading}
+        disabled={previewing || joining}
         use:focusInput
       />
       <div class="flex justify-end gap-2">
@@ -88,18 +170,28 @@
           type="button"
           class="btn preset-outlined-surface-200-800 px-4 py-2 hover:bg-surface-200-800"
           onclick={onClose}
-          disabled={loading}
+          disabled={previewing || joining}
         >
           Cancel
         </button>
         <button
           type="submit"
           class="btn preset-filled-primary-500 px-4 py-2 opacity-90 hover:opacity-100 disabled:opacity-50"
-          disabled={loading || !roomInput.trim()}
+          disabled={previewing || joining || !roomInput.trim()}
         >
-          {loading ? 'Joining...' : 'Join'}
+          {previewing ? "Checking..." : "Continue"}
         </button>
       </div>
     </form>
   </div>
 </dialog>
+
+<JoinConfirmDialog
+  open={confirmOpen}
+  room={previewRoom}
+  joinKind="single"
+  joinCount={0}
+  confirmDisabled={joining}
+  onClose={closeConfirm}
+  onConfirm={confirmJoin}
+/>

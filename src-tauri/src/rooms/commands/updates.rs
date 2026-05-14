@@ -3,8 +3,8 @@ use tauri::{AppHandle, Manager};
 use crate::auth::AuthState;
 use crate::db::AppDb;
 use crate::rooms::types::{
-    MatrixGetChatNavigationRequest, MatrixGetChatNavigationResponse, MatrixGetChatsResponse,
-    MatrixSetRootSpaceOrderRequest, MatrixSetRootSpaceOrderResponse,
+    MatrixChatSummary, MatrixGetChatNavigationRequest, MatrixGetChatNavigationResponse,
+    MatrixGetChatsResponse, MatrixSetRootSpaceOrderRequest, MatrixSetRootSpaceOrderResponse,
 };
 use crate::rooms::{
     MatrixTriggerRoomUpdateRequest, MatrixTriggerRoomUpdateResponse, RoomRefreshTrigger,
@@ -68,7 +68,29 @@ pub(super) async fn get_chats(
     Ok(MatrixGetChatsResponse { chats: local_chats })
 }
 
-pub(super) fn get_chat_navigation(
+pub(super) fn get_chat_navigation_joined(
+    request: Option<MatrixGetChatNavigationRequest>,
+    app_handle: &AppHandle,
+) -> Result<MatrixGetChatNavigationResponse, String> {
+    let payload = request.unwrap_or_default();
+    let chats = load_cached_chats(app_handle)?.unwrap_or_default();
+    let joined_chats = filter_joined_chats(&chats);
+    let saved_root_space_ids = {
+        let app_db = app_handle.state::<AppDb>();
+        app_db.load_root_space_order()?
+    };
+    let saved_root_space_ids =
+        (!saved_root_space_ids.is_empty()).then_some(saved_root_space_ids.as_slice());
+
+    Ok(build_navigation_response(
+        &joined_chats,
+        saved_root_space_ids,
+        payload.root_space_id.as_deref(),
+        payload.selected_room_id.as_deref(),
+    ))
+}
+
+pub(super) fn get_chat_navigation_with_unjoined(
     request: Option<MatrixGetChatNavigationRequest>,
     app_handle: &AppHandle,
 ) -> Result<MatrixGetChatNavigationResponse, String> {
@@ -94,7 +116,8 @@ pub(super) fn set_root_space_order(
     app_db: &AppDb,
 ) -> Result<MatrixSetRootSpaceOrderResponse, String> {
     let chats = app_db.load_cached_chats()?.unwrap_or_default();
-    let orderable_root_space_ids = navigation::orderable_root_space_ids(&chats);
+    let joined_chats = filter_joined_chats(&chats);
+    let orderable_root_space_ids = navigation::orderable_root_space_ids(&joined_chats);
 
     let mut seen = std::collections::HashSet::new();
     let mut requested_root_space_ids = Vec::with_capacity(request.root_space_ids.len());
@@ -116,6 +139,10 @@ pub(super) fn set_root_space_order(
     Ok(MatrixSetRootSpaceOrderResponse {
         root_space_ids: requested_root_space_ids,
     })
+}
+
+fn filter_joined_chats(chats: &[MatrixChatSummary]) -> Vec<MatrixChatSummary> {
+    chats.iter().cloned().filter(|chat| chat.joined).collect()
 }
 
 pub(super) fn trigger_room_update(

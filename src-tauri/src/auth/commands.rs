@@ -1,9 +1,13 @@
-use tauri::{AppHandle, State};
+use std::time::Duration;
+
+use tauri::{AppHandle, Emitter, State};
 use url::Url;
+use tokio::time::timeout;
 
 use matrix_sdk::encryption::recovery::RecoveryState;
 
 use crate::protocol::config;
+use crate::protocol::event_paths;
 use crate::protocol::endpoints::normalize_homeserver_url;
 use crate::protocol::sync::sync_once_serialized;
 use crate::verification::start_verification_state_watcher;
@@ -386,14 +390,28 @@ pub async fn matrix_logout(
     auth_state.clear_runtime_session()?;
 
     if let Some(client) = client {
-        if let Err(error) = client.logout().await {
-            log::warn!("Matrix logout failed remotely, clearing local session anyway: {error}");
+        let logout_timeout = Duration::from_secs(3);
+        match timeout(logout_timeout, client.logout()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                log::warn!(
+                    "Matrix logout failed remotely, clearing local session anyway: {error}"
+                );
+            }
+            Err(_) => {
+                log::warn!(
+                    "Matrix logout timed out after {}s, clearing local session anyway",
+                    logout_timeout.as_secs()
+                );
+            }
         }
     }
 
     clear_persisted_session(&app_handle)?;
     clear_app_cache(&app_handle)?;
     clear_matrix_sdk_store(&app_handle)?;
+
+    let _ = app_handle.emit(event_paths::AUTH_LOGOUT_COMPLETE, true);
 
     Ok(MatrixLogoutResponse { logged_out: true })
 }

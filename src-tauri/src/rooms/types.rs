@@ -56,6 +56,30 @@ pub struct MatrixGetChatNavigationResponse {
     pub root_scoped_rooms: Vec<MatrixChatSummary>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixLeaveRoomRequest {
+    pub room_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixLeaveRoomResponse {
+    pub room_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixLeaveRoomsRequest {
+    pub room_ids: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixLeaveRoomsResponse {
+    pub room_ids: Vec<String>,
+}
+
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixSetRootSpaceOrderRequest {
@@ -80,4 +104,41 @@ pub struct MatrixJoinRoomRequest {
 #[serde(rename_all = "camelCase")]
 pub struct MatrixJoinRoomResponse {
     pub room_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetSpaceChildIdsRequest {
+    pub space_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetSpaceChildIdsResponse {
+    pub space_id: String,
+    pub child_room_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetRoomPreviewRequest {
+    pub room_id_or_alias: String,
+    pub server_names: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixRoomPreview {
+    pub room_id: String,
+    pub display_name: String,
+    pub description: Option<String>,
+    pub joined_members: u64,
+    pub kind: MatrixRoomKind,
+    pub joined: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetRoomPreviewResponse {
+    pub room: MatrixRoomPreview,
 }

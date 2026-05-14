@@ -4,13 +4,15 @@ use crate::protocol::event_paths;
 use crate::rooms::RoomRefreshTrigger;
 
 use super::super::helpers::has_stale_in_memory_media_urls;
+use super::super::media::DefaultMediaResolver;
 use super::super::persistence::{
     is_cacheable_initial_request, load_initial_room_messages, store_initial_room_messages,
 };
 use super::super::types::{
-    MatrixChatMessageStreamEvent, MatrixGetChatMessagesResponse, MatrixMessageLoadKind,
-    MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
+    MatrixChatMessageImageLoadedEvent, MatrixChatMessageStreamEvent, MatrixGetChatMessagesResponse,
+    MatrixMessageLoadKind, MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
 };
+use super::super::media::MediaResolver;
 use super::receiver::StreamRoomMessagesContext;
 
 pub(super) async fn stream_room_messages_impl<F, Fut>(
@@ -54,6 +56,13 @@ where
                 let mut sequence = 0_u32;
 
                 for message in cached_messages {
+                    spawn_image_resolution_for_stream(
+                        &context,
+                        room_id.clone(),
+                        message.event_id.clone(),
+                        message.image_url.clone(),
+                    );
+
                     app_handle
                         .emit(
                             event_paths::CHAT_MESSAGES_STREAM,
@@ -145,6 +154,13 @@ where
                 // consistent oldest->newest order.
                 initial_messages.push(message);
             } else {
+                spawn_image_resolution_for_stream(
+                    &context,
+                    room_id.clone(),
+                    message.event_id.clone(),
+                    message.image_url.clone(),
+                );
+
                 app_handle
                     .emit(
                         event_paths::CHAT_MESSAGES_STREAM,
@@ -186,6 +202,13 @@ where
             if cacheable_initial_request {
                 cache_messages.push(message.clone());
             }
+
+            spawn_image_resolution_for_stream(
+                &context,
+                room_id.clone(),
+                message.event_id.clone(),
+                message.image_url.clone(),
+            );
 
             app_handle
                 .emit(
@@ -238,4 +261,51 @@ where
         stream_id,
         started: true,
     })
+}
+
+fn spawn_image_resolution_for_stream(
+    context: &StreamRoomMessagesContext<'_>,
+    room_id: String,
+    message_event_id: Option<String>,
+    image_url: Option<String>,
+) {
+    let Some(event_id) = message_event_id else {
+        return;
+    };
+
+    let Some(raw_image_url) = image_url else {
+        return;
+    };
+
+    if raw_image_url.trim().is_empty()
+        || raw_image_url.starts_with("asset://")
+        || raw_image_url.starts_with("matrix-media://")
+        || raw_image_url.starts_with("file://")
+        || raw_image_url.starts_with('/')
+    {
+        return;
+    }
+
+    let client = context.client.clone();
+    let app_handle = context.app_handle.clone();
+
+    tauri::async_runtime::spawn(async move {
+        let resolver = DefaultMediaResolver;
+        let Some(resolved_image_url) = resolver.resolve_pack_media_url(&client, &raw_image_url).await else {
+            return;
+        };
+
+        if resolved_image_url == raw_image_url {
+            return;
+        }
+
+        let _ = app_handle.emit(
+            event_paths::CHAT_MESSAGE_IMAGE_LOADED,
+            MatrixChatMessageImageLoadedEvent {
+                room_id,
+                event_id,
+                image_url: resolved_image_url,
+            },
+        );
+    });
 }

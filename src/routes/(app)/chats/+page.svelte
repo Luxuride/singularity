@@ -7,24 +7,30 @@
   import { open } from "@tauri-apps/plugin-dialog";
 
   import {
+    matrixGetSpaceChildIds,
+    matrixJoinRoom,
     matrixCancelMediaTranscode,
     matrixSendChatMessage,
     matrixSendMediaFile,
     matrixStreamChatMessages,
     matrixToggleReaction,
+    matrixTriggerRoomUpdate,
   } from "$lib/chats/api";
+  import { toaster } from "$lib/toaster";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
   import {
     shellChats,
     shellCurrentUserId,
+    shellErrorMessage,
     shellPickerCustomEmoji,
-    shellRootScopedRooms,
+    shellRootScopedRoomsWithUnjoined,
     shellRootSpaces,
     shellSelectedRootSpaceId,
     shellSelectedRoomId,
   } from "$lib/chats/shell";
   import type {
     MatrixChatMessage,
+    MatrixChatMessageImageLoadedEvent,
     MatrixChatMessageStreamEvent,
     MatrixMediaTranscodeProgressEvent,
     MatrixSelectedRoomMessagesEvent,
@@ -37,6 +43,7 @@
     normalizeShortcodesToEmoji,
   } from "$lib/emoji/picker";
   import { RoomList } from "$lib/components/navigation";
+  import { isVirtualRoomId } from "$lib/components/navigation/shared";
   import { MessageComposer } from "$lib/components/messaging/composer";
   import { MessageTimeline } from "$lib/components/messaging/timeline";
   import type { TimelineMessage } from "$lib/components/messaging/shared";
@@ -58,9 +65,9 @@
   let mediaErrorMessage = $state("");
   let activeMediaFilePath = $state("");
   let mediaTranscodeProgress = $state<MatrixMediaTranscodeProgressEvent | null>(null);
+  let joiningAllRooms = $state(false);
 
   const EVENT_MEDIA_TRANSCODE_PROGRESS = "matrix://media/transcode/progress";
-
   let messages = $state<TimelineMessage[]>([]);
   let nextFrom = $state<string | null>(null);
   let timelineElement = $state<HTMLElement | null>(null);
@@ -77,19 +84,95 @@
   };
 
   const roomScrollStates = new Map<string, RoomScrollState>();
+  const AUTO_SCROLL_TO_BOTTOM_THRESHOLD_PX = 50;
   const AUTO_LOAD_TOP_THRESHOLD_PX = 96;
   const AUTO_LOAD_OLDER_COOLDOWN_MS = 400;
 
   let pendingRestoreRoomId = "";
   let pendingRestoreToBottom = false;
-  let pendingRestoreAttempts = 0;
   let restoringScroll = false;
   let pendingPinToBottomRoomId = "";
 
-  const MAX_RESTORE_ATTEMPTS = 8;
-
   let previousSelectedRoomId = "";
   let lastAutoLoadOlderAt = 0;
+
+  const selectedRootSpace = $derived(
+    $shellRootSpaces.find((room) => room.roomId === $shellSelectedRootSpaceId) ?? null,
+  );
+
+  const hasUnjoinedRoomsInScope = $derived(
+    $shellRootScopedRoomsWithUnjoined.some((room) => !room.joined),
+  );
+
+  const showJoinAllRooms = $derived(
+    !!selectedRootSpace &&
+      selectedRootSpace.joined &&
+      selectedRootSpace.kind === "space" &&
+      !isVirtualRoomId(selectedRootSpace.roomId) &&
+      hasUnjoinedRoomsInScope,
+  );
+
+  const joinAllRoomIds = $derived.by(() => {
+    const roomsInScope = $shellRootScopedRoomsWithUnjoined;
+    const roomsById = new Map(roomsInScope.map((room) => [room.roomId, room]));
+    const childRoomIds = new Set<string>();
+
+    for (const room of roomsInScope) {
+      for (const childRoomId of room.childrenRoomIds ?? []) {
+        if (roomsById.has(childRoomId)) {
+          childRoomIds.add(childRoomId);
+        }
+      }
+    }
+
+    const visited = new Set<string>();
+    const spacesToJoin: string[] = [];
+    const roomsToJoin: string[] = [];
+
+    const walk = (roomId: string) => {
+      if (visited.has(roomId)) {
+        return;
+      }
+
+      visited.add(roomId);
+      const room = roomsById.get(roomId);
+      if (!room) {
+        return;
+      }
+
+      if (!room.joined) {
+        if (room.kind === "space") {
+          spacesToJoin.push(room.roomId);
+        } else {
+          roomsToJoin.push(room.roomId);
+        }
+      }
+
+      for (const childId of room.childrenRoomIds ?? []) {
+        walk(childId);
+      }
+    };
+
+    if (
+      selectedRootSpace &&
+      !isVirtualRoomId(selectedRootSpace.roomId) &&
+      roomsById.has(selectedRootSpace.roomId)
+    ) {
+      walk(selectedRootSpace.roomId);
+    }
+
+    for (const room of roomsInScope) {
+      if (!childRoomIds.has(room.roomId)) {
+        walk(room.roomId);
+      }
+    }
+
+    for (const room of roomsInScope) {
+      walk(room.roomId);
+    }
+
+    return [...spacesToJoin, ...roomsToJoin];
+  });
 
   onMount(() => {
     let unlisten = () => {};
@@ -102,6 +185,7 @@
         onRoomRemoved: () => {},
         onSelectedRoomMessages: applySelectedRoomMessages,
         onChatMessagesStream: applyChatMessageStream,
+        onChatMessageImageLoaded: applyChatMessageImageLoaded,
       });
 
       unlistenTranscode = await listen<MatrixMediaTranscodeProgressEvent>(
@@ -126,11 +210,14 @@
     const selectedRoomId = $shellSelectedRoomId;
 
     if (!selectedRoomId) {
+      if (previousSelectedRoomId) {
+        saveRoomScrollState(previousSelectedRoomId);
+      }
+
       previousSelectedRoomId = "";
       lastAutoLoadOlderAt = 0;
       pendingRestoreRoomId = "";
       pendingRestoreToBottom = false;
-      pendingRestoreAttempts = 0;
       activeStreamId = "";
       activeLoadKind = null;
       streamMessageCount = 0;
@@ -153,9 +240,14 @@
       return;
     }
 
+    if (previousSelectedRoomId) {
+      saveRoomScrollState(previousSelectedRoomId);
+    }
+
+    const existingScrollState = roomScrollStates.get(selectedRoomId);
+
     pendingRestoreRoomId = selectedRoomId;
-    pendingRestoreToBottom = !roomScrollStates.has(selectedRoomId);
-    pendingRestoreAttempts = 0;
+    pendingRestoreToBottom = !existingScrollState || existingScrollState.bottomOffset === 0;
     previousSelectedRoomId = selectedRoomId;
     lastAutoLoadOlderAt = 0;
     activeStreamId = "";
@@ -211,44 +303,36 @@
 
       const maxScrollTop = Math.max(0, timelineElement.scrollHeight - timelineElement.clientHeight);
       let nextScrollTop = restoreToBottom
-        ? maxScrollTop
-        : Math.max(0, Math.min(maxScrollTop - targetScrollState.bottomOffset, maxScrollTop));
+        ? 0
+        : Math.max(0, Math.min(targetScrollState.bottomOffset, maxScrollTop));
 
-      const hasRenderableMessages =
-        timelineElement.querySelector("[data-message-event-id]") !== null;
-      const shouldRetryRestore =
-        !restoreToBottom &&
-        messages.length > 0 &&
-        targetScrollState.bottomOffset > 0 &&
-        (!hasRenderableMessages || maxScrollTop === 0) &&
-        pendingRestoreAttempts < MAX_RESTORE_ATTEMPTS;
+      restoringScroll = true;
 
-      if (shouldRetryRestore) {
-        pendingRestoreAttempts += 1;
-        return;
-      }
-
-      if (!restoreToBottom && targetScrollState.anchorEventId) {
-        const anchorElement = timelineElement.querySelector<HTMLElement>(
-          `[data-message-event-id="${targetScrollState.anchorEventId}"]`
+      for (let pass = 0; pass < 3; pass += 1) {
+        const passMaxScrollTop = Math.max(
+          0,
+          timelineElement.scrollHeight - timelineElement.clientHeight
         );
 
-        if (anchorElement) {
-          nextScrollTop = Math.max(
-            0,
-            Math.min(anchorElement.offsetTop - targetScrollState.anchorOffset, maxScrollTop)
-          );
+        nextScrollTop = restoreToBottom
+          ? 0
+          : Math.max(0, Math.min(targetScrollState.bottomOffset, passMaxScrollTop));
+
+        timelineElement.scrollTop = nextScrollTop;
+
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+        if (!timelineElement || $shellSelectedRoomId !== selectedRoomId) {
+          restoringScroll = false;
+          return;
         }
       }
 
-      restoringScroll = true;
-      timelineElement.scrollTop = nextScrollTop;
       saveRoomScrollState(selectedRoomId);
       restoringScroll = false;
 
       pendingRestoreRoomId = "";
       pendingRestoreToBottom = false;
-      pendingRestoreAttempts = 0;
     })();
   });
 
@@ -261,7 +345,9 @@
 
     saveRoomScrollState(selectedRoomId);
 
-    if (timelineElement.scrollTop > AUTO_LOAD_TOP_THRESHOLD_PX || loadingMessages || !nextFrom) {
+    const maxScrollTop = getTimelineMaxScrollTop();
+    const topOffset = Math.max(0, maxScrollTop - timelineElement.scrollTop);
+    if (topOffset > AUTO_LOAD_TOP_THRESHOLD_PX || loadingMessages || !nextFrom) {
       return;
     }
 
@@ -274,13 +360,40 @@
     void loadOlder();
   }
 
+  function getTimelineMaxScrollTop(): number {
+    if (!timelineElement) {
+      return 0;
+    }
+
+    return Math.max(0, timelineElement.scrollHeight - timelineElement.clientHeight);
+  }
+
+  function getCurrentBottomOffset(): number {
+    if (!timelineElement) {
+      return 0;
+    }
+
+    return Math.max(0, timelineElement.scrollTop);
+  }
+
+  function shouldAutoScrollToBottom(threshold = AUTO_SCROLL_TO_BOTTOM_THRESHOLD_PX): boolean {
+    if (!timelineElement) {
+      return true;
+    }
+
+    return getCurrentBottomOffset() <= threshold;
+  }
+
   function saveRoomScrollState(roomId: string) {
     if (!timelineElement) {
       return;
     }
 
+    const bottomOffset = Math.max(0, timelineElement.scrollTop);
+    const normalizedBottomOffset = bottomOffset <= 1 ? 0 : bottomOffset;
+
     roomScrollStates.set(roomId, {
-      bottomOffset: Math.max(0, timelineElement.scrollHeight - timelineElement.clientHeight - timelineElement.scrollTop),
+      bottomOffset: normalizedBottomOffset,
       ...findTopVisibleMessageAnchor(),
     });
   }
@@ -319,8 +432,12 @@
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
-  function queuePinTimelineToBottom(roomId: string) {
+  function queuePinTimelineToBottom(roomId: string, force = false) {
     if (pendingPinToBottomRoomId === roomId) {
+      return;
+    }
+
+    if (!force && !shouldAutoScrollToBottom()) {
       return;
     }
 
@@ -335,10 +452,10 @@
         return;
       }
 
-      const maxScrollTop = Math.max(0, timelineElement.scrollHeight - timelineElement.clientHeight);
+      const maxScrollTop = getTimelineMaxScrollTop();
 
       restoringScroll = true;
-      timelineElement.scrollTop = maxScrollTop;
+      timelineElement.scrollTop = 0;
       saveRoomScrollState(roomId);
       restoringScroll = false;
 
@@ -423,8 +540,10 @@
 
     streamMessageCount = payload.sequence + 1;
 
+    const shouldPinAfterUpdate = shouldAutoScrollToBottom();
+
     if (payload.loadKind === "older") {
-      // Older pagination keeps newest->older stream order; prepend preserves chronology.
+      // Older pagination keeps newest->older stream order; prepend without manual scroll adjustment.
       messages = [payload.message, ...messages];
     } else {
       // Initial streaming emits oldest->newest so appending keeps timeline ascending.
@@ -432,7 +551,7 @@
     }
 
     if (payload.loadKind === "initial") {
-      queuePinTimelineToBottom(payload.roomId);
+      queuePinTimelineToBottom(payload.roomId, shouldPinAfterUpdate);
     }
   }
 
@@ -463,9 +582,12 @@
           return candidate;
         }
 
+        const mergedImageUrl = message.imageUrl ?? candidate.imageUrl;
+
         return {
           ...candidate,
           ...message,
+          imageUrl: mergedImageUrl,
           localId: candidate.localId,
           sendState: candidate.sendState,
         };
@@ -542,10 +664,42 @@
       return;
     }
 
+    const shouldPinAfterUpdate = shouldAutoScrollToBottom();
     messages = [...prependOlder, ...messages, ...appendNewer];
+
     if (appendNewer.length) {
-      queuePinTimelineToBottom(payload.roomId);
+      queuePinTimelineToBottom(payload.roomId, shouldPinAfterUpdate);
     }
+  }
+
+  function applyChatMessageImageLoaded(payload: MatrixChatMessageImageLoadedEvent) {
+    if (payload.roomId !== $shellSelectedRoomId) {
+      return;
+    }
+
+    let didUpdate = false;
+    messages = messages.map((candidate) => {
+      if (candidate.eventId !== payload.eventId || candidate.imageUrl === payload.imageUrl) {
+        return candidate;
+      }
+
+      didUpdate = true;
+      return {
+        ...candidate,
+        imageUrl: payload.imageUrl,
+      };
+    });
+
+    if (!didUpdate) {
+      return;
+    }
+
+    const selectedRoomId = $shellSelectedRoomId;
+    if (!selectedRoomId) {
+      return;
+    }
+
+    saveRoomScrollState(selectedRoomId);
   }
 
   function buildOptimisticMessage(body: string, inReplyToEventId: string | null): TimelineMessage {
@@ -692,8 +846,9 @@
       return;
     }
 
+    const shouldPinAfterUpdate = shouldAutoScrollToBottom();
     messages = [...messages, optimistic];
-    queuePinTimelineToBottom($shellSelectedRoomId);
+    queuePinTimelineToBottom($shellSelectedRoomId, shouldPinAfterUpdate);
 
     sendingMedia = true;
     mediaErrorMessage = "";
@@ -814,7 +969,7 @@
       });
     } finally {
       sendingMessage = false;
-      queuePinTimelineToBottom(roomId);
+      queuePinTimelineToBottom(roomId, shouldAutoScrollToBottom());
     }
   }
 
@@ -844,8 +999,9 @@
       return;
     }
 
+    const shouldPinAfterUpdate = shouldAutoScrollToBottom();
     messages = [...messages, optimistic];
-    queuePinTimelineToBottom(roomId);
+    queuePinTimelineToBottom(roomId, shouldPinAfterUpdate);
 
     await sendOptimisticMessage(
       roomId,
@@ -1145,6 +1301,181 @@
       keepFocus: true,
     });
   }
+
+  async function joinRoomFromOverview(roomId: string) {
+    shellErrorMessage.set("");
+
+    const roomName =
+      $shellRootScopedRoomsWithUnjoined.find((room) => room.roomId === roomId)?.displayName ??
+      roomId;
+
+    const joinPromise = (async () => {
+      await joinRoomWithFallback(roomId);
+      await matrixTriggerRoomUpdate();
+      return roomName;
+    })();
+
+    toaster.promise(joinPromise, {
+      loading: {
+        title: "Joining room",
+        description: roomName,
+      },
+      success: (name) => ({
+        title: "Joined room",
+        description: name,
+      }),
+      error: (error) => ({
+        title: "Failed to join room",
+        description: error instanceof Error ? error.message : "Unable to join room",
+      }),
+    });
+
+    try {
+      await joinPromise;
+    } catch (error) {
+      shellErrorMessage.set(error instanceof Error ? error.message : "Failed to join room");
+    }
+  }
+
+  async function joinRooms(roomIds: string[]) {
+    if (joiningAllRooms || roomIds.length === 0) {
+      return;
+    }
+
+    joiningAllRooms = true;
+    shellErrorMessage.set("");
+
+    const joinPromise = (async () => {
+      let failedCount = 0;
+      const attempted = new Set<string>();
+      const knownRoomsById = new Map(
+        $shellRootScopedRoomsWithUnjoined.map((room) => [room.roomId, room]),
+      );
+
+      const pendingSpaces: string[] = [];
+      const pendingRooms: string[] = [];
+
+      for (const roomId of roomIds) {
+        const room = knownRoomsById.get(roomId);
+        if (room?.kind === "space") {
+          pendingSpaces.push(roomId);
+        } else {
+          pendingRooms.push(roomId);
+        }
+      }
+
+      while (pendingSpaces.length > 0 || pendingRooms.length > 0) {
+        if (pendingSpaces.length > 0) {
+          const nextSpaceId = pendingSpaces.shift();
+          if (!nextSpaceId || attempted.has(nextSpaceId)) {
+            continue;
+          }
+
+          attempted.add(nextSpaceId);
+
+          try {
+            await joinRoomWithFallback(nextSpaceId);
+
+            const childRoomIds = await matrixGetSpaceChildIds(nextSpaceId);
+            for (const childRoomId of childRoomIds) {
+              if (attempted.has(childRoomId)) {
+                continue;
+              }
+
+              const childRoom = knownRoomsById.get(childRoomId);
+              if (childRoom?.kind === "space") {
+                pendingSpaces.push(childRoomId);
+              } else {
+                pendingRooms.push(childRoomId);
+              }
+            }
+          } catch {
+            failedCount += 1;
+          }
+
+          continue;
+        }
+
+        const nextRoomId = pendingRooms.shift();
+        if (!nextRoomId || attempted.has(nextRoomId)) {
+          continue;
+        }
+
+        attempted.add(nextRoomId);
+
+        try {
+          await joinRoomWithFallback(nextRoomId);
+        } catch {
+          failedCount += 1;
+        }
+      }
+
+      await matrixTriggerRoomUpdate();
+
+      const joinedCount = attempted.size - failedCount;
+      if (joinedCount === 0) {
+        throw new Error("No rooms could be joined.");
+      }
+
+      return { joinedCount, failedCount, attemptedCount: attempted.size };
+    })();
+
+    toaster.promise(joinPromise, {
+      loading: {
+        title: "Joining rooms",
+        description: "Joining rooms and spaces...",
+      },
+      success: ({ joinedCount, failedCount, attemptedCount }) => ({
+        title: failedCount > 0 ? "Joined rooms with skips" : "Joined rooms",
+        description:
+          failedCount > 0
+            ? `Joined ${joinedCount}, skipped ${failedCount}.`
+            : `Joined ${joinedCount} of ${attemptedCount}.`,
+      }),
+      error: (error) => ({
+        title: "Failed to join rooms",
+        description: error instanceof Error ? error.message : "Unable to join rooms",
+      }),
+    });
+
+    try {
+      await joinPromise;
+    } catch (error) {
+      shellErrorMessage.set(
+        error instanceof Error ? error.message : "Failed to join rooms",
+      );
+    } finally {
+      joiningAllRooms = false;
+    }
+  }
+
+  async function joinAllRooms() {
+    await joinRooms(joinAllRoomIds);
+  }
+
+  function inferServerNamesFromRoomIdOrAlias(roomIdOrAlias: string): string[] {
+    const separatorIndex = roomIdOrAlias.indexOf(":");
+    if (separatorIndex < 0 || separatorIndex >= roomIdOrAlias.length - 1) {
+      return [];
+    }
+
+    const serverName = roomIdOrAlias.slice(separatorIndex + 1).trim();
+    return serverName ? [serverName] : [];
+  }
+
+  async function joinRoomWithFallback(roomIdOrAlias: string): Promise<void> {
+    try {
+      await matrixJoinRoom(roomIdOrAlias);
+      return;
+    } catch (initialError) {
+      const fallbackServerNames = inferServerNamesFromRoomIdOrAlias(roomIdOrAlias);
+      if (fallbackServerNames.length === 0) {
+        throw initialError;
+      }
+
+      await matrixJoinRoom(roomIdOrAlias, fallbackServerNames);
+    }
+  }
 </script>
 
 {#if !$shellSelectedRoomId}
@@ -1162,13 +1493,20 @@
     {:else}
       <section class="space-y-2">
         <h2 class="text-sm font-medium">{selectedRootSpaceName} Hierarchy</h2>
-        {#if $shellRootScopedRooms.length === 0}
+        {#if $shellRootScopedRoomsWithUnjoined.length === 0}
           <p class="text-sm text-surface-700-300">No spaces or rooms found under this root space.</p>
         {:else}
           <RoomList
-            rooms={$shellRootScopedRooms}
+            rooms={$shellRootScopedRoomsWithUnjoined}
             selectedRoomId={$shellSelectedRoomId}
             onSelectRoom={selectRoomFromOverview}
+            onJoinRoom={joinRoomFromOverview}
+            showJoinAllRooms={showJoinAllRooms}
+            joinAllRoomContext={selectedRootSpace}
+            joinAllRoomIds={joinAllRoomIds}
+            onJoinAllRooms={joinAllRooms}
+            onJoinAllChildren={joinRooms}
+            joinAllDisabled={joiningAllRooms}
             emptyMessage="No spaces or rooms found under this root space."
           />
         {/if}

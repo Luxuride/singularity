@@ -1,12 +1,14 @@
 import { listen } from "@tauri-apps/api/event";
 
 import {
+  normalizeImageUrl,
   normalizeChatSummaryImageUrl,
   normalizeChatMessageStreamEvent,
   normalizeSelectedRoomMessagesEvent,
 } from "./media";
 import type {
   MatrixChatSummary,
+  MatrixChatMessageImageLoadedEvent,
   MatrixChatMessageStreamEvent,
   MatrixRoomRemovedEvent,
   MatrixSelectedRoomMessagesEvent,
@@ -18,6 +20,7 @@ const EVENT_ROOM_UPDATED = "matrix://rooms/updated";
 const EVENT_ROOM_REMOVED = "matrix://rooms/removed";
 const EVENT_SELECTED_ROOM_MESSAGES = "matrix://rooms/selected/messages";
 const EVENT_CHAT_MESSAGES_STREAM = "matrix://rooms/messages/stream";
+const EVENT_CHAT_MESSAGE_IMAGE_LOADED = "matrix://rooms/messages/image-loaded";
 const EVENT_VERIFICATION_STATE_CHANGED = "matrix://verification/state";
 
 export interface RoomUpdateHandlers {
@@ -26,6 +29,7 @@ export interface RoomUpdateHandlers {
   onRoomRemoved: (payload: MatrixRoomRemovedEvent) => void;
   onSelectedRoomMessages: (payload: MatrixSelectedRoomMessagesEvent) => void;
   onChatMessagesStream: (payload: MatrixChatMessageStreamEvent) => void;
+  onChatMessageImageLoaded: (payload: MatrixChatMessageImageLoadedEvent) => void;
   onVerificationStateChanged?: (payload: MatrixVerificationStateChangedEvent) => void;
 }
 
@@ -43,6 +47,12 @@ export async function subscribeToRoomUpdates(handlers: RoomUpdateHandlers): Prom
     ),
     listen<MatrixChatMessageStreamEvent>(EVENT_CHAT_MESSAGES_STREAM, (event) =>
       handlers.onChatMessagesStream(normalizeChatMessageStreamEvent(event.payload)),
+    ),
+    listen<MatrixChatMessageImageLoadedEvent>(EVENT_CHAT_MESSAGE_IMAGE_LOADED, (event) =>
+      handlers.onChatMessageImageLoaded({
+        ...event.payload,
+        imageUrl: normalizeImageUrl(event.payload.imageUrl) ?? event.payload.imageUrl,
+      }),
     ),
     listen<MatrixVerificationStateChangedEvent>(EVENT_VERIFICATION_STATE_CHANGED, (event) => {
       handlers.onVerificationStateChanged?.(event.payload);

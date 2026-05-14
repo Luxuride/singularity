@@ -1,8 +1,9 @@
 <script lang="ts">
+	import { goto } from "$app/navigation";
 	import { onMount } from "svelte";
 	import { get } from "svelte/store";
 
-	import { matrixLogout, matrixRecoveryStatus } from "$lib/auth/api";
+	import { matrixRecoveryStatus } from "$lib/auth/api";
 	import { matrixTriggerRoomUpdate } from "$lib/chats/api";
 	import { matrixGetMediaSettings, matrixSetMediaSettings } from "$lib/settings/api";
 	import {
@@ -13,6 +14,7 @@
 		shellRecoveryState,
 		shellRefreshing,
 		shellRootScopedRooms,
+		shellRootScopedRoomsWithUnjoined,
 		shellRootSpaces,
 		shellSelectedRootSpaceId,
 		shellSelectedRoomId,
@@ -121,16 +123,16 @@
 		shellErrorMessage.set("");
 
 		try {
-			await matrixLogout();
 			shellChats.set([]);
 			shellRootSpaces.set([]);
 			shellRootScopedRooms.set([]);
+			shellRootScopedRoomsWithUnjoined.set([]);
 			shellSelectedRoomId.set("");
 			shellSelectedRootSpaceId.set("");
 			shellCurrentUserId.set("");
 			shellRecoveryState.set(null);
 			shellPickerCustomEmoji.set([]);
-			window.location.replace("/");
+			await goto("/loading?mode=logout");
 		} catch (error) {
 			shellErrorMessage.set(error instanceof Error ? error.message : "Failed to log out");
 		} finally {

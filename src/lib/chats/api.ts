@@ -7,7 +7,15 @@ import type {
   MatrixGetChatNavigationResponse,
   MatrixGetChatsResponse,
   MatrixGetRoomImageResponse,
+  MatrixGetRoomPreviewRequest,
+  MatrixGetRoomPreviewResponse,
+  MatrixRoomPreview,
+  MatrixGetSpaceChildIdsResponse,
   MatrixGetUserAvatarResponse,
+  MatrixLeaveRoomRequest,
+  MatrixLeaveRoomResponse,
+  MatrixLeaveRoomsRequest,
+  MatrixLeaveRoomsResponse,
   MatrixGetChatMessagesRequest,
   MatrixGetChatMessagesResponse,
   MatrixPickerCustomEmoji,
@@ -70,6 +78,26 @@ export async function matrixGetRoomImage(roomId: string): Promise<string | null>
   return normalizeImageUrl(response.imageUrl);
 }
 
+export async function matrixGetRoomPreview(
+  input: MatrixGetRoomPreviewRequest,
+): Promise<MatrixRoomPreview> {
+  const response = await invokeMatrixCommand<MatrixGetRoomPreviewResponse>(
+    "matrix_get_room_preview",
+    { request: input },
+  );
+
+  return response.room;
+}
+
+export async function matrixGetSpaceChildIds(spaceId: string): Promise<string[]> {
+  const response = await invokeMatrixCommand<MatrixGetSpaceChildIdsResponse>(
+    "matrix_get_space_child_ids",
+    { request: { spaceId } },
+  );
+
+  return response.childRoomIds;
+}
+
 export async function matrixGetUserAvatar(roomId: string, userId: string): Promise<string | null> {
   const response = await invokeMatrixCommand<MatrixGetUserAvatarResponse>("matrix_get_user_avatar", {
     request: { roomId, userId },
@@ -81,15 +109,47 @@ export async function matrixGetUserAvatar(roomId: string, userId: string): Promi
 export async function matrixGetChatNavigation(
   input?: MatrixGetChatNavigationRequest,
 ): Promise<MatrixGetChatNavigationResponse> {
-  const response = await invokeMatrixCommand<MatrixGetChatNavigationResponse>("matrix_get_chat_navigation", {
-    request: input ?? null,
-  });
+  const response = await invokeMatrixCommand<MatrixGetChatNavigationResponse>(
+    "matrix_get_chat_navigation",
+    { request: input ?? null },
+  );
 
   return {
     ...response,
     rootSpaces: response.rootSpaces.map(normalizeChatSummaryImageUrl),
     rootScopedRooms: response.rootScopedRooms.map(normalizeChatSummaryImageUrl),
   };
+}
+
+export async function matrixGetChatNavigationWithUnjoined(
+  input?: MatrixGetChatNavigationRequest,
+): Promise<MatrixGetChatNavigationResponse> {
+  const response = await invokeMatrixCommand<MatrixGetChatNavigationResponse>(
+    "matrix_get_chat_navigation_with_unjoined",
+    { request: input ?? null },
+  );
+
+  return {
+    ...response,
+    rootSpaces: response.rootSpaces.map(normalizeChatSummaryImageUrl),
+    rootScopedRooms: response.rootScopedRooms.map(normalizeChatSummaryImageUrl),
+  };
+}
+
+export async function matrixLeaveRoom(
+  input: MatrixLeaveRoomRequest,
+): Promise<MatrixLeaveRoomResponse> {
+  return invokeMatrixCommand<MatrixLeaveRoomResponse>("matrix_leave_room", {
+    request: input,
+  });
+}
+
+export async function matrixLeaveRooms(
+  input: MatrixLeaveRoomsRequest,
+): Promise<MatrixLeaveRoomsResponse> {
+  return invokeMatrixCommand<MatrixLeaveRoomsResponse>("matrix_leave_rooms", {
+    request: input,
+  });
 }
 
 export async function matrixSetRootSpaceOrder(

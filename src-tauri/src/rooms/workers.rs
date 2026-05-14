@@ -2,58 +2,73 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use log::{error, info, warn};
+use matrix_sdk::ruma::api::client::state::get_state_events;
 use matrix_sdk::ruma::events::GlobalAccountDataEventType;
 use matrix_sdk::ruma::events::StateEventType;
+use matrix_sdk::ruma::{room::RoomType, OwnedRoomId, OwnedServerName, RoomOrAliasId};
+use matrix_sdk::RoomState;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
+use tokio::time::timeout;
 
 use crate::auth::handle_unknown_token_error;
 use crate::auth::AuthState;
 use crate::db::AppDb;
 use crate::messages::{
-    fetch_room_messages_from_client, store_initial_room_messages, MatrixGetChatMessagesResponse,
+    cache_mxc_media_to_local_path, fetch_room_messages_from_client, store_initial_room_messages,
+    MatrixGetChatMessagesResponse,
 };
 use crate::protocol::config;
 
 use super::persistence::{collect_and_store_chats, refresh_room_snapshot};
 use super::types::{MatrixChatSummary, MatrixRoomKind};
 use super::{
-    MatrixRoomRemovedEvent, MatrixSelectedRoomMessagesEvent, RoomRefreshTrigger, RoomSnapshot,
-    RoomUpdateEvent, RoomUpdateTriggerState,
+    MatrixRoomRefreshCompleteEvent, MatrixRoomRemovedEvent, MatrixSelectedRoomMessagesEvent,
+    RoomRefreshTrigger, RoomSnapshot, RoomUpdateEvent, RoomUpdateTriggerState,
 };
 
 pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixChatSummary> {
     let joined_rooms = client.joined_rooms();
+    let invited_rooms = client.invited_rooms();
     let children_by_parent = children_room_ids_by_parent_room(&joined_rooms).await;
     let direct_room_ids = direct_room_ids(client).await;
-    let mut chats = Vec::with_capacity(joined_rooms.len());
+    let mut chats = Vec::with_capacity(joined_rooms.len() + invited_rooms.len());
+    let mut seen_room_ids = HashSet::new();
 
     for room in joined_rooms {
+        let room_id = room.room_id().to_string();
         let display_name = room
             .display_name()
             .await
             .map(|name| name.to_string())
-            .unwrap_or_else(|_| room.room_id().to_string());
+            .unwrap_or_else(|_| room_id.clone());
 
         let encrypted = room
             .latest_encryption_state()
             .await
             .map(|state| state.is_encrypted())
             .unwrap_or(false);
-        let joined_members = room.joined_members_count();
-        let is_direct = direct_room_ids.contains(room.room_id().as_str());
+        // Prefer active member count (joined + invited) because joined count
+        // can remain stale/lower with lazy member loading for some rooms.
+        // Keep at least 1 for joined rooms (the current user).
+        let joined_members = room
+            .active_members_count()
+            .max(room.joined_members_count())
+            .max(1);
+        let is_direct = direct_room_ids.contains(room_id.as_str());
         let kind = if room.is_space() {
             MatrixRoomKind::Space
         } else {
             MatrixRoomKind::Room
         };
         let children_room_ids = children_by_parent
-            .get(room.room_id().as_str())
+            .get(room_id.as_str())
             .cloned()
             .unwrap_or_default();
 
+        seen_room_ids.insert(room_id.clone());
         chats.push(MatrixChatSummary {
-            room_id: room.room_id().to_string(),
+            room_id,
             display_name,
             image_url: None,
             encrypted,
@@ -63,6 +78,118 @@ pub(crate) async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<M
             is_direct,
             children_room_ids,
         });
+    }
+
+    for room in invited_rooms {
+        let room_id = room.room_id().to_string();
+        if !seen_room_ids.insert(room_id.clone()) {
+            continue;
+        }
+
+        let display_name = room
+            .display_name()
+            .await
+            .map(|name| name.to_string())
+            .unwrap_or_else(|_| room_id.clone());
+
+        let is_direct = direct_room_ids.contains(room_id.as_str());
+        let kind = if room.is_space() {
+            MatrixRoomKind::Space
+        } else {
+            MatrixRoomKind::Room
+        };
+
+        chats.push(MatrixChatSummary {
+            room_id,
+            display_name,
+            image_url: None,
+            encrypted: false,
+            joined_members: 0,
+            kind,
+            joined: false,
+            is_direct,
+            children_room_ids: Vec::new(),
+        });
+    }
+
+    let mut queued_child_ids = HashSet::new();
+    let mut pending_child_ids = Vec::new();
+    let mut previewed_child_count = 0usize;
+    for child_ids in children_by_parent.values() {
+        for child_id in child_ids {
+            if !seen_room_ids.contains(child_id.as_str()) && queued_child_ids.insert(child_id.clone()) {
+                pending_child_ids.push(child_id.clone());
+            }
+        }
+    }
+
+    while let Some(room_id_raw) = pending_child_ids.pop() {
+        if previewed_child_count >= config::MAX_SPACE_CHILD_PREVIEWS_PER_PASS {
+            break;
+        }
+
+        let Ok(room_or_alias_id) = <&RoomOrAliasId>::try_from(room_id_raw.as_str()) else {
+            continue;
+        };
+
+        let via_servers = via_servers_from_room_id(&room_id_raw);
+
+        let preview = match timeout(
+            Duration::from_millis(config::ROOM_PREVIEW_TIMEOUT_MS),
+            client.get_room_preview(room_or_alias_id, via_servers),
+        )
+        .await
+        {
+            Err(_) => continue,
+            Ok(Err(_)) => continue,
+            Ok(Ok(preview)) => preview,
+        };
+
+        let display_name = preview
+            .name
+            .or_else(|| preview.canonical_alias.as_ref().map(|alias| alias.to_string()))
+            .unwrap_or_else(|| preview.room_id.to_string());
+
+        let image_url = match preview.avatar_url.as_ref() {
+            Some(avatar_url) => cache_mxc_media_to_local_path(client, avatar_url.as_str()).await,
+            None => None,
+        };
+
+        let (kind, children_room_ids) = if preview.room_type == Some(RoomType::Space) {
+            let is_joined_space = preview.state == Some(RoomState::Joined);
+            let child_ids = if is_joined_space {
+                fetch_space_child_ids(client, &preview.room_id).await
+            } else {
+                Vec::new()
+            };
+
+            for child_id in &child_ids {
+                if !seen_room_ids.contains(child_id.as_str())
+                    && queued_child_ids.insert(child_id.clone())
+                {
+                    pending_child_ids.push(child_id.clone());
+                }
+            }
+
+            (MatrixRoomKind::Space, child_ids)
+        } else {
+            (MatrixRoomKind::Room, Vec::new())
+        };
+
+        chats.push(MatrixChatSummary {
+            room_id: preview.room_id.to_string(),
+            display_name,
+            image_url,
+            encrypted: false,
+            joined_members: preview.num_joined_members,
+            kind,
+            joined: false,
+            is_direct: preview.is_direct.unwrap_or(false),
+            children_room_ids,
+        });
+
+        previewed_child_count += 1;
+        seen_room_ids.insert(preview.room_id.to_string());
     }
 
     chats.sort_by(|a, b| {
@@ -164,6 +291,53 @@ async fn children_room_ids_by_parent_room(
             (parent_room_id, child_ids)
         })
         .collect()
+}
+
+async fn fetch_space_child_ids(
+    client: &matrix_sdk::Client,
+    room_id: &OwnedRoomId,
+) -> Vec<String> {
+    let request = get_state_events::v3::Request::new(room_id.clone());
+    let response = match client.send(request).await {
+        Ok(response) => response,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut child_ids = HashSet::<String>::new();
+    for raw_event in response.room_state {
+        let Ok(value) = serde_json::to_value(&raw_event) else {
+            continue;
+        };
+
+        let event_type = value.get("type").and_then(|value| value.as_str());
+        if event_type != Some("m.space.child") {
+            continue;
+        }
+
+        let Some(child_room_id) = value.get("state_key").and_then(|value| value.as_str()) else {
+            continue;
+        };
+
+        if !child_room_id.is_empty() {
+            child_ids.insert(child_room_id.to_string());
+        }
+    }
+
+    let mut child_ids = child_ids.into_iter().collect::<Vec<_>>();
+    child_ids.sort();
+    child_ids
+}
+
+
+fn via_servers_from_room_id(room_id_raw: &str) -> Vec<OwnedServerName> {
+    let Ok(room_id) = OwnedRoomId::try_from(room_id_raw) else {
+        return Vec::new();
+    };
+
+    room_id
+        .server_name()
+        .map(|server| vec![server.to_owned()])
+        .unwrap_or_default()
 }
 
 pub fn start_room_update_worker(app: AppHandle) -> RoomUpdateTriggerState {
@@ -368,6 +542,12 @@ async fn run_refresh_pass(
             }
         }
     }
+
+    let refresh_event = MatrixRoomRefreshCompleteEvent {
+        room_count: current_snapshot.len(),
+        has_rooms: !current_snapshot.is_empty(),
+    };
+    let _ = app.emit(RoomUpdateEvent::RoomRefreshComplete.as_str(), refresh_event);
 
     *previous_snapshot = current_snapshot;
     Ok(true)

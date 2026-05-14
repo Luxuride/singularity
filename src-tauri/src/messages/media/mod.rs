@@ -47,6 +47,12 @@ impl MediaResolver for DefaultMediaResolver {
         client: &matrix_sdk::Client,
         event: &Value,
     ) -> Option<String> {
+        if let Some(source_url) = image_source_key(event) {
+            if let Some(cached_path) = self.resolve_pack_media_url(client, source_url).await {
+                return Some(cached_path);
+            }
+        }
+
         let media_source = image_media_source_from_event(event)?;
         let mime_type = image_mime_type_from_event(event)
             .filter(|value| !value.trim().is_empty())
