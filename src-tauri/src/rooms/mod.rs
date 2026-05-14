@@ -19,6 +19,7 @@ pub enum RoomUpdateEvent {
     RoomAdded,
     RoomUpdated,
     RoomRemoved,
+    RoomRefreshComplete,
     SelectedRoomMessages,
 }
 
@@ -28,6 +29,7 @@ impl RoomUpdateEvent {
             Self::RoomAdded => event_paths::ROOM_ADDED,
             Self::RoomUpdated => event_paths::ROOM_UPDATED,
             Self::RoomRemoved => event_paths::ROOM_REMOVED,
+            Self::RoomRefreshComplete => event_paths::ROOM_REFRESH_COMPLETE,
             Self::SelectedRoomMessages => event_paths::SELECTED_ROOM_MESSAGES,
         }
     }
@@ -73,6 +75,13 @@ pub struct MatrixTriggerRoomUpdateResponse {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MatrixRoomRemovedEvent {
     pub(crate) room_id: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MatrixRoomRefreshCompleteEvent {
+    pub(crate) room_count: usize,
+    pub(crate) has_rooms: bool,
 }
 
 #[derive(Clone, Serialize)]

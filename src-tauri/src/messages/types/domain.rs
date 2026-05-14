@@ -89,3 +89,11 @@ pub struct MatrixChatMessageStreamEvent {
     pub next_from: Option<String>,
     pub done: bool,
 }
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixChatMessageImageLoadedEvent {
+    pub room_id: String,
+    pub event_id: String,
+    pub image_url: String,
+}

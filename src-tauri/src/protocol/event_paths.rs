@@ -1,7 +1,10 @@
 pub const ROOM_ADDED: &str = "matrix://rooms/added";
 pub const ROOM_UPDATED: &str = "matrix://rooms/updated";
 pub const ROOM_REMOVED: &str = "matrix://rooms/removed";
+pub const ROOM_REFRESH_COMPLETE: &str = "matrix://rooms/refresh/complete";
+pub const AUTH_LOGOUT_COMPLETE: &str = "matrix://auth/logout/complete";
 pub const SELECTED_ROOM_MESSAGES: &str = "matrix://rooms/selected/messages";
 pub const CHAT_MESSAGES_STREAM: &str = "matrix://rooms/messages/stream";
+pub const CHAT_MESSAGE_IMAGE_LOADED: &str = "matrix://rooms/messages/image-loaded";
 pub const VERIFICATION_STATE_CHANGED: &str = "matrix://verification/state";
 pub const MEDIA_TRANSCODE_PROGRESS: &str = "matrix://media/transcode/progress";

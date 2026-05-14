@@ -3,7 +3,7 @@ mod requests;
 mod responses;
 
 pub(crate) use domain::{
-    MatrixChatMessage, MatrixChatMessageStreamEvent, MatrixCustomEmoji,
+    MatrixChatMessage, MatrixChatMessageImageLoadedEvent, MatrixChatMessageStreamEvent, MatrixCustomEmoji,
     MatrixMediaTranscodeProgressEvent, MatrixMessageDecryptionStatus, MatrixMessageLoadKind,
     MatrixMessageVerificationStatus, MatrixPickerCustomEmoji, MatrixReactionSummary,
 };

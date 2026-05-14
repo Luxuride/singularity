@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Progress } from "@skeletonlabs/skeleton-svelte";
   import type { TimelineMessage } from "../shared";
 
   interface Props {
@@ -10,6 +11,27 @@
     message,
     onImageContextMenu,
   }: Props = $props();
+
+  let imageLoaded = $state(false);
+  let imageLoadFailed = $state(false);
+  let currentImageSrc = $state<string | null>(null);
+
+  $effect(() => {
+    if (message.messageType !== "m.image" || !message.imageUrl) {
+      imageLoaded = false;
+      imageLoadFailed = false;
+      currentImageSrc = null;
+      return;
+    }
+
+    if (message.imageUrl === currentImageSrc) {
+      return;
+    }
+
+    currentImageSrc = message.imageUrl;
+    imageLoaded = false;
+    imageLoadFailed = false;
+  });
 
   function stripMxReplyBlock(html: string): string {
     return html.replace(/<mx-reply>[\s\S]*?<\/mx-reply>/i, "").trimStart();
@@ -23,17 +45,43 @@
 {#if message.messageType === "m.image"}
   <figure class="space-y-2">
     {#if message.imageUrl}
-      <img
-        src={message.imageUrl}
-        alt={message.body || "Image"}
-        loading="lazy"
-        class="max-h-[28rem] w-full rounded preset-outlined-surface-300-700 object-contain bg-surface-100-900"
-        oncontextmenu={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onImageContextMenu?.(event);
-        }}
-      />
+      <div class="relative rounded preset-outlined-surface-300-700 bg-surface-100-900">
+        {#if !imageLoaded && !imageLoadFailed}
+          <div class="absolute inset-0 grid place-items-center rounded bg-surface-100-900/85" aria-hidden="true">
+            <Progress value={null} class="size-8 text-primary-500">
+              <Progress.Circle>
+                <Progress.CircleTrack class="stroke-surface-400-600" />
+                <Progress.CircleRange class="stroke-primary-500" />
+              </Progress.Circle>
+            </Progress>
+          </div>
+        {/if}
+
+        {#if !imageLoadFailed}
+          <img
+            src={message.imageUrl}
+            alt={message.body || "Image"}
+            loading="lazy"
+            decoding="async"
+            class={`max-h-[28rem] min-h-40 w-full rounded object-contain bg-surface-100-900 transition-opacity duration-200 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
+            onload={() => {
+              imageLoaded = true;
+            }}
+            onerror={() => {
+              imageLoadFailed = true;
+            }}
+            oncontextmenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onImageContextMenu?.(event);
+            }}
+          />
+        {:else}
+          <div class="rounded bg-surface-100-900 p-4 text-sm text-surface-700-300">
+            Image unavailable
+          </div>
+        {/if}
+      </div>
     {:else}
       <div class="rounded preset-outlined-surface-300-700 bg-surface-100-900 p-4 text-sm text-surface-700-300">
         Image unavailable

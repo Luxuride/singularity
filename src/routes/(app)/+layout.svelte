@@ -3,16 +3,21 @@
   import { page } from "$app/state";
   import { onMount } from "svelte";
   import { get } from "svelte/store";
+  import { listen } from "@tauri-apps/api/event";
   import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 
-  import { matrixLogout, matrixRecoveryStatus, matrixSessionStatus } from "$lib/auth/api";
+  import { matrixRecoveryStatus, matrixSessionStatus } from "$lib/auth/api";
   import {
     matrixGetChatNavigation,
+    matrixGetChatNavigationWithUnjoined,
     matrixGetChats,
     matrixGetPickerAssets,
+    matrixGetRoomPreview,
     matrixSetRootSpaceOrder,
     matrixTriggerRoomUpdate,
     matrixJoinRoom,
+    matrixLeaveRoom,
+    matrixLeaveRooms,
   } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
   import {
@@ -24,21 +29,31 @@
     shellRefreshing,
     shellPickerCustomEmoji,
     shellRootScopedRooms,
+    shellRootScopedRoomsWithUnjoined,
     shellRootSpaces,
     shellSelectedRootSpaceId,
     shellSelectedRoomId,
   } from "$lib/chats/shell";
   import type {
     MatrixChatSummary,
+    MatrixRoomRefreshCompleteEvent,
     MatrixRoomRemovedEvent,
     MatrixSelectedRoomMessagesEvent,
+    MatrixRoomPreview,
   } from "$lib/chats/types";
   import { AppHeader, RootSpaceList, RoomList } from "$lib/components/navigation";
+  import JoinConfirmDialog from "$lib/components/navigation/rooms/JoinConfirmDialog.svelte";
 
   let { children } = $props();
 
   let checkingAuth = $state(true);
   let loggingOut = $state(false);
+  let deepLinkJoinOpen = $state(false);
+  let deepLinkJoinRoom = $state<MatrixRoomPreview | null>(null);
+  let deepLinkJoinTarget = $state<{ roomIdOrAlias: string; serverNames: string[] } | null>(null);
+  let deepLinkJoining = $state(false);
+
+  const ROOM_REFRESH_COMPLETE_EVENT = "matrix://rooms/refresh/complete";
 
   onMount(() => {
     let unlisten = () => {};
@@ -51,6 +66,7 @@
         onRoomRemoved: applyRoomRemoval,
         onSelectedRoomMessages: (_payload: MatrixSelectedRoomMessagesEvent) => {},
         onChatMessagesStream: () => {},
+        onChatMessageImageLoaded: () => {},
       });
 
       try {
@@ -90,18 +106,59 @@
             
             // Support `?via=example.com&via=another.com`
             const serverNames = parsed.searchParams.getAll("via");
-            
-            try {
-              const res = await matrixJoinRoom(targetOrAlias, serverNames);
-              await syncRoute("", res.roomId);
-            } catch (error) {
-              shellErrorMessage.set(error instanceof Error ? error.message : `Failed to join from link: ${targetOrAlias}`);
-            }
+            await requestDeepLinkJoin(targetOrAlias, serverNames);
           }
         }
       } catch {
         continue;
       }
+    }
+  }
+
+  async function requestDeepLinkJoin(roomIdOrAlias: string, serverNames: string[]) {
+    shellErrorMessage.set("");
+
+    try {
+      const preview = await matrixGetRoomPreview({ roomIdOrAlias, serverNames });
+      deepLinkJoinRoom = preview;
+      deepLinkJoinTarget = { roomIdOrAlias, serverNames };
+      deepLinkJoinOpen = true;
+    } catch (error) {
+      shellErrorMessage.set(
+        error instanceof Error ? error.message : `Failed to preview room: ${roomIdOrAlias}`,
+      );
+    }
+  }
+
+  function closeDeepLinkJoin() {
+    deepLinkJoinOpen = false;
+    deepLinkJoinRoom = null;
+    deepLinkJoinTarget = null;
+  }
+
+  async function confirmDeepLinkJoin() {
+    if (!deepLinkJoinTarget || deepLinkJoining) {
+      return;
+    }
+
+    deepLinkJoining = true;
+    shellErrorMessage.set("");
+
+    try {
+      const res = await matrixJoinRoom(
+        deepLinkJoinTarget.roomIdOrAlias,
+        deepLinkJoinTarget.serverNames,
+      );
+      await syncRoute("", res.roomId);
+      closeDeepLinkJoin();
+    } catch (error) {
+      shellErrorMessage.set(
+        error instanceof Error
+          ? error.message
+          : `Failed to join from link: ${deepLinkJoinTarget.roomIdOrAlias}`,
+      );
+    } finally {
+      deepLinkJoining = false;
     }
   }
 
@@ -214,6 +271,21 @@
     }
   }
 
+  async function waitForRoomRefreshComplete(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      void (async () => {
+        let unlisten: (() => void) | null = null;
+        unlisten = await listen<MatrixRoomRefreshCompleteEvent>(
+          ROOM_REFRESH_COMPLETE_EVENT,
+          () => {
+            unlisten?.();
+            resolve();
+          },
+        );
+      })();
+    });
+  }
+
   async function syncRoute(rootSpaceId: string, roomId: string) {
     const params = new URLSearchParams(page.url.searchParams);
     if (rootSpaceId) {
@@ -234,12 +306,19 @@
   }
 
   async function refreshChatNavigation(input?: { rootSpaceId?: string; selectedRoomId?: string }) {
-    const response = await matrixGetChatNavigation(input);
-    const nextRootSpaceId = response.selectedRootSpaceId ?? "";
+    const joinedResponse = await matrixGetChatNavigation(input);
+    const nextRootSpaceId = joinedResponse.selectedRootSpaceId ?? "";
 
-    shellRootSpaces.set(response.rootSpaces);
-    shellRootScopedRooms.set(response.rootScopedRooms);
+    shellRootSpaces.set(joinedResponse.rootSpaces);
     shellSelectedRootSpaceId.set(nextRootSpaceId);
+    shellRootScopedRooms.set(joinedResponse.rootScopedRooms);
+
+    const scopedResponse = await matrixGetChatNavigationWithUnjoined({
+      rootSpaceId: nextRootSpaceId,
+      selectedRoomId: input?.selectedRoomId,
+    });
+
+    shellRootScopedRoomsWithUnjoined.set(scopedResponse.rootScopedRooms);
 
     return nextRootSpaceId;
   }
@@ -291,20 +370,70 @@
     await syncRoute(nextRootSpaceId, roomId);
   }
 
+  async function leaveRoom(roomId: string) {
+    shellErrorMessage.set("");
+
+    try {
+      await matrixLeaveRoom({ roomId });
+      if (get(shellSelectedRoomId) === roomId) {
+        shellSelectedRoomId.set("");
+      }
+
+      if (get(shellSelectedRootSpaceId) === roomId) {
+        shellSelectedRootSpaceId.set("");
+      }
+
+      await matrixTriggerRoomUpdate();
+      await waitForRoomRefreshComplete();
+      await refreshChatNavigationAndRoute();
+    } catch (error) {
+      shellErrorMessage.set(error instanceof Error ? error.message : "Failed to leave room");
+      throw error;
+    }
+  }
+
+  async function leaveRooms(roomIds: string[]) {
+    if (roomIds.length === 0) {
+      return;
+    }
+
+    shellErrorMessage.set("");
+
+    try {
+      await matrixLeaveRooms({ roomIds });
+
+      if (roomIds.includes(get(shellSelectedRoomId))) {
+        shellSelectedRoomId.set("");
+      }
+
+      if (roomIds.includes(get(shellSelectedRootSpaceId))) {
+        shellSelectedRootSpaceId.set("");
+      }
+
+      await matrixTriggerRoomUpdate();
+      await waitForRoomRefreshComplete();
+      await refreshChatNavigationAndRoute();
+    } catch (error) {
+      shellErrorMessage.set(error instanceof Error ? error.message : "Failed to leave rooms");
+      throw error;
+    }
+  }
+
+
   async function logout() {
     loggingOut = true;
     shellErrorMessage.set("");
 
     try {
-      await matrixLogout();
       shellChats.set([]);
       shellRootSpaces.set([]);
       shellRootScopedRooms.set([]);
+      shellRootScopedRoomsWithUnjoined.set([]);
       shellSelectedRootSpaceId.set("");
       shellSelectedRoomId.set("");
       shellCurrentUserId.set("");
       shellPickerCustomEmoji.set([]);
-      await goto("/");
+      await goto("/loading?mode=logout");
     } catch (error) {
       shellErrorMessage.set(error instanceof Error ? error.message : "Failed to log out");
     } finally {
@@ -319,10 +448,6 @@
   </main>
 {:else}
   <main class="h-screen overflow-x-hidden">
-    {#if $shellErrorMessage}
-      <p class="card p-3 text-sm preset-filled-error-500 mx-4 md:mx-6 mt-4">{$shellErrorMessage}</p>
-    {/if}
-
     <div class="grid gap-4 lg:grid-cols-[220px_280px_minmax(0,1fr)] p-4 md:p-6 min-h-0 h-full overflow-x-hidden">
       <div class="flex flex-col min-h-0 min-w-0 h-full gap-4">
         <AppHeader userId={$shellCurrentUserId} />
@@ -337,6 +462,9 @@
           rooms={$shellRootScopedRooms}
           selectedRoomId={$shellSelectedRoomId}
           onSelectRoom={selectRoom}
+          enableManageMenu={true}
+          onLeaveRoom={leaveRoom}
+          onLeaveRooms={leaveRooms}
           emptyMessage={$shellSelectedRootSpaceId
             ? "No rooms or subspaces in this root space yet."
             : "Select a root space to browse rooms."}
@@ -347,5 +475,15 @@
         {@render children()}
       </section>
     </div>
+
+    <JoinConfirmDialog
+      open={deepLinkJoinOpen}
+      room={deepLinkJoinRoom}
+      joinKind="single"
+      joinCount={0}
+      confirmDisabled={deepLinkJoining}
+      onClose={closeDeepLinkJoin}
+      onConfirm={confirmDeepLinkJoin}
+    />
   </main>
 {/if}

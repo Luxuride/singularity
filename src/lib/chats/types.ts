@@ -3,6 +3,7 @@ export type MatrixRoomKind = "room" | "space";
 export interface MatrixChatSummary {
   roomId: string;
   displayName: string;
+  description?: string | null;
   imageUrl: string | null;
   encrypted: boolean;
   joinedMembers: number;
@@ -25,6 +26,33 @@ export interface MatrixGetRoomImageResponse {
   imageUrl: string | null;
 }
 
+export interface MatrixGetRoomPreviewRequest {
+  roomIdOrAlias: string;
+  serverNames?: string[] | null;
+}
+
+export interface MatrixRoomPreview {
+  roomId: string;
+  displayName: string;
+  description?: string | null;
+  joinedMembers: number;
+  kind: MatrixRoomKind;
+  joined: boolean;
+}
+
+export interface MatrixGetRoomPreviewResponse {
+  room: MatrixRoomPreview;
+}
+
+export interface MatrixGetSpaceChildIdsRequest {
+  spaceId: string;
+}
+
+export interface MatrixGetSpaceChildIdsResponse {
+  spaceId: string;
+  childRoomIds: string[];
+}
+
 export interface MatrixGetChatNavigationRequest {
   rootSpaceId?: string;
   selectedRoomId?: string;
@@ -34,6 +62,22 @@ export interface MatrixGetChatNavigationResponse {
   selectedRootSpaceId: string | null;
   rootSpaces: MatrixChatSummary[];
   rootScopedRooms: MatrixChatSummary[];
+}
+
+export interface MatrixLeaveRoomRequest {
+  roomId: string;
+}
+
+export interface MatrixLeaveRoomResponse {
+  roomId: string;
+}
+
+export interface MatrixLeaveRoomsRequest {
+  roomIds: string[];
+}
+
+export interface MatrixLeaveRoomsResponse {
+  roomIds: string[];
 }
 
 export interface MatrixSetRootSpaceOrderRequest {
@@ -55,6 +99,11 @@ export interface MatrixTriggerRoomUpdateResponse {
 
 export interface MatrixRoomRemovedEvent {
   roomId: string;
+}
+
+export interface MatrixRoomRefreshCompleteEvent {
+  roomCount: number;
+  hasRooms: boolean;
 }
 
 export interface MatrixSelectedRoomMessagesEvent {
@@ -204,6 +253,12 @@ export interface MatrixChatMessageStreamEvent {
   message: MatrixChatMessage | null;
   nextFrom: string | null;
   done: boolean;
+}
+
+export interface MatrixChatMessageImageLoadedEvent {
+  roomId: string;
+  eventId: string;
+  imageUrl: string;
 }
 
 // ----- Verification types -----

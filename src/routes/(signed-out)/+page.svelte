@@ -3,6 +3,7 @@
   import { onMount } from "svelte";
   import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
   import { openUrl } from "@tauri-apps/plugin-opener";
+  import { toaster } from "$lib/toaster";
   import {
     matrixCompleteOAuth,
     matrixPasswordLogin,
@@ -23,11 +24,19 @@
   let waitingForCallback = $state(false);
   let signingInWithPassword = $state(false);
 
-  let errorMessage = $state("");
   let infoMessage = $state("");
 
   let authenticated = $state(false);
   let lastHandledCallbackUrl = "";
+
+  function showError(error: unknown, fallback: string) {
+    const description = error instanceof Error ? error.message : fallback;
+    toaster.create({
+      title: "Error",
+      description,
+      type: "error",
+    });
+  }
 
   onMount(() => {
     let cancelled = false;
@@ -50,7 +59,7 @@
           void completeOAuthFromDeepLinks(urls);
         });
       } catch (error) {
-        errorMessage = error instanceof Error ? error.message : "Failed to initialize deep-link listener";
+        showError(error, "Failed to initialize deep-link listener");
       }
     })();
 
@@ -91,17 +100,16 @@
 
   async function refreshSession() {
     loadingSession = true;
-    errorMessage = "";
 
     try {
       const status = await matrixSessionStatus();
       authenticated = status.authenticated;
 
       if (status.authenticated) {
-        await goto("/chats");
+        await goto("/loading");
       }
     } catch (error) {
-      errorMessage = error instanceof Error ? error.message : "Failed to load session";
+      showError(error, "Failed to load session");
     } finally {
       loadingSession = false;
     }
@@ -111,7 +119,6 @@
     event.preventDefault();
     startingOAuth = true;
     waitingForCallback = false;
-    errorMessage = "";
     infoMessage = "";
 
     try {
@@ -122,7 +129,7 @@
       await openUrl(result.authorizationUrl);
       infoMessage = "Browser opened. Complete sign-in to continue.";
     } catch (error) {
-      errorMessage = error instanceof Error ? error.message : "Failed to start OAuth login";
+      showError(error, "Failed to start OAuth login");
     } finally {
       startingOAuth = false;
     }
@@ -132,7 +139,6 @@
     event.preventDefault();
     signingInWithPassword = true;
     waitingForCallback = false;
-    errorMessage = "";
     infoMessage = "";
 
     try {
@@ -147,10 +153,10 @@
       password = "";
 
       if (response.authenticated) {
-        await goto("/chats");
+        await goto("/loading");
       }
     } catch (error) {
-      errorMessage = error instanceof Error ? error.message : "Failed to sign in with password";
+      showError(error, "Failed to sign in with password");
     } finally {
       signingInWithPassword = false;
     }
@@ -158,7 +164,6 @@
 
   async function completeOAuthLogin(callbackUrl: string) {
     completingOAuth = true;
-    errorMessage = "";
 
     try {
       const response = await matrixCompleteOAuth({ callbackUrl });
@@ -168,11 +173,11 @@
       infoMessage = "Signed in successfully.";
 
       if (response.authenticated) {
-        await goto("/chats");
+        await goto("/loading");
       }
     } catch (error) {
       waitingForCallback = false;
-      errorMessage = error instanceof Error ? error.message : "Failed to complete OAuth login";
+      showError(error, "Failed to complete OAuth login");
     } finally {
       completingOAuth = false;
     }
@@ -194,6 +199,10 @@
       <p class="card p-3 text-sm bg-surface-100-900">Session active. Redirecting to chats...</p>
     {:else}
       <section class="card p-4 space-y-4 preset-outlined-surface-200-800 bg-surface-100-900">
+        {#if infoMessage}
+          <p class="card p-3 text-sm preset-filled-success-500">{infoMessage}</p>
+        {/if}
+
         <h2 class="h4">Start Login</h2>
 
         <div class="flex gap-2" role="tablist" aria-label="Sign-in methods">
@@ -206,7 +215,6 @@
             aria-selected={signInMethod === "oauth"}
             onclick={() => {
               signInMethod = "oauth";
-              errorMessage = "";
               infoMessage = "";
             }}
           >
@@ -222,7 +230,6 @@
             onclick={() => {
               signInMethod = "password";
               waitingForCallback = false;
-              errorMessage = "";
               infoMessage = "";
             }}
           >
@@ -300,14 +307,6 @@
           </form>
         {/if}
       </section>
-    {/if}
-
-    {#if errorMessage}
-      <p class="card p-3 text-sm preset-filled-error-500">{errorMessage}</p>
-    {/if}
-
-    {#if infoMessage}
-      <p class="card p-3 text-sm preset-filled-success-500">{infoMessage}</p>
     {/if}
   </section>
 </main>

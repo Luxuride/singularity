@@ -122,7 +122,7 @@
 </script>
 
 <div
-  class="timeline-scroll flex-1 overflow-y-auto px-4 pb-3 min-h-0"
+  class="timeline-scroll flex flex-col-reverse flex-1 overflow-y-auto px-4 pb-3 min-h-0"
   bind:this={timelineElement}
   onscroll={onScroll}
 >
@@ -152,6 +152,6 @@
 
 <style>
   .timeline-scroll {
-    overflow-anchor: auto;
+    overflow-anchor: none;
   }
 </style>
