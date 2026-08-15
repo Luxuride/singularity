@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     wget \
     xz-utils \
+    fish \
     \
     # Tauri runtime dependencies
     libgtk-3-dev \
@@ -48,6 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Additional Tauri helpers
     libayatana-appindicator3-dev \
     librsvg2-bin \
+    ssh \
     \
     # Desktop file utilities (required for OAuth browser authentication)
     desktop-file-utils \
