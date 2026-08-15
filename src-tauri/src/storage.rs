@@ -85,9 +85,7 @@ pub async fn get_or_create_keyring_secret(
     {
         Ok(()) => {}
         Err(error) => {
-            log::warn!(
-                "Failed to store keychain secret, falling back to file storage: {error}"
-            );
+            log::warn!("Failed to store keychain secret, falling back to file storage: {error}");
             return get_or_create_file_secret(app, account_name, bytes_len);
         }
     }
