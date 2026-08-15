@@ -29,8 +29,7 @@ impl AppDb {
                 .map_err(|error| format!("Failed to create app data directory: {error}"))?;
         }
 
-        let secret = storage::get_secret()
-            .expect("App secret not initialized");
+        let secret = storage::get_secret().expect("App secret not initialized");
 
         let connection = match Self::open_encrypted_connection(&path, secret) {
             Ok(connection) => connection,
@@ -42,7 +41,7 @@ impl AppDb {
                     fs::remove_file(&path).map_err(|remove_error| {
                         format!("Failed to reset app database file: {remove_error}")
                     })?;
-                    Self::open_encrypted_connection(&path, &secret)?
+                    Self::open_encrypted_connection(&path, secret)?
                 } else {
                     return Err(error);
                 }
