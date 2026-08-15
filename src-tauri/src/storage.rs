@@ -49,9 +49,7 @@ pub async fn get_or_create_keyring_secret(
         Ok(kc) => kc,
         Err(error) => {
             if use_file_fallback {
-                log::warn!(
-                    "Keychain unavailable, falling back to file secret storage: {error}"
-                );
+                log::warn!("Keychain unavailable, falling back to file secret storage: {error}");
                 return get_or_create_file_secret(app, account_name, bytes_len);
             }
 
@@ -75,7 +73,7 @@ pub async fn get_or_create_keyring_secret(
             return Err(String::from(
                 "Keychain returned an empty app database secret",
             ));
-        },
+        }
         Err(error) => {
             if use_file_fallback {
                 log::warn!("Keychain read failed, falling back to file secret storage: {error}");
@@ -94,10 +92,12 @@ pub async fn get_or_create_keyring_secret(
     let mut secret_bytes = vec![0_u8; bytes_len.max(32)];
     let mut rng = rand::rngs::OsRng;
     rand::RngCore::fill_bytes(&mut rng, &mut secret_bytes);
-    let encoded =
-        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, secret_bytes);
+    let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, secret_bytes);
 
-    match keychain.create_item(&item_name, attributes, encoded.as_bytes(), true).await {
+    match keychain
+        .create_item(&item_name, attributes, encoded.as_bytes(), true)
+        .await
+    {
         Ok(()) => {}
         Err(error) => {
             if use_file_fallback {
