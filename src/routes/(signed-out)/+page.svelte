@@ -29,6 +29,10 @@
   let authenticated = $state(false);
   let lastHandledCallbackUrl = "";
 
+  let isDevContainer = $state(false);
+  let authorizationUrl = $state("");
+  let manualCallbackUrl = $state("");
+
   onMount(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
@@ -116,11 +120,18 @@
 
     try {
       const result = await matrixStartOAuth({ homeserverUrl });
+      isDevContainer = result.isDevContainer;
       waitingForCallback = true;
       lastHandledCallbackUrl = "";
 
-      await openUrl(result.authorizationUrl);
-      infoMessage = "Browser opened. Complete sign-in to continue.";
+      if (isDevContainer) {
+        authorizationUrl = result.authorizationUrl;
+        infoMessage = "Copy the URL below and open it in your browser to sign in.";
+      } else {
+        authorizationUrl = "";
+        await openUrl(result.authorizationUrl);
+        infoMessage = "Browser opened. Complete sign-in to continue.";
+      }
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : "Failed to start OAuth login";
     } finally {
@@ -165,6 +176,7 @@
       lastHandledCallbackUrl = callbackUrl;
       authenticated = response.authenticated;
       waitingForCallback = false;
+      manualCallbackUrl = "";
       infoMessage = "Signed in successfully.";
 
       if (response.authenticated) {
@@ -176,6 +188,15 @@
     } finally {
       completingOAuth = false;
     }
+  }
+
+  async function handleManualCallback(event: Event) {
+    event.preventDefault();
+    if (!manualCallbackUrl.trim()) {
+      errorMessage = "Please paste the callback URL from your browser.";
+      return;
+    }
+    await completeOAuthLogin(manualCallbackUrl.trim());
   }
 
 </script>
@@ -258,12 +279,58 @@
               {/if}
             </button>
 
-            <p class="text-sm text-surface-700-300">
-              Sign-in completes automatically after browser authentication. No callback URL copy and paste is required.
-            </p>
+            {#if !isDevContainer}
+              <p class="text-sm text-surface-700-300">
+                Sign-in completes automatically after browser authentication. No callback URL copy and paste is required.
+              </p>
+            {:else}
+              <p class="text-sm text-surface-700-300">
+                Dev container mode: copy the URL below into your host browser, then paste the callback URL back.
+              </p>
+            {/if}
+
+            {#if isDevContainer && authorizationUrl}
+              <div class="space-y-2">
+                <label class="label" for="authUrl">Authorization URL</label>
+                <input
+                  class="input"
+                  id="authUrl"
+                  type="text"
+                  readonly
+                  value={authorizationUrl}
+                  onclick={(e) => (e.target as HTMLInputElement).select()}
+                />
+                <p class="text-xs text-surface-700-300">Click to select, then copy and open in your browser.</p>
+              </div>
+            {/if}
 
             {#if waitingForCallback}
-              <p class="text-sm text-surface-700-300">Waiting for browser callback. You can restart sign-in at any time.</p>
+              {#if isDevContainer}
+                <div class="space-y-2">
+                  <label class="label" for="callbackUrl">Callback URL</label>
+                  <input
+                    class="input"
+                    id="callbackUrl"
+                    type="text"
+                    bind:value={manualCallbackUrl}
+                    placeholder="singularity://oauth-callback?..."
+                  />
+                  <button
+                    class="btn preset-filled-primary-500"
+                    type="button"
+                    onclick={handleManualCallback}
+                    disabled={completingOAuth || !manualCallbackUrl.trim()}
+                  >
+                    {#if completingOAuth}
+                      Completing Login...
+                    {:else}
+                      Complete Sign-In
+                    {/if}
+                  </button>
+                </div>
+              {:else}
+                <p class="text-sm text-surface-700-300">Waiting for browser callback. You can restart sign-in at any time.</p>
+              {/if}
             {/if}
           </form>
         {:else}

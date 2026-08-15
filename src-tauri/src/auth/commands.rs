@@ -61,9 +61,14 @@ pub async fn matrix_start_oauth(
 
     auth_state.lock_inner()?.pending_client = Some(client);
 
+    let is_dev_container = std::env::var("SINGULARITY_DEV_CONTAINER")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
     Ok(MatrixStartOAuthResponse {
         authorization_url,
         redirect_uri: String::from(config::CALLBACK_REDIRECT_URI),
+        is_dev_container,
     })
 }
 
