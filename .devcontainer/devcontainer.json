@@ -20,7 +20,8 @@
       "settings": {
         "svelte.enable-ts-plugin": true,
         "rust-analyzer.check.command": "check",
-        "rust-analyzer.cargo.features": "all"
+        "rust-analyzer.cargo.features": "all",
+        "terminal.integrated.defaultProfile.linux": "fish"
       }
     }
   }
