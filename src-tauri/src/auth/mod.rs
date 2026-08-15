@@ -73,7 +73,6 @@ impl AuthState {
         let client = Client::builder()
             .server_name_or_homeserver_url(persisted.homeserver_url.clone())
             .sqlite_store(&store_path, None)
-            .cross_process_store_locks_holder_name(cross_process_lock_holder_name())
             .handle_refresh_tokens()
             .build()
             .await
@@ -87,16 +86,6 @@ impl AuthState {
             )
             .await
             .map_err(|error| format!("Failed to restore Matrix session: {error}"))?;
-
-        if let Err(error) = client
-            .encryption()
-            .enable_cross_process_store_lock(
-                client.cross_process_store_locks_holder_name().to_owned(),
-            )
-            .await
-        {
-            log::warn!("Failed to enable cross-process crypto store lock: {error}");
-        }
 
         {
             let mut state = self.lock_inner()?;
@@ -126,8 +115,4 @@ pub(crate) async fn wait_for_e2ee_initialization(client: &Client) {
         .encryption()
         .wait_for_e2ee_initialization_tasks()
         .await;
-}
-
-pub(crate) fn cross_process_lock_holder_name() -> String {
-    format!("singularity-{}", std::process::id())
 }
