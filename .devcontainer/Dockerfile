@@ -68,3 +68,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
 
 # ── Environment variables ───────────────────────────────────────────────────
 ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Dev container flag: frontend detects this and shows authorization URL for
+# manual copy-and-paste into the host browser, plus a callback URL input.
+ENV SINGULARITY_DEV_CONTAINER="true"

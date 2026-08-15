@@ -4,10 +4,18 @@
     "dockerfile": "Dockerfile",
     "context": ".."
   },
-  "forwardPorts": [],
-  "runArgs": [
-    "--add-host=host.docker.internal:host-gateway"
+  "forwardPorts": [1420],
+  "runArgs": ["--add-host=host.docker.internal:host-gateway"],
+  "mounts": [
+    {
+      "source": "singularity-data",
+      "target": "/root/.local/share/eu.luxuride.singularity",
+      "type": "volume"
+    }
   ],
+  "remoteEnv": {
+    "SINGULARITY_DEV_CONTAINER": "true"
+  },
   "customizations": {
     "vscode": {
       "extensions": [
