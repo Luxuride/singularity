@@ -70,7 +70,7 @@ impl ReactionManager for MatrixReactionManager {
             .await
             .map_err(|error| format!("Failed to send reaction: {error}"))?;
 
-        Ok((true, Some(response.event_id.to_string())))
+        Ok((true, Some(response.response.event_id.to_string())))
     }
 }
 

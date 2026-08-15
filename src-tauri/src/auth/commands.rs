@@ -19,8 +19,7 @@ use super::types::{
     MatrixSessionStatusResponse, MatrixStartOAuthRequest, MatrixStartOAuthResponse,
 };
 use super::{
-    cross_process_lock_holder_name, start_session_persistence_watcher,
-    wait_for_e2ee_initialization, AuthState, MatrixSession,
+    start_session_persistence_watcher, wait_for_e2ee_initialization, AuthState, MatrixSession,
 };
 
 fn map_recovery_state(state: RecoveryState) -> String {
@@ -47,7 +46,6 @@ pub async fn matrix_start_oauth(
     let client = matrix_sdk::Client::builder()
         .server_name_or_homeserver_url(homeserver_url)
         .sqlite_store(&store_path, None)
-        .cross_process_store_locks_holder_name(cross_process_lock_holder_name())
         .handle_refresh_tokens()
         .build()
         .await
@@ -97,7 +95,7 @@ pub async fn matrix_complete_oauth(
 
     let parsed = match client
         .matrix_auth()
-        .login_with_sso_callback(callback_url)
+        .login_with_sso_callback(matrix_sdk::utils::UrlOrQuery::Url(callback_url))
         .map_err(|_| String::from("Callback URL is missing a valid loginToken"))?
         .initial_device_display_name("Singularity Desktop")
         .request_refresh_token()
@@ -128,14 +126,6 @@ pub async fn matrix_complete_oauth(
     let homeserver_url = client.homeserver().to_string();
     let user_id = parsed.user_id.to_string();
     let device_id = parsed.device_id.to_string();
-
-    if let Err(error) = client
-        .encryption()
-        .enable_cross_process_store_lock(client.cross_process_store_locks_holder_name().to_owned())
-        .await
-    {
-        log::warn!("Failed to enable cross-process crypto store lock: {error}");
-    }
 
     let persisted_matrix_session = client
         .matrix_auth()
@@ -188,7 +178,6 @@ pub async fn matrix_password_login(
     let client = matrix_sdk::Client::builder()
         .server_name_or_homeserver_url(homeserver_url.clone())
         .sqlite_store(&store_path, None)
-        .cross_process_store_locks_holder_name(cross_process_lock_holder_name())
         .handle_refresh_tokens()
         .build()
         .await
@@ -225,14 +214,6 @@ pub async fn matrix_password_login(
 
     let user_id = parsed.user_id.to_string();
     let device_id = parsed.device_id.to_string();
-
-    if let Err(error) = client
-        .encryption()
-        .enable_cross_process_store_lock(client.cross_process_store_locks_holder_name().to_owned())
-        .await
-    {
-        log::warn!("Failed to enable cross-process crypto store lock: {error}");
-    }
 
     let persisted_matrix_session = client
         .matrix_auth()

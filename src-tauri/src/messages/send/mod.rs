@@ -164,9 +164,11 @@ impl MessageSender for MatrixMessageSender {
 
         if let Some(in_reply_to_event_id_raw) = in_reply_to_event_id_raw {
             let in_reply_to_event_id = parse_event_id(in_reply_to_event_id_raw)?;
-            content.relates_to = Some(Relation::Reply {
-                in_reply_to: InReplyTo::new(in_reply_to_event_id),
-            });
+            content.relates_to = Some(Relation::Reply(
+                matrix_sdk::ruma::events::relation::Reply::new(InReplyTo::new(
+                    in_reply_to_event_id,
+                )),
+            ));
         }
 
         let response = room
@@ -174,7 +176,7 @@ impl MessageSender for MatrixMessageSender {
             .await
             .map_err(|error| format!("Failed to send room message: {error}"))?;
 
-        Ok(response.event_id.to_string())
+        Ok(response.response.event_id.to_string())
     }
 
     async fn send_media_file(
@@ -351,7 +353,7 @@ impl MatrixMessageSender {
 
         Ok(MediaSendResult {
             room_id: room_id.to_string(),
-            event_id: response.event_id.to_string(),
+            event_id: response.response.event_id.to_string(),
         })
     }
 }
