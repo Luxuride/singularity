@@ -6,20 +6,23 @@ The main point of singularity is to make performant matrix client. Most of the c
 
 ## Prerequisites
 
+### Option 1: VS Code Dev Containers (recommended)
+
+1. Install the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension in VS Code.
+2. Open the workspace in a container:
+   - Press `Ctrl+Shift+P` → **Dev Containers: Reopen in Container**
+3. The container will build with all dependencies (Node.js, Rust, Tauri native libs) pre-installed.
+
+### Option 2: Manual setup
+
 Required tools:
 
 - Node.js 22+
 - pnpm
-- Rust toolchain (see rust-toolchain.toml)
+- Rust toolchain (stable)
 - cargo-tauri
 
 On Linux, you also need Tauri/WebKitGTK native dependencies.
-
-If you use Nix, a ready-to-use dev shell is provided:
-
-```bash
-nix develop
-```
 
 ## Getting Started
 
