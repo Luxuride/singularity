@@ -8,10 +8,6 @@
   "runArgs": [
     "--add-host=host.docker.internal:host-gateway"
   ],
-  "containerEnv": {
-    "LOCALAI_BASE_URL": "http://host.docker.internal:8080/v1",
-    "FLATPAK_ID": "1"
-  },
   "customizations": {
     "vscode": {
       "extensions": [
