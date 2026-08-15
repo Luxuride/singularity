@@ -29,14 +29,10 @@ impl AppDb {
                 .map_err(|error| format!("Failed to create app data directory: {error}"))?;
         }
 
-        let secret = storage::get_or_create_keyring_secret(
-            app,
-            storage_keys::KEYCHAIN_SERVICE,
-            storage_keys::KEYCHAIN_APP_DB_KEY,
-            32,
-        )?;
+        let secret = storage::get_secret()
+            .expect("App secret not initialized");
 
-        let connection = match Self::open_encrypted_connection(&path, &secret) {
+        let connection = match Self::open_encrypted_connection(&path, secret) {
             Ok(connection) => connection,
             Err(error) => {
                 if path.exists() && is_database_key_mismatch(&error) {

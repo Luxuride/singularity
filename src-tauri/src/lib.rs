@@ -39,6 +39,17 @@ pub fn run() {
 
             assets::image::initialize_media_cache_dir(app.handle());
 
+            tauri::async_runtime::block_on(async {
+                storage::init_secret(
+                    app.handle(),
+                    crate::protocol::storage_keys::KEYCHAIN_SERVICE,
+                    crate::protocol::storage_keys::KEYCHAIN_APP_DB_KEY,
+                    32,
+                )
+                .await
+            })
+            .expect("Failed to initialize app secret");
+
             let app_db = db::AppDb::initialize(app.handle())?;
             settings::initialize_media_storage_mode(app.handle())?;
             app.manage(app_db);
