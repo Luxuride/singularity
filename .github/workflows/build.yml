@@ -35,23 +35,6 @@ jobs:
       artifact-path: 'src-tauri/target/aarch64-apple-darwin/release/bundle/**'
     secrets: inherit
 
-  build-tauri-linux:
-    needs:
-      - cargo-fmt
-      - cargo-clippy
-      - npm-check
-    uses: ./.github/workflows/build-tauri-job.yml
-    with:
-      platform: 'ubuntu-22.04'
-      args: '--bundles deb,rpm,appimage'
-      rust-targets: ''
-      artifact-name: 'singularity-linux-x64'
-      artifact-path: |
-        src-tauri/target/release/bundle/**/*.deb
-        src-tauri/target/release/bundle/**/*.AppImage
-        src-tauri/target/release/bundle/**/*.rpm
-    secrets: inherit
-
   build-tauri-windows:
     needs:
       - cargo-fmt
