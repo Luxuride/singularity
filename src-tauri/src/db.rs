@@ -245,6 +245,7 @@ impl AppDb {
         let mut has_message_type = false;
         let mut has_image_url = false;
         let mut has_in_reply_to_event_id = false;
+        let mut has_formatted_body = false;
 
         while let Some(row) = rows
             .next()
@@ -264,6 +265,10 @@ impl AppDb {
 
             if column_name == "in_reply_to_event_id" {
                 has_in_reply_to_event_id = true;
+            }
+
+            if column_name == "formatted_body" {
+                has_formatted_body = true;
             }
         }
 
@@ -291,6 +296,14 @@ impl AppDb {
                 )
                 .map_err(|error| {
                     format!("Failed to add message cache in_reply_to_event_id column: {error}")
+                })?;
+        }
+
+        if !has_formatted_body {
+            connection
+                .execute("ALTER TABLE message_cache ADD COLUMN formatted_body TEXT", [])
+                .map_err(|error| {
+                    format!("Failed to add message cache formatted_body column: {error}")
                 })?;
         }
 
@@ -675,6 +688,7 @@ impl AppDb {
                         sender,
                         timestamp,
                         body,
+                        formatted_body,
                         message_type,
                         image_url,
                         encrypted,
@@ -682,7 +696,7 @@ impl AppDb {
                         verification_status,
                         updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, unixepoch())
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, unixepoch())
                     ",
                 )
                 .map_err(|error| format!("Failed to prepare message cache insert: {error}"))?;
@@ -697,6 +711,7 @@ impl AppDb {
                         message.sender,
                         message.timestamp.map(|value| value as i64),
                         message.body,
+                        message.formatted_body.as_deref(),
                         message.message_type.as_deref(),
                         message.image_url.as_deref(),
                         if message.encrypted { 1_i64 } else { 0_i64 },
@@ -734,7 +749,7 @@ impl AppDb {
         let mut statement = connection
             .prepare(
                 "
-                SELECT event_id, in_reply_to_event_id, sender, timestamp, body, message_type, image_url, encrypted, decryption_status, verification_status
+                SELECT event_id, in_reply_to_event_id, sender, timestamp, body, formatted_body, message_type, image_url, encrypted, decryption_status, verification_status
                 FROM message_cache
                 WHERE room_id = ?1
                 ORDER BY sequence ASC
@@ -778,12 +793,14 @@ impl AppDb {
                 body: row
                     .get::<_, String>(4)
                     .map_err(|error| format!("Failed to decode cached body: {error}"))?,
-                formatted_body: None,
-                message_type: row
+                formatted_body: row
                     .get::<_, Option<String>>(5)
+                    .map_err(|error| format!("Failed to decode cached formatted body: {error}"))?,
+                message_type: row
+                    .get::<_, Option<String>>(6)
                     .map_err(|error| format!("Failed to decode cached message type: {error}"))?,
                 image_url: row
-                    .get::<_, Option<String>>(6)
+                    .get::<_, Option<String>>(7)
                     .map_err(|error| format!("Failed to decode cached image url: {error}"))?,
                 custom_emojis: Vec::new(),
                 reactions: Vec::new(),
