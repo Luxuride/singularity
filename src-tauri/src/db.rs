@@ -301,7 +301,10 @@ impl AppDb {
 
         if !has_formatted_body {
             connection
-                .execute("ALTER TABLE message_cache ADD COLUMN formatted_body TEXT", [])
+                .execute(
+                    "ALTER TABLE message_cache ADD COLUMN formatted_body TEXT",
+                    [],
+                )
                 .map_err(|error| {
                     format!("Failed to add message cache formatted_body column: {error}")
                 })?;
