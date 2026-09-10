@@ -15,7 +15,15 @@
 			"target": "/usr/local/cargo",
 			"type": "volume"
 		}
-	]
+	],
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"tauri-apps.tauri-vscode",
+				"svelte.svelte-vscode"
+			]
+		}
+	}
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
