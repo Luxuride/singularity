@@ -1,0 +1,14 @@
+[package]
+name = "keychain"
+version = "0.1.0"
+description = "A singular, cross-platform interface for the OS-backed credential store."
+edition = "2021"
+
+[target.'cfg(windows)'.dependencies]
+keyring = "3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+oo7 = "0.6.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = "3"
