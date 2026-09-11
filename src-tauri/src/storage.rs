@@ -1,9 +1,14 @@
-use std::{path::PathBuf, sync::OnceLock};
+use std::{
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 use tauri::{AppHandle, Manager};
+
+use keychain::{SecretStore, SystemSecretStore};
 
 static SECRET: OnceLock<String> = OnceLock::new();
 
@@ -17,8 +22,16 @@ pub async fn init_secret(
     account_name: &str,
     bytes_len: usize,
 ) -> Result<(), String> {
-    let secret = get_or_create_keyring_secret(app, service_name, account_name, bytes_len).await?;
-    // Idempotent: some keychain paths may have already set SECRET internally
+    let secret_dir = app_data_dir(app)?;
+    let secret = get_or_create_secret(
+        &SystemSecretStore,
+        &secret_dir,
+        service_name,
+        account_name,
+        bytes_len,
+    )
+    .await?;
+    // Idempotent: the secret store may have already set SECRET internally
     SECRET.get_or_init(|| secret);
     Ok(())
 }
@@ -33,74 +46,57 @@ pub fn app_data_file(app: &AppHandle, file_name: &str) -> Result<PathBuf, String
     Ok(app_data_dir(app)?.join(file_name))
 }
 
-pub async fn get_or_create_keyring_secret(
-    app: &AppHandle,
+/// Resolve the app database secret, preferring the OS keychain and falling back
+/// to a file in `secret_dir` when the keychain is unavailable.
+///
+/// The resolved secret is also cached in the process-wide [`SECRET`] slot so
+/// that later callers (e.g. the encrypted database) can read it without
+/// re-querying the keychain.
+pub async fn get_or_create_secret<S: SecretStore>(
+    store: &S,
+    secret_dir: &Path,
     service_name: &str,
     account_name: &str,
     bytes_len: usize,
 ) -> Result<String, String> {
-    let item_name = format!("{service_name}:{account_name}");
-    let attributes = &[("name", &item_name)];
-
-    let keychain = match oo7::Keyring::new().await {
-        Ok(kc) => kc,
-        Err(error) => {
-            log::warn!("Keychain unavailable, falling back to file secret storage: {error}");
-            return get_or_create_file_secret(app, account_name, bytes_len);
+    match store.get(service_name, account_name).await {
+        Ok(Some(secret)) if !secret.trim().is_empty() => {
+            SECRET.set(secret.clone()).ok();
+            return Ok(secret);
         }
-    };
-
-    match keychain.search_items(attributes).await {
-        Ok(items) if !items.is_empty() => {
-            if let Some(secret) = items.first() {
-                let oo7::Secret::Text(secret_str) = &secret.secret().await.unwrap() else {
-                    panic!();
-                };
-                if !secret_str.trim().is_empty() {
-                    SECRET.set(secret_str.clone()).ok();
-                    return Ok(secret_str.clone());
-                }
-            }
-            return Err(String::from(
-                "Keychain returned an empty app database secret",
-            ));
-        }
+        // Missing or empty keychain secret: fall through to generate a new one.
+        Ok(_) => {}
         Err(error) => {
             log::warn!("Keychain read failed, falling back to file secret storage: {error}");
-            return get_or_create_file_secret(app, account_name, bytes_len);
-        }
-        Ok(_) => {
-            // Keychain exists but no matching item — fall through to create one
+            return get_or_create_file_secret(secret_dir, account_name, bytes_len);
         }
     }
 
-    let mut secret_bytes = vec![0_u8; bytes_len.max(32)];
-    let mut rng = rand::rngs::OsRng;
-    rand::RngCore::fill_bytes(&mut rng, &mut secret_bytes);
-    let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, secret_bytes);
+    let encoded = generate_secret(bytes_len);
 
-    match keychain
-        .create_item(&item_name, attributes, encoded.as_bytes(), true)
-        .await
-    {
-        Ok(()) => {}
-        Err(error) => {
-            log::warn!("Failed to store keychain secret, falling back to file storage: {error}");
-            return get_or_create_file_secret(app, account_name, bytes_len);
-        }
+    if let Err(error) = store.set(service_name, account_name, &encoded).await {
+        log::warn!("Failed to store keychain secret, falling back to file storage: {error}");
+        return get_or_create_file_secret(secret_dir, account_name, bytes_len);
     }
 
     SECRET.set(encoded.clone()).ok();
     Ok(encoded)
 }
 
+fn generate_secret(bytes_len: usize) -> String {
+    let mut secret_bytes = vec![0_u8; bytes_len.max(32)];
+    let mut rng = rand::rngs::OsRng;
+    rand::RngCore::fill_bytes(&mut rng, &mut secret_bytes);
+    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, secret_bytes)
+}
+
 fn get_or_create_file_secret(
-    app: &AppHandle,
+    secret_dir: &Path,
     account_name: &str,
     bytes_len: usize,
 ) -> Result<String, String> {
     let file_name = format!("{account_name}.secret");
-    let path = app_data_file(app, &file_name)?;
+    let path = secret_dir.join(file_name);
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -114,15 +110,10 @@ fn get_or_create_file_secret(
         }
     }
 
-    let mut secret_bytes = vec![0_u8; bytes_len.max(32)];
-    let mut rng = rand::rngs::OsRng;
-    rand::RngCore::fill_bytes(&mut rng, &mut secret_bytes);
-    let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, secret_bytes);
+    let encoded = generate_secret(bytes_len);
 
     std::fs::write(&path, &encoded)
         .map_err(|error| format!("Failed to persist fallback app database secret: {error}"))?;
-
-    SECRET.set(encoded.clone()).ok();
 
     #[cfg(unix)]
     {
@@ -132,4 +123,113 @@ fn get_or_create_file_secret(
 
     SECRET.set(encoded.clone()).ok();
     Ok(encoded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// In-memory `SecretStore` for exercising the get-or-create logic without a
+    /// real keychain.
+    #[derive(Default)]
+    struct MockStore {
+        entries: Mutex<std::collections::HashMap<String, String>>,
+    }
+
+    impl SecretStore for MockStore {
+        async fn get(&self, service: &str, account: &str) -> Result<Option<String>, String> {
+            let key = format!("{service}:{account}");
+            Ok(self.entries.lock().unwrap().get(&key).cloned())
+        }
+
+        async fn set(&self, service: &str, account: &str, value: &str) -> Result<(), String> {
+            let key = format!("{service}:{account}");
+            self.entries.lock().unwrap().insert(key, value.to_string());
+            Ok(())
+        }
+
+        async fn delete(&self, service: &str, account: &str) -> Result<(), String> {
+            let key = format!("{service}:{account}");
+            self.entries.lock().unwrap().remove(&key);
+            Ok(())
+        }
+    }
+
+    /// A `SecretStore` whose operations always fail, forcing the file fallback.
+    struct FailingStore;
+
+    impl SecretStore for FailingStore {
+        async fn get(&self, _service: &str, _account: &str) -> Result<Option<String>, String> {
+            Err(String::from("keychain unavailable"))
+        }
+
+        async fn set(&self, _service: &str, _account: &str, _value: &str) -> Result<(), String> {
+            Err(String::from("keychain unavailable"))
+        }
+
+        async fn delete(&self, _service: &str, _account: &str) -> Result<(), String> {
+            Err(String::from("keychain unavailable"))
+        }
+    }
+
+    fn temp_secret_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "singularity-secret-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[tokio::test]
+    async fn creates_secret_when_keychain_is_empty() {
+        let store = MockStore::default();
+        let dir = temp_secret_dir();
+
+        let secret = get_or_create_secret(&store, &dir, "svc", "acct", 32)
+            .await
+            .unwrap();
+
+        assert!(!secret.trim().is_empty());
+        assert!(store.get("svc", "acct").await.unwrap().is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn reuses_existing_keychain_secret() {
+        let store = MockStore::default();
+        let dir = temp_secret_dir();
+        store.set("svc", "acct", "existing-secret").await.unwrap();
+
+        let secret = get_or_create_secret(&store, &dir, "svc", "acct", 32)
+            .await
+            .unwrap();
+
+        assert_eq!(secret, "existing-secret");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_file_when_keychain_read_fails() {
+        let store = FailingStore;
+        let dir = temp_secret_dir();
+
+        let secret = get_or_create_secret(&store, &dir, "svc", "acct", 32)
+            .await
+            .unwrap();
+
+        assert!(!secret.trim().is_empty());
+        let file = dir.join("acct.secret");
+        assert!(file.exists());
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap().trim(),
+            secret.trim()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

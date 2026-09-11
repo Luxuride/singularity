@@ -40,7 +40,7 @@ arboard = "3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 mime = "0.3"
 percent-encoding = "2"
-oo7 = "0.6.0"
+keychain = { path = "libs/keychain" }
 
 [target.'cfg(windows)'.dependencies]
 rusqlite = { version = "0.37.0", features = ["bundled-sqlcipher-vendored-openssl"] }
