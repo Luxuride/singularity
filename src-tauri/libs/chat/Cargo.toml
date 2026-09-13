@@ -1,0 +1,21 @@
+[package]
+name = "chat"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+types = { workspace = true }
+storage = { workspace = true }
+protocol = { workspace = true }
+assets = { workspace = true }
+auth = { workspace = true }
+
+matrix-sdk = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+image = { workspace = true }
+mime = { workspace = true }
+arboard = { workspace = true }
+reqwest = { workspace = true }
+rand = { workspace = true }

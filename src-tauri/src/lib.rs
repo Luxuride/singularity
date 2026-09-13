@@ -1,14 +1,23 @@
+//! Tauri binder: transport and setup only.
+//!
+//! This crate is the thin frontend adapter. All domain logic lives in the
+//! workspace library crates (`auth`, `rooms`, `chat`, `settings`,
+//! `verification`, `assets`, `storage`, `protocol`, `types`). The binder:
+//!
+//! - resolves `types::Paths` from the `AppHandle` during setup,
+//! - initializes the app secret + encrypted database,
+//! - wires the `matrix-media` URI scheme to the Tauri-free assets handler,
+//! - registers an `EventSink` that wraps `AppHandle::emit`,
+//! - starts the room-update worker and the verification-state watcher (via the
+//!   `AuthState::on_client_ready` hook),
+//! - exposes `#[tauri::command]` adapters in `commands.rs` that delegate to the
+//!   library crates.
+
+use std::sync::Arc;
+
 use tauri::Manager;
 
-mod assets;
-mod auth;
-mod db;
-mod messages;
-mod protocol;
-mod rooms;
-mod settings;
-mod storage;
-mod verification;
+mod commands;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -23,10 +32,8 @@ pub fn run() {
 
     builder
         .register_uri_scheme_protocol("matrix-media", |_ctx, request| {
-            assets::image::handle_media_protocol_request(request)
+            commands::handle_media_protocol_request(request)
         })
-        .manage(auth::AuthState::default())
-        .manage(messages::send::MediaTranscodeCancellationState::default())
         .setup(|app| {
             #[cfg(any(windows, target_os = "linux"))]
             {
@@ -37,25 +44,62 @@ pub fn run() {
                 }
             }
 
-            assets::image::initialize_media_cache_dir(app.handle());
+            let handle = app.handle().clone();
+            let paths = commands::resolve_paths(&handle)?;
+            assets::initialize_media_cache_dir(paths.cache_dir());
 
             tauri::async_runtime::block_on(async {
-                storage::init_secret(
-                    app.handle(),
-                    crate::protocol::storage_keys::KEYCHAIN_SERVICE,
-                    crate::protocol::storage_keys::KEYCHAIN_APP_DB_KEY,
+                storage::secret::init_secret(
+                    paths.data_dir(),
+                    types::storage_keys::KEYCHAIN_SERVICE,
+                    types::storage_keys::KEYCHAIN_APP_DB_KEY,
                     32,
                 )
                 .await
             })
             .expect("Failed to initialize app secret");
 
-            let app_db = db::AppDb::initialize(app.handle())?;
-            settings::initialize_media_storage_mode(app.handle())?;
-            app.manage(app_db);
+            let secret = storage::secret::get_secret().expect("App secret not initialized");
+            let app_db = Arc::new(storage::AppDb::initialize(
+                &paths.data_file(types::storage_keys::APP_DB_FILE),
+                secret,
+            )?);
 
-            let trigger_state = rooms::start_room_update_worker(app.handle().clone());
+            settings::initialize_media_storage_mode(&paths)?;
+
+            let event_sink: Arc<dyn types::EventSink> =
+                Arc::new(commands::AppHandleEventSink::new(handle.clone()));
+            let auth_state = Arc::new(auth::AuthState::default());
+
+            // Break the auth -> verification cycle: start the verification-state
+            // watcher whenever a Matrix client becomes ready.
+            {
+                let sink = event_sink.clone();
+                auth_state.set_on_client_ready(Box::new(move |client| {
+                    verification::start_verification_state_watcher(sink.clone(), client);
+                }));
+            }
+
+            let (trigger_state, room_worker) = rooms::start_room_update_worker(
+                &paths,
+                app_db.clone(),
+                auth_state.clone(),
+                event_sink.clone(),
+            );
+
+            // The rooms crate is Tauri-free and cannot assume a Tokio runtime is
+            // running, so it returns the worker for the binder to spawn on
+            // Tauri's managed async runtime.
+            tauri::async_runtime::spawn(async move {
+                room_worker.run().await;
+            });
+
+            app.manage(paths);
+            app.manage(app_db);
+            app.manage(auth_state);
+            app.manage(event_sink);
             app.manage(trigger_state);
+            app.manage(chat::MediaTranscodeCancellationState::default());
             Ok(())
         })
         .plugin(
@@ -67,40 +111,40 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            auth::commands::matrix_start_oauth,
-            auth::commands::matrix_complete_oauth,
-            auth::commands::matrix_password_login,
-            auth::commands::matrix_session_status,
-            auth::commands::matrix_recovery_status,
-            auth::commands::matrix_recover_with_key,
-            auth::commands::matrix_logout,
-            auth::commands::matrix_clear_cache_except_auth,
-            rooms::commands::matrix_get_chats,
-            rooms::commands::matrix_get_room_image,
-            rooms::commands::matrix_get_chat_navigation,
-            rooms::commands::matrix_join_room,
-            rooms::commands::matrix_set_root_space_order,
-            rooms::commands::matrix_trigger_room_update,
-            messages::commands::chat::matrix_get_chat_messages,
-            messages::commands::chat::matrix_stream_chat_messages,
-            messages::commands::emoji::matrix_get_emoji_packs,
-            messages::commands::avatar::matrix_get_user_avatar,
-            messages::commands::send::matrix_send_chat_message,
-            messages::commands::send::matrix_send_media_file,
-            messages::commands::send::matrix_cancel_media_transcode,
-            messages::commands::reactions::matrix_toggle_reaction,
-            messages::commands::clipboard::matrix_copy_image_to_clipboard,
-            messages::commands::clipboard::matrix_read_clipboard_text,
-            settings::commands::matrix_get_media_settings,
-            settings::commands::matrix_set_media_settings,
-            verification::commands::matrix_own_verification_status,
-            verification::commands::matrix_get_user_devices,
-            verification::commands::matrix_request_device_verification,
-            verification::commands::matrix_get_verification_flow,
-            verification::commands::matrix_accept_verification_request,
-            verification::commands::matrix_start_sas_verification,
-            verification::commands::matrix_accept_sas_verification,
-            verification::commands::matrix_confirm_sas_verification,
+            commands::auth::matrix_start_oauth,
+            commands::auth::matrix_complete_oauth,
+            commands::auth::matrix_password_login,
+            commands::auth::matrix_session_status,
+            commands::auth::matrix_recovery_status,
+            commands::auth::matrix_recover_with_key,
+            commands::auth::matrix_logout,
+            commands::auth::matrix_clear_cache_except_auth,
+            commands::rooms::matrix_get_chats,
+            commands::rooms::matrix_get_room_image,
+            commands::rooms::matrix_get_chat_navigation,
+            commands::rooms::matrix_join_room,
+            commands::rooms::matrix_set_root_space_order,
+            commands::rooms::matrix_trigger_room_update,
+            commands::chat::matrix_get_chat_messages,
+            commands::chat::matrix_stream_chat_messages,
+            commands::chat::matrix_get_emoji_packs,
+            commands::chat::matrix_get_user_avatar,
+            commands::chat::matrix_send_chat_message,
+            commands::chat::matrix_send_media_file,
+            commands::chat::matrix_cancel_media_transcode,
+            commands::chat::matrix_toggle_reaction,
+            commands::chat::matrix_copy_image_to_clipboard,
+            commands::chat::matrix_read_clipboard_text,
+            commands::settings::matrix_get_media_settings,
+            commands::settings::matrix_set_media_settings,
+            commands::verification::matrix_own_verification_status,
+            commands::verification::matrix_get_user_devices,
+            commands::verification::matrix_request_device_verification,
+            commands::verification::matrix_get_verification_flow,
+            commands::verification::matrix_accept_verification_request,
+            commands::verification::matrix_start_sas_verification,
+            commands::verification::matrix_accept_sas_verification,
+            commands::verification::matrix_confirm_sas_verification,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

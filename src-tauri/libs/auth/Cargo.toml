@@ -1,0 +1,15 @@
+[package]
+name = "auth"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+types = { workspace = true }
+storage = { workspace = true }
+protocol = { workspace = true }
+matrix-sdk = { workspace = true }
+url = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
