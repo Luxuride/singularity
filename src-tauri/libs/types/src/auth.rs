@@ -11,7 +11,7 @@ pub struct MatrixStartOAuthRequest {
 pub struct MatrixStartOAuthResponse {
     pub authorization_url: String,
     pub redirect_uri: String,
-    pub is_dev_container: bool,
+    pub browser_opened: bool,
 }
 
 #[derive(Deserialize)]

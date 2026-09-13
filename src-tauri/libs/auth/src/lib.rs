@@ -6,6 +6,7 @@
 //! core functions and registers the `on_client_ready` hook to start the
 //! verification-state watcher without this crate depending on it.
 
+pub mod browser;
 pub mod commands;
 pub mod persistence;
 pub mod state;

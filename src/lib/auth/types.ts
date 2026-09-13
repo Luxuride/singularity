@@ -5,7 +5,7 @@ export interface MatrixStartOAuthRequest {
 export interface MatrixStartOAuthResponse {
   authorizationUrl: string;
   redirectUri: string;
-  isDevContainer: boolean;
+  browserOpened: boolean;
 }
 
 export interface MatrixCompleteOAuthRequest {

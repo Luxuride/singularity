@@ -2,7 +2,6 @@
   import { goto } from "$app/navigation";
   import { onMount } from "svelte";
   import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
-  import { openUrl } from "@tauri-apps/plugin-opener";
   import {
     matrixCompleteOAuth,
     matrixPasswordLogin,
@@ -29,7 +28,7 @@
   let authenticated = $state(false);
   let lastHandledCallbackUrl = "";
 
-  let isDevContainer = $state(false);
+  let useCopyFallback = $state(false);
   let authorizationUrl = $state("");
   let manualCallbackUrl = $state("");
 
@@ -120,17 +119,18 @@
 
     try {
       const result = await matrixStartOAuth({ homeserverUrl });
-      isDevContainer = result.isDevContainer;
       waitingForCallback = true;
       lastHandledCallbackUrl = "";
 
-      if (isDevContainer) {
-        authorizationUrl = result.authorizationUrl;
-        infoMessage = "Copy the URL below and open it in your browser to sign in.";
-      } else {
+      if (result.browserOpened) {
+        useCopyFallback = false;
         authorizationUrl = "";
-        await openUrl(result.authorizationUrl);
         infoMessage = "Browser opened. Complete sign-in to continue.";
+      } else {
+        useCopyFallback = true;
+        authorizationUrl = result.authorizationUrl;
+        infoMessage =
+          "Couldn't open a browser automatically. Copy the URL below and open it in your browser to sign in.";
       }
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : "Failed to start OAuth login";
@@ -279,17 +279,17 @@
               {/if}
             </button>
 
-            {#if !isDevContainer}
+            {#if !useCopyFallback}
               <p class="text-sm text-surface-700-300">
                 Sign-in completes automatically after browser authentication. No callback URL copy and paste is required.
               </p>
             {:else}
               <p class="text-sm text-surface-700-300">
-                Dev container mode: copy the URL below into your host browser, then paste the callback URL back.
+                Couldn't open a browser automatically. Copy the URL below into your browser, then paste the callback URL back.
               </p>
             {/if}
 
-            {#if isDevContainer && authorizationUrl}
+            {#if useCopyFallback && authorizationUrl}
               <div class="space-y-2">
                 <label class="label" for="authUrl">Authorization URL</label>
                 <input
@@ -305,7 +305,7 @@
             {/if}
 
             {#if waitingForCallback}
-              {#if isDevContainer}
+              {#if useCopyFallback}
                 <div class="space-y-2">
                   <label class="label" for="callbackUrl">Callback URL</label>
                   <input
