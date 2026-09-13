@@ -28,7 +28,8 @@
   let authenticated = $state(false);
   let lastHandledCallbackUrl = "";
 
-  let useCopyFallback = $state(false);
+  let browserOpened = $state(true);
+  let deepLinkRegistered = $state(true);
   let authorizationUrl = $state("");
   let manualCallbackUrl = $state("");
 
@@ -121,16 +122,18 @@
       const result = await matrixStartOAuth({ homeserverUrl });
       waitingForCallback = true;
       lastHandledCallbackUrl = "";
+      browserOpened = result.browserOpened;
+      deepLinkRegistered = result.deepLinkRegistered;
+      authorizationUrl = result.authorizationUrl;
 
-      if (result.browserOpened) {
-        useCopyFallback = false;
-        authorizationUrl = "";
+      if (result.browserOpened && result.deepLinkRegistered) {
         infoMessage = "Browser opened. Complete sign-in to continue.";
-      } else {
-        useCopyFallback = true;
-        authorizationUrl = result.authorizationUrl;
+      } else if (!result.browserOpened) {
         infoMessage =
           "Couldn't open a browser automatically. Copy the URL below and open it in your browser to sign in.";
+      } else {
+        infoMessage =
+          "Browser opened, but the callback can't be detected automatically. Paste the callback URL below after signing in.";
       }
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : "Failed to start OAuth login";
@@ -279,17 +282,21 @@
               {/if}
             </button>
 
-            {#if !useCopyFallback}
-              <p class="text-sm text-surface-700-300">
-                Sign-in completes automatically after browser authentication. No callback URL copy and paste is required.
-              </p>
-            {:else}
+            {#if !browserOpened}
               <p class="text-sm text-surface-700-300">
                 Couldn't open a browser automatically. Copy the URL below into your browser, then paste the callback URL back.
               </p>
+            {:else if !deepLinkRegistered}
+              <p class="text-sm text-surface-700-300">
+                Browser opened, but the singularity:// callback can't be detected automatically. After signing in, copy the callback URL from your browser and paste it below.
+              </p>
+            {:else}
+              <p class="text-sm text-surface-700-300">
+                Sign-in completes automatically after browser authentication. No callback URL copy and paste is required.
+              </p>
             {/if}
 
-            {#if useCopyFallback && authorizationUrl}
+            {#if waitingForCallback && !browserOpened && authorizationUrl}
               <div class="space-y-2">
                 <label class="label" for="authUrl">Authorization URL</label>
                 <input
@@ -305,7 +312,7 @@
             {/if}
 
             {#if waitingForCallback}
-              {#if useCopyFallback}
+              {#if !browserOpened || !deepLinkRegistered}
                 <div class="space-y-2">
                   <label class="label" for="callbackUrl">Callback URL</label>
                   <input

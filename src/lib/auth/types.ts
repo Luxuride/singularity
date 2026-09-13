@@ -6,6 +6,7 @@ export interface MatrixStartOAuthResponse {
   authorizationUrl: string;
   redirectUri: string;
   browserOpened: boolean;
+  deepLinkRegistered: boolean;
 }
 
 export interface MatrixCompleteOAuthRequest {
