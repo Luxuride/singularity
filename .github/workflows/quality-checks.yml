@@ -52,7 +52,7 @@ jobs:
       - name: run clippy linter
         if: inputs.check == 'cargo-clippy'
         working-directory: src-tauri
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: setup node
         if: inputs.check == 'npm-check'
