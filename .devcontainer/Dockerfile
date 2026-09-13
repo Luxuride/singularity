@@ -2,13 +2,6 @@ FROM mcr.microsoft.com/devcontainers/rust:2-1-trixie
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.7/install.sh | bash \
-	&& \. "$HOME/.nvm/nvm.sh" \
-	&& nvm install 24 \
-	&& ln -s $(dirname $(which node)) /usr/local/bin/node
-
-ENV PATH="/usr/local/bin/node:$PATH"
-
 # Install dependencies for building and running Singularity
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
