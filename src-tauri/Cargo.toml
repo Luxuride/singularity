@@ -1,3 +1,51 @@
+[workspace]
+resolver = "2"
+members = ["libs/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["sync", "time", "process", "io-util"] }
+futures-util = "0.3"
+
+# Matrix protocol
+matrix-sdk = { version = "0.18.0", default-features = false, features = ["sso-login", "e2e-encryption", "bundled-sqlite"] }
+url = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+rmp-serde = "1"
+
+# Media / images
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+mime = "0.3"
+arboard = "3"
+percent-encoding = "2"
+
+# Misc
+log = "0.4"
+rand = "0.8"
+base64 = "0.22"
+markup = "0.15"
+rusqlite = "0.37.0"
+
+# Internal crates
+keychain = { path = "libs/keychain" }
+types = { path = "libs/types" }
+storage = { path = "libs/storage" }
+protocol = { path = "libs/protocol" }
+assets = { path = "libs/assets" }
+auth = { path = "libs/auth" }
+verification = { path = "libs/verification" }
+chat = { path = "libs/chat" }
+rooms = { path = "libs/rooms" }
+settings = { path = "libs/settings" }
+
 [package]
 name = "singularity"
 version = "0.1.0"
@@ -24,27 +72,26 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-log = "2"
-log = "0.4"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-matrix-sdk = { version = "0.18.0", default-features = false, features = ["sso-login", "e2e-encryption", "bundled-sqlite"] }
-url = "2"
-tokio = { version = "1", features = ["sync", "time", "process", "io-util"] }
-futures-util = "0.3"
-rand = "0.8"
-base64 = "0.22"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-rmp-serde = "1"
-markup = "0.15"
-arboard = "3"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
-mime = "0.3"
-percent-encoding = "2"
-keychain = { path = "libs/keychain" }
+
+log = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+matrix-sdk = { workspace = true }
+
+types = { workspace = true }
+storage = { workspace = true }
+protocol = { workspace = true }
+assets = { workspace = true }
+auth = { workspace = true }
+verification = { workspace = true }
+chat = { workspace = true }
+rooms = { workspace = true }
+settings = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-rusqlite = { version = "0.37.0", features = ["bundled-sqlcipher-vendored-openssl"] }
+rusqlite = { workspace = true, features = ["bundled-sqlcipher-vendored-openssl"] }
 
 [target.'cfg(not(windows))'.dependencies]
-rusqlite = { version = "0.37.0", features = ["bundled-sqlcipher"] }
+rusqlite = { workspace = true, features = ["bundled-sqlcipher"] }
 

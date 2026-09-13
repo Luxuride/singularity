@@ -1,0 +1,11 @@
+[package]
+name = "protocol"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+types = { workspace = true }
+matrix-sdk = { workspace = true }
+url = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }

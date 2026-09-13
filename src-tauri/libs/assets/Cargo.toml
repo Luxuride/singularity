@@ -1,0 +1,14 @@
+[package]
+name = "assets"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+types = { workspace = true }
+matrix-sdk = { workspace = true }
+url = { workspace = true }
+percent-encoding = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
