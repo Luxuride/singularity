@@ -77,10 +77,13 @@ pub async fn start_oauth(
             }
         };
 
+    let deep_link_registered = auth_state.deep_link_registered();
+
     Ok(MatrixStartOAuthResponse {
         authorization_url,
         redirect_uri: String::from(config::CALLBACK_REDIRECT_URI),
         browser_opened,
+        deep_link_registered,
     })
 }
 

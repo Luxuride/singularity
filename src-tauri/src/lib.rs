@@ -35,14 +35,25 @@ pub fn run() {
             commands::handle_media_protocol_request(request)
         })
         .setup(|app| {
-            #[cfg(any(windows, target_os = "linux"))]
-            {
-                use tauri_plugin_deep_link::DeepLinkExt;
+            let deep_link_registered = {
+                #[cfg(any(windows, target_os = "linux"))]
+                {
+                    use tauri_plugin_deep_link::DeepLinkExt;
 
-                if let Err(error) = app.deep_link().register_all() {
-                    log::warn!("Skipping deep-link runtime registration: {error}");
+                    match app.deep_link().register_all() {
+                        Ok(()) => true,
+                        Err(error) => {
+                            log::warn!("Skipping deep-link runtime registration: {error}");
+                            false
+                        }
+                    }
                 }
-            }
+
+                #[cfg(not(any(windows, target_os = "linux")))]
+                {
+                    true
+                }
+            };
 
             let handle = app.handle().clone();
             let paths = commands::resolve_paths(&handle)?;
@@ -70,6 +81,7 @@ pub fn run() {
             let event_sink: Arc<dyn types::EventSink> =
                 Arc::new(commands::AppHandleEventSink::new(handle.clone()));
             let auth_state = Arc::new(auth::AuthState::default());
+            auth_state.set_deep_link_registered(deep_link_registered);
 
             // Break the auth -> verification cycle: start the verification-state
             // watcher whenever a Matrix client becomes ready.
