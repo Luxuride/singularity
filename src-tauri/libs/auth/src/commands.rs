@@ -59,14 +59,28 @@ pub async fn start_oauth(
 
     auth_state.set_pending_client(client)?;
 
-    let is_dev_container = std::env::var("SINGULARITY_DEV_CONTAINER")
-        .map(|v| v == "true")
-        .unwrap_or(false);
+    let browser_url = authorization_url.clone();
+    let browser_opened =
+        match tokio::task::spawn_blocking(move || crate::browser::open_in_browser(&browser_url))
+            .await
+        {
+            Ok(Ok(())) => true,
+            Ok(Err(error)) => {
+                log::warn!(
+                "Could not open browser for OAuth sign-in: {error}; falling back to manual URL copy"
+            );
+                false
+            }
+            Err(error) => {
+                log::warn!("Browser launch task failed: {error}; falling back to manual URL copy");
+                false
+            }
+        };
 
     Ok(MatrixStartOAuthResponse {
         authorization_url,
         redirect_uri: String::from(config::CALLBACK_REDIRECT_URI),
-        is_dev_container,
+        browser_opened,
     })
 }
 
