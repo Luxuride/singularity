@@ -14,6 +14,23 @@
 			"source": "devcontainer-cargo-cache-${devcontainerId}",
 			"target": "/usr/local/cargo",
 			"type": "volume"
+		},
+		// Mount the app's XDG folders in named volumes so Tauri state persists
+		// across container rebuilds. Volumes are cross-platform (Windows/macOS/Linux).
+		{
+			"source": "devcontainer-app-data-${devcontainerId}",
+			"target": "/home/vscode/.local/share/eu.luxuride.singularity",
+			"type": "volume"
+		},
+		{
+			"source": "devcontainer-app-config-${devcontainerId}",
+			"target": "/home/vscode/.config/eu.luxuride.singularity",
+			"type": "volume"
+		},
+		{
+			"source": "devcontainer-app-cache-${devcontainerId}",
+			"target": "/home/vscode/.cache/eu.luxuride.singularity",
+			"type": "volume"
 		}
 	],
 	"customizations": {

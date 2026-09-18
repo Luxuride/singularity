@@ -23,3 +23,18 @@ RUN apt-get update \
 		gstreamer1.0-tools \
 	&& apt-get clean \
 	&& rm -rf /var/lib/apt/lists/*
+
+# Pre-create the app's XDG directories with vscode ownership.
+# When devcontainer.json mounts named volumes at deeper paths (e.g.
+# /home/vscode/.local/share/eu.luxuride.singularity), Docker would otherwise
+# create the missing directories as root, breaking tools like fish that need
+# to write under $HOME/.local/share. Pre-creating the app subdirectories also
+# seeds the named volumes with vscode-owned content on first mount.
+RUN mkdir -p \
+		/home/vscode/.local/share/eu.luxuride.singularity \
+		/home/vscode/.config/eu.luxuride.singularity \
+		/home/vscode/.cache/eu.luxuride.singularity \
+	&& chown -R vscode:vscode \
+		/home/vscode/.local \
+		/home/vscode/.config \
+		/home/vscode/.cache
