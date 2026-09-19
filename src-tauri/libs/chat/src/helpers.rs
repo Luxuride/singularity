@@ -1,11 +1,15 @@
+use assets::media_url_is_available;
 use types::chat::MatrixChatMessage;
 
-pub fn has_stale_in_memory_media_urls(messages: &[MatrixChatMessage]) -> bool {
+/// Whether any cached message references media that is no longer available on
+/// disk. Media is disk-backed, so a cached URL is stale only when its file is
+/// missing; in that case the caller re-fetches from the server.
+pub fn has_stale_cached_media_urls(messages: &[MatrixChatMessage]) -> bool {
     messages.iter().any(|message| {
         message
             .image_url
             .as_deref()
-            .is_some_and(|url| url.starts_with("matrix-media://"))
+            .is_some_and(|url| !media_url_is_available(url))
     })
 }
 
@@ -15,7 +19,9 @@ pub fn is_room_unavailable_error(error: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::has_stale_in_memory_media_urls;
+    use std::fs;
+
+    use super::has_stale_cached_media_urls;
     use types::chat::{
         MatrixChatMessage, MatrixMessageDecryptionStatus, MatrixMessageVerificationStatus,
     };
@@ -39,22 +45,33 @@ mod tests {
     }
 
     #[test]
-    fn detects_stale_matrix_media_url() {
+    fn detects_stale_missing_media_file() {
         let messages = vec![message_with_image(Some(
-            "matrix-media://localhost/img-123.png",
+            "asset://localhost/%2Ftmp%2Fsingularity-test%2Fmissing%2Fimg-123.png",
         ))];
 
-        assert!(has_stale_in_memory_media_urls(&messages));
+        assert!(has_stale_cached_media_urls(&messages));
     }
 
     #[test]
-    fn ignores_non_stale_media_urls() {
+    fn ignores_available_media_urls() {
+        let dir = std::env::temp_dir().join("singularity-test-media");
+        fs::create_dir_all(&dir).expect("create temp media dir");
+        let file = dir.join("img-123.png");
+        fs::write(&file, &[1, 2, 3]).expect("write temp media file");
+
+        // asset:// URLs percent-encode the absolute path.
+        let encoded = file.to_string_lossy().replace("/", "%2F");
+        let file_url = format!("asset://localhost/{}", encoded);
+
         let messages = vec![
             message_with_image(None),
-            message_with_image(Some("asset://localhost/home/user/.cache/eu.luxuride.singularity/media-cache/img-123.png")),
-            message_with_image(Some("https://example.org/media.png")),
+            message_with_image(Some(file_url.as_str())),
         ];
 
-        assert!(!has_stale_in_memory_media_urls(&messages));
+        assert!(!has_stale_cached_media_urls(&messages));
+
+        fs::remove_file(&file).expect("clean up temp media file");
+        fs::remove_dir(&dir).expect("clean up temp media dir");
     }
 }

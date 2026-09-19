@@ -44,7 +44,7 @@ pub async fn matrix_get_chat_messages(
             include_selected_messages: true,
         });
 
-        if !chat::helpers::has_stale_in_memory_media_urls(&cached.messages) {
+        if !chat::helpers::has_stale_cached_media_urls(&cached.messages) {
             return Ok(cached);
         }
     }

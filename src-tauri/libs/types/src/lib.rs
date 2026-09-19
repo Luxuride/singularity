@@ -9,7 +9,6 @@ pub mod config;
 pub mod event_paths;
 pub mod event_sink;
 pub mod event_types;
-pub mod media;
 pub mod paths;
 pub mod rooms;
 pub mod settings;

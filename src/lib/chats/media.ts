@@ -16,7 +16,6 @@ export function normalizeImageUrl(imageUrl: string | null): string | null {
     imageUrl.startsWith("data:") ||
     imageUrl.startsWith("http://") ||
     imageUrl.startsWith("https://") ||
-    imageUrl.startsWith("matrix-media://") ||
     imageUrl.startsWith("tauri://") ||
     imageUrl.startsWith("asset://")
   ) {
@@ -32,7 +31,7 @@ export function normalizeMessageImageUrl(message: MatrixChatMessage): MatrixChat
     imageUrl: normalizeImageUrl(message.imageUrl),
     customEmojis: message.customEmojis.map((emoji) => ({
       ...emoji,
-      url: emoji.url,
+      url: normalizeImageUrl(emoji.url) ?? emoji.url,
     })),
   };
 }
@@ -88,9 +87,24 @@ if (vitest) {
       expect(normalizeImageUrl(raw)).toBe(raw);
     });
 
-    it("leaves matrix-media URLs unchanged", () => {
-      const raw = "matrix-media://localhost/img-123.png";
-      expect(normalizeImageUrl(raw)).toBe(raw);
+    it("normalizes custom emoji URLs in messages", () => {
+      const message: MatrixChatMessage = {
+        eventId: "$event",
+        inReplyToEventId: null,
+        sender: "@alice:example.org",
+        timestamp: 1,
+        body: "body",
+        formattedBody: null,
+        messageType: "m.text",
+        imageUrl: null,
+        customEmojis: [{ shortcode: "wave", url: "asset://localhost/img.png" }],
+        reactions: [],
+        encrypted: false,
+        decryptionStatus: "plaintext",
+        verificationStatus: "unknown",
+      };
+      const normalized = normalizeMessageImageUrl(message);
+      expect(normalized.customEmojis[0].url).toBe("asset://localhost/img.png");
     });
   });
 }

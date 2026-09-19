@@ -6,10 +6,10 @@
 //! - `auth`         — sign-in, session, recovery, logout
 //! - `rooms`        — chat list, navigation, room image, join, update triggers
 //! - `chat`         — messages, media, reactions, emoji, avatars, clipboard
-//! - `settings`     — media storage settings
+//! - `settings`     — settings commands
 //! - `verification` — device verification / SAS flows
 //!
-//! Shared binder infrastructure (paths, event sink, media protocol) lives here.
+//! Shared binder infrastructure (paths, event sink) lives here.
 
 pub mod auth;
 pub mod chat;
@@ -48,46 +48,5 @@ impl types::EventSink for AppHandleEventSink {
         self.0
             .emit(event, payload)
             .map_err(|error| format!("Failed to emit event {event}: {error}"))
-    }
-}
-
-/// Wrap the Tauri-free `assets::handle_media_request` into a `matrix-media://`
-/// protocol response.
-pub fn handle_media_protocol_request(
-    request: tauri::http::Request<Vec<u8>>,
-) -> tauri::http::Response<Vec<u8>> {
-    let media_key = request.uri().path().trim_start_matches('/');
-    if media_key.is_empty() {
-        return build_protocol_response(
-            tauri::http::StatusCode::BAD_REQUEST,
-            "text/plain; charset=utf-8",
-            b"missing media key".to_vec(),
-        );
-    }
-
-    let (bytes, mime_type) = assets::handle_media_request(media_key);
-    let (Some(bytes), Some(mime_type)) = (bytes, mime_type) else {
-        return build_protocol_response(
-            tauri::http::StatusCode::NOT_FOUND,
-            "text/plain; charset=utf-8",
-            b"media not found".to_vec(),
-        );
-    };
-
-    build_protocol_response(tauri::http::StatusCode::OK, &mime_type, bytes)
-}
-
-fn build_protocol_response(
-    status: tauri::http::StatusCode,
-    mime_type: &str,
-    body: Vec<u8>,
-) -> tauri::http::Response<Vec<u8>> {
-    match tauri::http::Response::builder()
-        .status(status)
-        .header(tauri::http::header::CONTENT_TYPE, mime_type)
-        .body(body)
-    {
-        Ok(response) => response,
-        Err(_) => tauri::http::Response::new(Vec::new()),
     }
 }
