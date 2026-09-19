@@ -5,7 +5,7 @@ use types::chat::{
 use types::event_paths;
 use types::{EventSink, RoomRefreshTrigger};
 
-use super::super::helpers::has_stale_in_memory_media_urls;
+use super::super::helpers::has_stale_cached_media_urls;
 use super::super::persistence::{
     is_cacheable_initial_request, load_initial_room_messages, store_initial_room_messages,
 };
@@ -54,7 +54,7 @@ where
         if let Some(cached) =
             load_initial_room_messages(app_db, room_id.as_str(), from.as_deref(), limit)?
         {
-            if has_stale_in_memory_media_urls(&cached.messages) {
+            if has_stale_cached_media_urls(&cached.messages) {
                 let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
                     selected_room_id: Some(room_id.clone()),
                     include_selected_messages: true,

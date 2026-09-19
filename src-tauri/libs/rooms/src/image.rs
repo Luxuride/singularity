@@ -1,6 +1,6 @@
-use std::path::Path;
 use std::sync::Arc;
 
+use assets::media_url_is_available;
 use log::warn;
 use matrix_sdk::ruma::events::GlobalAccountDataEventType;
 
@@ -16,17 +16,9 @@ use crate::persistence::{load_cached_chats, store_cached_chats};
 
 pub fn has_stale_cached_chat_media(chats: &MatrixGetChatsResponse) -> bool {
     chats.chats.iter().any(|chat| {
-        chat.image_url.as_deref().is_some_and(|url| {
-            if url.starts_with("matrix-media://") {
-                return true;
-            }
-
-            if url.starts_with('/') {
-                return !Path::new(url).exists();
-            }
-
-            false
-        })
+        chat.image_url
+            .as_deref()
+            .is_some_and(|url| !media_url_is_available(url))
     })
 }
 
@@ -142,6 +134,8 @@ pub async fn get_room_image(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::has_stale_cached_chat_media;
     use types::rooms::{MatrixChatSummary, MatrixGetChatsResponse, MatrixRoomKind};
 
@@ -160,10 +154,10 @@ mod tests {
     }
 
     #[test]
-    fn detects_stale_matrix_media_url() {
+    fn detects_stale_missing_media_file() {
         let chats = MatrixGetChatsResponse {
             chats: vec![chat_with_image(Some(
-                "matrix-media://localhost/img-123.png",
+                "asset://localhost/%2Ftmp%2Fsingularity-test%2Fmissing%2Fimg-123.png",
             ))],
         };
 
@@ -171,13 +165,23 @@ mod tests {
     }
 
     #[test]
-    fn ignores_fresh_media_urls() {
+    fn ignores_available_media_urls() {
+        let dir = std::env::temp_dir().join("singularity-test-chat-media");
+        fs::create_dir_all(&dir).expect("create temp media dir");
+        let file = dir.join("img-123.png");
+        fs::write(&file, &[1, 2, 3]).expect("write temp media file");
+
+        // asset:// URLs percent-encode the absolute path.
+        let encoded = file.to_string_lossy().replace("/", "%2F");
+        let file_url = format!("asset://localhost/{}", encoded);
+
         let chats = MatrixGetChatsResponse {
-            chats: vec![chat_with_image(Some(
-                "asset://localhost/home/user/.cache/img-123.png",
-            ))],
+            chats: vec![chat_with_image(Some(file_url.as_str()))],
         };
 
         assert!(!has_stale_cached_chat_media(&chats));
+
+        fs::remove_file(&file).expect("clean up temp media file");
+        fs::remove_dir(&dir).expect("clean up temp media dir");
     }
 }

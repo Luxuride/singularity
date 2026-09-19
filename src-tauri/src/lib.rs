@@ -6,7 +6,7 @@
 //!
 //! - resolves `types::Paths` from the `AppHandle` during setup,
 //! - initializes the app secret + encrypted database,
-//! - wires the `matrix-media` URI scheme to the Tauri-free assets handler,
+//! - clears the disk-backed media cache on startup,
 //! - registers an `EventSink` that wraps `AppHandle::emit`,
 //! - starts the room-update worker and the verification-state watcher (via the
 //!   `AuthState::on_client_ready` hook),
@@ -31,9 +31,6 @@ pub fn run() {
     }
 
     builder
-        .register_uri_scheme_protocol("matrix-media", |_ctx, request| {
-            commands::handle_media_protocol_request(request)
-        })
         .setup(|app| {
             let deep_link_registered = {
                 #[cfg(any(windows, target_os = "linux"))]
@@ -58,6 +55,9 @@ pub fn run() {
             let handle = app.handle().clone();
             let paths = commands::resolve_paths(&handle)?;
             assets::initialize_media_cache_dir(paths.cache_dir());
+            // Media is disk-backed; clear any stale files from a previous
+            // session so the cache does not accumulate on disk.
+            assets::clear_media_cache();
 
             tauri::async_runtime::block_on(async {
                 storage::secret::init_secret(
@@ -75,8 +75,6 @@ pub fn run() {
                 &paths.data_file(types::storage_keys::APP_DB_FILE),
                 secret,
             )?);
-
-            settings::initialize_media_storage_mode(&paths)?;
 
             let event_sink: Arc<dyn types::EventSink> =
                 Arc::new(commands::AppHandleEventSink::new(handle.clone()));
@@ -147,8 +145,6 @@ pub fn run() {
             commands::chat::matrix_toggle_reaction,
             commands::chat::matrix_copy_image_to_clipboard,
             commands::chat::matrix_read_clipboard_text,
-            commands::settings::matrix_get_media_settings,
-            commands::settings::matrix_set_media_settings,
             commands::verification::matrix_own_verification_status,
             commands::verification::matrix_get_user_devices,
             commands::verification::matrix_request_device_verification,

@@ -1,9 +1,8 @@
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use log::warn;
@@ -11,65 +10,8 @@ use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
 use matrix_sdk::ruma::events::room::MediaSource;
 use percent_encoding::percent_decode_str;
 
-use types::media::MediaStorageMode;
-
 static MEDIA_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
-static IN_MEMORY_MEDIA_CACHE: OnceLock<Mutex<InMemoryMediaCache>> = OnceLock::new();
 static CACHED_MEDIA_URLS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
-static MEDIA_STORAGE_MODE: AtomicU8 = AtomicU8::new(MediaStorageMode::InMemory as u8);
-
-const MAX_IN_MEMORY_MEDIA_ITEMS: usize = 512;
-
-#[derive(Clone)]
-struct InMemoryMediaValue {
-    bytes: Vec<u8>,
-    mime_type: String,
-}
-
-#[derive(Default)]
-struct InMemoryMediaCache {
-    values: HashMap<String, InMemoryMediaValue>,
-    order: VecDeque<String>,
-}
-
-impl InMemoryMediaCache {
-    fn insert(&mut self, key: String, value: InMemoryMediaValue) {
-        if self.values.contains_key(&key) {
-            self.values.insert(key.clone(), value);
-            self.touch(&key);
-            return;
-        }
-
-        self.values.insert(key.clone(), value);
-        self.order.push_back(key);
-
-        while self.values.len() > MAX_IN_MEMORY_MEDIA_ITEMS {
-            if let Some(evicted) = self.order.pop_front() {
-                self.values.remove(&evicted);
-            } else {
-                break;
-            }
-        }
-    }
-
-    fn get(&mut self, key: &str) -> Option<InMemoryMediaValue> {
-        let value = self.values.get(key)?.clone();
-        self.touch(key);
-        Some(value)
-    }
-
-    fn clear(&mut self) {
-        self.values.clear();
-        self.order.clear();
-    }
-
-    fn touch(&mut self, key: &str) {
-        if let Some(position) = self.order.iter().position(|entry| entry == key) {
-            self.order.remove(position);
-        }
-        self.order.push_back(key.to_owned());
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct ImageCacheKeyParts {
@@ -214,19 +156,6 @@ impl NormalizedImageLoadBuilder {
     }
 }
 
-pub fn media_storage_mode() -> MediaStorageMode {
-    MediaStorageMode::from_u8(MEDIA_STORAGE_MODE.load(Ordering::Relaxed))
-}
-
-pub fn set_media_storage_mode(mode: MediaStorageMode) {
-    MEDIA_STORAGE_MODE.store(mode as u8, Ordering::Relaxed);
-    clear_cached_media_urls();
-
-    if matches!(mode, MediaStorageMode::AssetStorage) {
-        clear_in_memory_media_cache();
-    }
-}
-
 pub fn initialize_media_cache_dir(cache_dir: &Path) {
     if MEDIA_CACHE_DIR.get().is_some() {
         return;
@@ -237,18 +166,20 @@ pub fn initialize_media_cache_dir(cache_dir: &Path) {
     let _ = MEDIA_CACHE_DIR.set(resolved);
 }
 
-/// Tauri-free handler for `matrix-media://` requests. Returns the media bytes
-/// and MIME type for the given key, or `(None, None)` if the key is missing or
-/// the media is not cached. The binder wraps this into a `tauri::http::Response`.
-pub fn handle_media_request(media_key: &str) -> (Option<Vec<u8>>, Option<String>) {
-    if media_key.is_empty() {
-        return (None, None);
+/// Remove all cached media files from the media cache directory. Called on app
+/// startup so stale media from a previous session does not accumulate on disk.
+pub fn clear_media_cache() {
+    let cache_dir = media_cache_dir();
+    if !cache_dir.exists() {
+        return;
     }
 
-    match load_cached_media_from_memory(media_key) {
-        Some((bytes, mime_type)) => (Some(bytes), Some(mime_type)),
-        None => (None, None),
+    if let Err(error) = fs::remove_dir_all(&cache_dir) {
+        warn!("Failed to clear media cache directory: {error}");
+        return;
     }
+
+    let _ = fs::create_dir_all(&cache_dir);
 }
 
 pub async fn cache_mxc_media_to_local_path(
@@ -340,12 +271,15 @@ pub fn cache_event_image(bytes: &[u8], key_parts: ImageCacheKeyParts) -> Option<
 }
 
 pub fn load_media_bytes_from_resolved_url(raw_url: &str) -> Option<Vec<u8>> {
-    if let Some(media_key) = matrix_media_key_from_url(raw_url) {
-        return load_cached_media_from_memory(&media_key).map(|(bytes, _)| bytes);
-    }
-
     let file_path = resolved_media_file_path(raw_url)?;
     fs::read(file_path).ok()
+}
+
+/// Whether a resolved media URL (`asset://`, `file://`, or absolute path) still
+/// points to an existing file on disk. Used to detect stale cached media URLs
+/// so the caller can re-fetch from the server.
+pub fn media_url_is_available(raw_url: &str) -> bool {
+    resolved_media_file_path(raw_url).is_some_and(|path| path.exists())
 }
 
 pub fn image_extension_from_mime(mime_type: &str) -> &'static str {
@@ -384,57 +318,8 @@ fn resolved_media_file_path(raw_url: &str) -> Option<PathBuf> {
     None
 }
 
-fn matrix_media_key_from_url(raw_url: &str) -> Option<String> {
-    if !raw_url.starts_with("matrix-media://") {
-        return None;
-    }
-
-    let parsed = url::Url::parse(raw_url).ok()?;
-    let media_key = parsed.path().trim_start_matches('/');
-    if media_key.is_empty() {
-        return None;
-    }
-
-    Some(media_key.to_owned())
-}
-
-fn load_cached_media_from_memory(media_key: &str) -> Option<(Vec<u8>, String)> {
-    let cache = in_memory_media_cache();
-    let mut lock = match cache.lock() {
-        Ok(guard) => guard,
-        Err(_) => return None,
-    };
-
-    let entry = lock.get(media_key)?;
-    Some((entry.bytes, entry.mime_type))
-}
-
 fn persist_normalized_image(request: &NormalizedImageLoad) -> Option<String> {
-    if matches!(media_storage_mode(), MediaStorageMode::InMemory) {
-        return persist_cached_media_in_memory(request);
-    }
-
     persist_cached_media_asset(request)
-}
-
-fn persist_cached_media_in_memory(request: &NormalizedImageLoad) -> Option<String> {
-    let media_key = format!("{}.{}", request.file_stem, request.extension);
-
-    let cache = in_memory_media_cache();
-    let mut lock = match cache.lock() {
-        Ok(guard) => guard,
-        Err(_) => return None,
-    };
-
-    lock.insert(
-        media_key.clone(),
-        InMemoryMediaValue {
-            bytes: request.bytes.clone(),
-            mime_type: request.mime_type.clone(),
-        },
-    );
-
-    Some(to_in_memory_media_url(&media_key))
 }
 
 fn persist_cached_media_asset(request: &NormalizedImageLoad) -> Option<String> {
@@ -567,28 +452,6 @@ fn mime_type_from_extension(extension: &str) -> &'static str {
     }
 }
 
-fn clear_in_memory_media_cache() {
-    if let Ok(mut cache) = in_memory_media_cache().lock() {
-        cache.clear();
-    }
-
-    clear_cached_media_urls();
-}
-
-fn clear_cached_media_urls() {
-    if let Ok(mut cached_urls) = cached_media_urls().lock() {
-        cached_urls.clear();
-    }
-}
-
-fn in_memory_media_cache() -> &'static Mutex<InMemoryMediaCache> {
-    IN_MEMORY_MEDIA_CACHE.get_or_init(|| Mutex::new(InMemoryMediaCache::default()))
-}
-
-fn cached_media_urls() -> &'static Mutex<HashMap<String, String>> {
-    CACHED_MEDIA_URLS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
 fn cached_media_path_for_source_url(source_url: &str) -> Option<String> {
     let cached_path = {
         let cache = cached_media_urls();
@@ -596,11 +459,7 @@ fn cached_media_path_for_source_url(source_url: &str) -> Option<String> {
         lock.get(source_url).cloned()
     }?;
 
-    if let Some(media_key) = matrix_media_key_from_url(&cached_path) {
-        if load_cached_media_from_memory(&media_key).is_some() {
-            return Some(cached_path);
-        }
-    } else if resolved_media_file_path(&cached_path).is_some_and(|path| path.exists()) {
+    if resolved_media_file_path(&cached_path).is_some_and(|path| path.exists()) {
         return Some(cached_path);
     }
 
@@ -617,8 +476,8 @@ fn register_cached_media_path(source_url: &str, resolved_path: &str) {
     }
 }
 
-fn to_in_memory_media_url(media_key: &str) -> String {
-    format!("matrix-media://localhost/{media_key}")
+fn cached_media_urls() -> &'static Mutex<HashMap<String, String>> {
+    CACHED_MEDIA_URLS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn media_cache_dir() -> PathBuf {
@@ -638,10 +497,12 @@ pub fn media_cache_dir_path() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::{
-        canonical_pack_source_url, image_extension_from_mime, percent_encode_asset_path,
-        resolve_pack_media_url, ImageCacheKeyParts, NormalizedImageLoad,
-        NormalizedImageLoadBuilder,
+        canonical_pack_source_url, image_extension_from_mime, load_media_bytes_from_resolved_url,
+        media_url_is_available, percent_encode_asset_path, resolve_pack_media_url,
+        to_asset_storage_url, ImageCacheKeyParts, NormalizedImageLoad, NormalizedImageLoadBuilder,
     };
 
     #[test]
@@ -708,5 +569,25 @@ mod tests {
             encoded,
             "%2Fhome%2Flux%2F.cache%2Fmedia-cache%2Fimg-123.bin"
         );
+    }
+
+    #[test]
+    fn asset_url_round_trips_to_original_path() {
+        let dir = std::env::temp_dir().join("singularity-test-assets");
+        fs::create_dir_all(&dir).expect("create temp media dir");
+        let file = dir.join("img-123.png");
+        fs::write(&file, &[1, 2, 3]).expect("write temp media file");
+
+        let url = to_asset_storage_url(&file);
+        assert!(url.starts_with("asset://localhost/"));
+
+        assert!(media_url_is_available(&url));
+        assert_eq!(
+            load_media_bytes_from_resolved_url(&url),
+            Some(vec![1, 2, 3]),
+        );
+
+        fs::remove_file(&file).expect("clean up temp media file");
+        fs::remove_dir(&dir).expect("clean up temp media dir");
     }
 }
