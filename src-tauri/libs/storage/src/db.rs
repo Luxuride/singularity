@@ -767,13 +767,13 @@ impl AppDb {
                 .get(3)
                 .map_err(|error| format!("Failed to decode cached timestamp: {error}"))?;
             let encrypted_flag: i64 = row
-                .get(7)
+                .get(8)
                 .map_err(|error| format!("Failed to decode cached encrypted flag: {error}"))?;
             let decryption_status_raw: String = row
-                .get(8)
+                .get(9)
                 .map_err(|error| format!("Failed to decode cached decryption status: {error}"))?;
             let verification_status_raw: String = row
-                .get(9)
+                .get(10)
                 .map_err(|error| format!("Failed to decode cached verification status: {error}"))?;
 
             messages.push(MatrixChatMessage {
@@ -805,6 +805,13 @@ impl AppDb {
                 decryption_status: decryption_status_from_db(&decryption_status_raw)?,
                 verification_status: verification_status_from_db(&verification_status_raw)?,
             });
+        }
+
+        // An empty cached message list is indistinguishable from "no messages
+        // cached yet". Treat it as a cache miss so the caller re-fetches from
+        // the server instead of showing an empty timeline.
+        if messages.is_empty() {
+            return Ok(None);
         }
 
         Ok(Some(MatrixGetChatMessagesResponse {
@@ -871,7 +878,8 @@ fn decryption_status_from_db(status: &str) -> Result<MatrixMessageDecryptionStat
         "plaintext" => Ok(MatrixMessageDecryptionStatus::Plaintext),
         "decrypted" => Ok(MatrixMessageDecryptionStatus::Decrypted),
         "unable_to_decrypt" => Ok(MatrixMessageDecryptionStatus::UnableToDecrypt),
-        _ => Err(format!("Invalid decryption status in cache: {status}")),
+        // Unknown/legacy status strings must not fail the whole cache load.
+        _ => Ok(MatrixMessageDecryptionStatus::Plaintext),
     }
 }
 
@@ -888,6 +896,103 @@ fn verification_status_from_db(status: &str) -> Result<MatrixMessageVerification
         "unknown" => Ok(MatrixMessageVerificationStatus::Unknown),
         "verified" => Ok(MatrixMessageVerificationStatus::Verified),
         "unverified" => Ok(MatrixMessageVerificationStatus::Unverified),
-        _ => Err(format!("Invalid verification status in cache: {status}")),
+        // Unknown/legacy status strings must not fail the whole cache load.
+        _ => Ok(MatrixMessageVerificationStatus::Unknown),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_db_path() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "singularity-db-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("app.db")
+    }
+
+    fn sample_message() -> MatrixChatMessage {
+        MatrixChatMessage {
+            event_id: Some(String::from("$event1")),
+            in_reply_to_event_id: None,
+            sender: String::from("@alice:example.org"),
+            timestamp: Some(1),
+            body: String::from("hello"),
+            formatted_body: None,
+            message_type: Some(String::from("m.text")),
+            // NULL image_url is the common case that previously broke the load
+            // path due to an off-by-one column index.
+            image_url: None,
+            custom_emojis: Vec::new(),
+            reactions: Vec::new(),
+            encrypted: false,
+            decryption_status: MatrixMessageDecryptionStatus::Plaintext,
+            verification_status: MatrixMessageVerificationStatus::Unknown,
+        }
+    }
+
+    #[tokio::test]
+    async fn round_trips_message_with_null_image_url() {
+        let path = temp_db_path();
+        let app_db = AppDb::initialize(&path, "test-secret").unwrap();
+
+        let response = MatrixGetChatMessagesResponse {
+            room_id: String::from("!room:example.org"),
+            next_from: Some(String::from("next-token")),
+            messages: vec![sample_message()],
+        };
+
+        app_db.store_initial_room_messages(&response).unwrap();
+
+        let loaded = app_db.load_initial_room_messages("!room:example.org").unwrap();
+        assert!(loaded.is_some());
+
+        let loaded = loaded.unwrap();
+        assert_eq!(loaded.messages.len(), 1);
+        assert_eq!(loaded.next_from, Some(String::from("next-token")));
+
+        let message = &loaded.messages[0];
+        assert_eq!(message.event_id, Some(String::from("$event1")));
+        assert_eq!(message.sender, String::from("@alice:example.org"));
+        assert_eq!(message.body, String::from("hello"));
+        assert_eq!(message.image_url, None);
+        assert!(!message.encrypted);
+        assert_eq!(
+            message.decryption_status,
+            MatrixMessageDecryptionStatus::Plaintext
+        );
+        assert_eq!(
+            message.verification_status,
+            MatrixMessageVerificationStatus::Unknown
+        );
+
+        let _ = std::fs::remove_dir_all(&path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn treats_empty_cache_as_miss() {
+        let path = temp_db_path();
+        let app_db = AppDb::initialize(&path, "test-secret").unwrap();
+
+        // A state row with no message rows must be treated as a cache miss so
+        // the caller re-fetches instead of showing an empty timeline.
+        let response = MatrixGetChatMessagesResponse {
+            room_id: String::from("!room:example.org"),
+            next_from: Some(String::from("next-token")),
+            messages: Vec::new(),
+        };
+        app_db.store_initial_room_messages(&response).unwrap();
+
+        let loaded = app_db.load_initial_room_messages("!room:example.org").unwrap();
+        assert!(loaded.is_none());
+
+        let _ = std::fs::remove_dir_all(&path.parent().unwrap());
     }
 }

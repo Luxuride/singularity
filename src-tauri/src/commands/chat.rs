@@ -9,13 +9,13 @@ use auth::AuthState;
 use storage::AppDb;
 use types::chat::{
     MatrixCancelMediaTranscodeRequest, MatrixCancelMediaTranscodeResponse,
-    MatrixCopyImageToClipboardRequest, MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse,
-    MatrixGetEmojiPacksResponse, MatrixGetUserAvatarRequest, MatrixGetUserAvatarResponse,
-    MatrixSendChatMessageRequest, MatrixSendChatMessageResponse, MatrixSendMediaFileRequest,
-    MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
-    MatrixToggleReactionRequest, MatrixToggleReactionResponse,
+    MatrixChatMessageStreamEvent, MatrixCopyImageToClipboardRequest, MatrixGetChatMessagesRequest,
+    MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse, MatrixGetUserAvatarRequest,
+    MatrixGetUserAvatarResponse, MatrixSendChatMessageRequest, MatrixSendChatMessageResponse,
+    MatrixSendMediaFileRequest, MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest,
+    MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest, MatrixToggleReactionResponse,
 };
-use types::{Paths, RoomRefreshTrigger, RoomUpdateTriggerState};
+use types::{event_paths, Paths, RoomRefreshTrigger, RoomUpdateTriggerState};
 
 #[tauri::command]
 pub async fn matrix_get_chat_messages(
@@ -102,6 +102,9 @@ pub async fn matrix_stream_chat_messages(
     let event_sink = event_sink.inner().clone();
     let client_for_task = client.clone();
     let request_for_task = request.clone();
+    let terminal_room_id = request.room_id.clone();
+    let terminal_stream_id = request.stream_id.clone();
+    let terminal_load_kind = request.load_kind;
 
     tauri::async_runtime::spawn(async move {
         let context = chat::receive::StreamRoomMessagesContext {
@@ -112,6 +115,8 @@ pub async fn matrix_stream_chat_messages(
         };
 
         let stream_result = chat::stream_chat_messages(context, request_for_task.clone()).await;
+
+        let mut stream_failed = false;
 
         if let Err(error) = stream_result {
             if chat::helpers::is_room_unavailable_error(&error) {
@@ -124,6 +129,7 @@ pub async fn matrix_stream_chat_messages(
                     log::warn!(
                         "Background matrix stream sync failed after room-unavailable error: {sync_error}"
                     );
+                    stream_failed = true;
                 } else {
                     let context = chat::receive::StreamRoomMessagesContext {
                         event_sink: event_sink.as_ref(),
@@ -135,10 +141,35 @@ pub async fn matrix_stream_chat_messages(
                         chat::stream_chat_messages(context, request_for_task).await
                     {
                         log::warn!("Background matrix stream retry failed: {retry_error}");
+                        stream_failed = true;
                     }
                 }
             } else {
                 log::warn!("Background matrix stream failed: {error}");
+                stream_failed = true;
+            }
+        }
+
+        // The frontend only clears its loading state on a terminal `done`
+        // event. If the stream failed without emitting one, emit a terminal
+        // `done` (with no messages) so the UI never hangs in an infinite
+        // loading loop.
+        if stream_failed {
+            match serde_json::to_value(MatrixChatMessageStreamEvent {
+                room_id: terminal_room_id,
+                stream_id: terminal_stream_id,
+                load_kind: terminal_load_kind,
+                sequence: 0,
+                message: None,
+                next_from: None,
+                done: true,
+            }) {
+                Ok(payload) => {
+                    let _ = event_sink.emit(event_paths::CHAT_MESSAGES_STREAM, &payload);
+                }
+                Err(error) => {
+                    log::warn!("Failed to serialize chat message stream completion: {error}");
+                }
             }
         }
     });

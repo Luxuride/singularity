@@ -79,6 +79,7 @@
   const roomScrollStates = new Map<string, RoomScrollState>();
   const AUTO_LOAD_TOP_THRESHOLD_PX = 96;
   const AUTO_LOAD_OLDER_COOLDOWN_MS = 400;
+  const MESSAGE_LOAD_TIMEOUT_MS = 15000;
 
   let pendingRestoreRoomId = "";
   let pendingRestoreToBottom = false;
@@ -1055,6 +1056,21 @@
     activeLoadKind = "initial";
     streamMessageCount = 0;
 
+    // Defense-in-depth: if the backend never emits a terminal `done` event
+    // (e.g. a stream failure), clear the loading state after a timeout so the
+    // UI never hangs in an infinite loading loop.
+    const timeoutHandle = setTimeout(() => {
+      if (activeStreamId !== streamId) {
+        return;
+      }
+
+      loadingMessages = false;
+      activeStreamId = "";
+      activeLoadKind = null;
+      streamMessageCount = 0;
+      errorMessage = "Timed out loading messages";
+    }, MESSAGE_LOAD_TIMEOUT_MS);
+
     try {
       await matrixStreamChatMessages({
         roomId,
@@ -1064,9 +1080,12 @@
       });
 
       if ($shellSelectedRoomId !== roomId || activeStreamId !== streamId) {
+        clearTimeout(timeoutHandle);
         return;
       }
     } catch (error) {
+      clearTimeout(timeoutHandle);
+
       if (activeStreamId !== streamId) {
         return;
       }
