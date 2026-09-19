@@ -19,3 +19,4 @@ mime = { workspace = true }
 arboard = { workspace = true }
 reqwest = { workspace = true }
 rand = { workspace = true }
+percent-encoding = { workspace = true }

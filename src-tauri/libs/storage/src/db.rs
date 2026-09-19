@@ -799,6 +799,7 @@ impl AppDb {
                 image_url: row
                     .get::<_, Option<String>>(7)
                     .map_err(|error| format!("Failed to decode cached image url: {error}"))?,
+                thumbnail_url: None,
                 custom_emojis: Vec::new(),
                 reactions: Vec::new(),
                 encrypted: encrypted_flag != 0,
@@ -930,6 +931,7 @@ mod tests {
             // NULL image_url is the common case that previously broke the load
             // path due to an off-by-one column index.
             image_url: None,
+            thumbnail_url: None,
             custom_emojis: Vec::new(),
             reactions: Vec::new(),
             encrypted: false,

@@ -29,6 +29,7 @@ export function normalizeMessageImageUrl(message: MatrixChatMessage): MatrixChat
   return {
     ...message,
     imageUrl: normalizeImageUrl(message.imageUrl),
+    thumbnailUrl: normalizeImageUrl(message.thumbnailUrl),
     customEmojis: message.customEmojis.map((emoji) => ({
       ...emoji,
       url: normalizeImageUrl(emoji.url) ?? emoji.url,
@@ -97,6 +98,7 @@ if (vitest) {
         formattedBody: null,
         messageType: "m.text",
         imageUrl: null,
+        thumbnailUrl: null,
         customEmojis: [{ shortcode: "wave", url: "asset://localhost/img.png" }],
         reactions: [],
         encrypted: false,

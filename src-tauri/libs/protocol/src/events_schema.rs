@@ -138,7 +138,11 @@ pub fn parse_timeline_message(
             || msgtype == event_types::message_types::EMOTE
         {
             Some((body, None))
-        } else if msgtype == event_types::message_types::IMAGE {
+        } else if msgtype == event_types::message_types::IMAGE
+            || msgtype == event_types::message_types::VIDEO
+            || msgtype == event_types::message_types::AUDIO
+            || msgtype == event_types::message_types::FILE
+        {
             let image_url = extract_media_event_url(event)
                 .and_then(|raw| matrix_media_url_from_event_url(homeserver_url, raw));
 
@@ -413,6 +417,37 @@ mod tests {
     }
 
     #[test]
+    fn parses_video_message_with_mxc_media_url() {
+        let homeserver = Url::parse("https://matrix.example.org").expect("homeserver");
+        let event = json!({
+            "type": "m.room.message",
+            "sender": "@alice:example.org",
+            "content": {
+                "msgtype": "m.video",
+                "body": "check this out",
+                "url": "mxc://media.example.org/video123"
+            }
+        });
+
+        let parsed = parse_timeline_message(
+            &event,
+            &homeserver,
+            MatrixMessageDecryptionStatus::Decrypted,
+            MatrixMessageVerificationStatus::Verified,
+        )
+        .expect("message should parse");
+        assert_eq!(parsed.body, "check this out");
+        assert_eq!(parsed.message_type, Some("m.video".to_owned()));
+        assert_eq!(
+            parsed.image_url,
+            Some(
+                "https://matrix.example.org/_matrix/media/v3/download/media.example.org/video123?allow_redirect=true"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
     fn parses_custom_emoji_from_formatted_body() {
         let homeserver = Url::parse("https://matrix.example.org").expect("homeserver");
         let event = json!({
@@ -552,8 +587,8 @@ mod tests {
             "type": "m.room.message",
             "sender": "@alice:example.org",
             "content": {
-                "msgtype": "m.audio",
-                "body": "audio"
+                "msgtype": "m.location",
+                "body": "location"
             }
         });
 
@@ -564,8 +599,8 @@ mod tests {
             MatrixMessageVerificationStatus::Verified,
         )
         .expect("message should parse");
-        assert_eq!(parsed.message_type, Some("m.audio".to_owned()));
-        assert_eq!(parsed.body, "Unsupported message type: m.audio");
+        assert_eq!(parsed.message_type, Some("m.location".to_owned()));
+        assert_eq!(parsed.body, "Unsupported message type: m.location");
         assert!(parsed.image_url.is_none());
     }
 

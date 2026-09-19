@@ -270,6 +270,44 @@ pub fn cache_event_image(bytes: &[u8], key_parts: ImageCacheKeyParts) -> Option<
     persist_normalized_image(&request)
 }
 
+/// Cache arbitrary media bytes (e.g. video) to the media cache directory and
+/// return the resolved `asset://` URL. Unlike `cache_event_image`, this does
+/// not normalize or re-encode the bytes; it writes them verbatim so the file
+/// keeps its original container/codec.
+pub fn cache_media_bytes(bytes: &[u8], file_stem: &str, mime_type: &str) -> Option<String> {
+    let extension = media_extension_from_mime(mime_type);
+
+    let request = NormalizedImageLoad::builder()
+        .bytes(bytes)
+        .file_stem(file_stem)
+        .extension(extension)
+        .mime_type(mime_type)
+        .build()?;
+
+    persist_normalized_image(&request)
+}
+
+pub fn media_extension_from_mime(mime_type: &str) -> &'static str {
+    match mime_type {
+        "video/mp4" => "mp4",
+        "video/webm" => "webm",
+        "video/ogg" => "ogv",
+        "video/quicktime" => "mov",
+        "video/x-matroska" => "mkv",
+        "video/mpeg" => "mpeg",
+        "audio/mpeg" => "mp3",
+        "audio/ogg" => "ogg",
+        "audio/opus" => "opus",
+        "audio/wav" | "audio/x-wav" => "wav",
+        "audio/flac" => "flac",
+        "audio/aac" => "aac",
+        "application/pdf" => "pdf",
+        "application/zip" => "zip",
+        "text/plain" => "txt",
+        _ => image_extension_from_mime(mime_type),
+    }
+}
+
 pub fn load_media_bytes_from_resolved_url(raw_url: &str) -> Option<Vec<u8>> {
     let file_path = resolved_media_file_path(raw_url)?;
     fs::read(file_path).ok()
@@ -501,8 +539,9 @@ mod tests {
 
     use super::{
         canonical_pack_source_url, image_extension_from_mime, load_media_bytes_from_resolved_url,
-        media_url_is_available, percent_encode_asset_path, resolve_pack_media_url,
-        to_asset_storage_url, ImageCacheKeyParts, NormalizedImageLoad, NormalizedImageLoadBuilder,
+        media_extension_from_mime, media_url_is_available, percent_encode_asset_path,
+        resolve_pack_media_url, to_asset_storage_url, ImageCacheKeyParts, NormalizedImageLoad,
+        NormalizedImageLoadBuilder,
     };
 
     #[test]
@@ -510,6 +549,18 @@ mod tests {
         assert_eq!(image_extension_from_mime("image/jpeg"), "jpg");
         assert_eq!(image_extension_from_mime("image/png"), "png");
         assert_eq!(image_extension_from_mime("image/unknown"), "bin");
+    }
+
+    #[test]
+    fn media_extension_from_mime_maps_video_and_audio() {
+        assert_eq!(media_extension_from_mime("video/mp4"), "mp4");
+        assert_eq!(media_extension_from_mime("video/webm"), "webm");
+        assert_eq!(media_extension_from_mime("audio/mpeg"), "mp3");
+        assert_eq!(media_extension_from_mime("audio/opus"), "opus");
+        // Falls back to image extension mapping for image mime types.
+        assert_eq!(media_extension_from_mime("image/png"), "png");
+        // Unknown mime types fall back to the generic binary extension.
+        assert_eq!(media_extension_from_mime("application/octet-stream"), "bin");
     }
 
     #[test]

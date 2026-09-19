@@ -105,15 +105,27 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                 rewrite_formatted_body_custom_emoji(&body, &custom_emoji_urls_by_source)
             });
 
-            let image_url = if matches!(
+            let is_video = parsed.message_type.as_deref() == Some("m.video");
+
+            // Videos are downloaded on demand (when the user presses play) to
+            // avoid fetching large files for every message in the timeline.
+            // We eagerly resolve the thumbnail (poster) so the message shows a
+            // preview without downloading the full video.
+            let (image_url, thumbnail_url) = if is_video {
+                let thumbnail_url = media_resolver
+                    .resolve_thumbnail_cache_path(client, &event)
+                    .await;
+                (parsed.image_url, thumbnail_url)
+            } else if matches!(
                 parsed.message_type.as_deref(),
-                Some("m.image") | Some("m.video") | Some("m.file")
+                Some("m.image") | Some("m.file")
             ) {
-                media_resolver
+                let image_url = media_resolver
                     .resolve_image_cache_path(client, &event)
-                    .await
+                    .await;
+                (image_url, None)
             } else {
-                parsed.image_url
+                (parsed.image_url, None)
             };
 
             messages.push(MatrixChatMessage {
@@ -125,6 +137,7 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                 formatted_body,
                 message_type: parsed.message_type,
                 image_url,
+                thumbnail_url,
                 custom_emojis,
                 reactions: Vec::new(),
                 encrypted: parsed.encrypted,

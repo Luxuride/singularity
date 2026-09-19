@@ -7,4 +7,7 @@ pub mod message_types {
     pub const NOTICE: &str = "m.notice";
     pub const EMOTE: &str = "m.emote";
     pub const IMAGE: &str = "m.image";
+    pub const VIDEO: &str = "m.video";
+    pub const AUDIO: &str = "m.audio";
+    pub const FILE: &str = "m.file";
 }

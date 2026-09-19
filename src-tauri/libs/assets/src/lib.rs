@@ -3,8 +3,8 @@
 pub mod image;
 
 pub use image::{
-    cache_event_image, cache_mxc_media_to_local_path, canonical_pack_source_url,
+    cache_event_image, cache_media_bytes, cache_mxc_media_to_local_path, canonical_pack_source_url,
     clear_media_cache, image_extension_from_mime, initialize_media_cache_dir,
-    load_media_bytes_from_resolved_url, media_cache_dir_path, media_url_is_available,
-    resolve_pack_media_url, ImageCacheKeyParts, NormalizedImageLoad,
+    load_media_bytes_from_resolved_url, media_cache_dir_path, media_extension_from_mime,
+    media_url_is_available, resolve_pack_media_url, ImageCacheKeyParts, NormalizedImageLoad,
 };

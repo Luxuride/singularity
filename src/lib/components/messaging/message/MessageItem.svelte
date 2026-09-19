@@ -177,7 +177,7 @@
   {/if}
 
   <MessageHeader {message} {roomId} {repliedMessage} {onJumpToMessage} />
-  <MessageBody {message} onImageContextMenu={openImageOptionsMenuFromContext} />
+  <MessageBody {message} {roomId} onImageContextMenu={openImageOptionsMenuFromContext} />
   <MessageReactions {message} {currentUserId} {pickerCustomEmoji} onToggleReaction={onToggleReaction} />
   <MessageSendState {message} {isSending} onRetry={onRetry} />
   <MessageEncryptionState {message} />

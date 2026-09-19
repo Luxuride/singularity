@@ -36,6 +36,7 @@ mod tests {
             formatted_body: None,
             message_type: Some(String::from("m.image")),
             image_url: image_url.map(ToOwned::to_owned),
+            thumbnail_url: None,
             custom_emojis: Vec::new(),
             reactions: Vec::new(),
             encrypted: false,

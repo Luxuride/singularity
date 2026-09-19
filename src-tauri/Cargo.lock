@@ -854,6 +854,7 @@ dependencies = [
  "log",
  "matrix-sdk",
  "mime",
+ "percent-encoding",
  "protocol",
  "rand 0.8.8",
  "reqwest 0.12.28",
