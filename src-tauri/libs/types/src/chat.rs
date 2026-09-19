@@ -70,6 +70,8 @@ pub struct MatrixChatMessage {
     pub message_type: Option<String>,
     pub image_url: Option<String>,
     #[serde(default)]
+    pub thumbnail_url: Option<String>,
+    #[serde(default)]
     pub custom_emojis: Vec<MatrixCustomEmoji>,
     #[serde(default)]
     pub reactions: Vec<MatrixReactionSummary>,
@@ -150,6 +152,19 @@ pub struct MatrixGetUserAvatarRequest {
 #[serde(rename_all = "camelCase")]
 pub struct MatrixCopyImageToClipboardRequest {
     pub image_url: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixResolveVideoUrlRequest {
+    pub room_id: String,
+    pub event_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixResolveVideoUrlResponse {
+    pub video_url: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]

@@ -14,8 +14,8 @@ pub mod send;
 
 pub use commands::{
     cancel_media_transcode, copy_image_to_clipboard, get_chat_messages, get_emoji_packs,
-    get_user_avatar, read_clipboard_text, send_chat_message, send_media_file, stream_chat_messages,
-    toggle_reaction,
+    get_user_avatar, read_clipboard_text, resolve_video_url, send_chat_message, send_media_file,
+    stream_chat_messages, toggle_reaction,
 };
 pub use media::cache_mxc_media_to_local_path;
 pub use persistence::store_initial_room_messages;

@@ -561,6 +561,7 @@
       formattedBody: null,
       messageType: "m.text",
       imageUrl: null,
+      thumbnailUrl: null,
       customEmojis: [],
       reactions: [],
       encrypted: encryptedRoom,
@@ -590,6 +591,7 @@
         pendingMedia.messageType === "m.file"
           ? null
           : convertFileSrc(pendingMedia.filePath),
+      thumbnailUrl: null,
       customEmojis: [],
       reactions: [],
       encrypted: encryptedRoom,

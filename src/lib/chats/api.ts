@@ -24,6 +24,8 @@ import type {
   MatrixSetRootSpaceOrderRequest,
   MatrixSetRootSpaceOrderResponse,
   MatrixCopyImageToClipboardRequest,
+  MatrixResolveVideoUrlRequest,
+  MatrixResolveVideoUrlResponse,
   MatrixGetUserDevicesResponse,
   MatrixOwnVerificationStatus,
   MatrixRequestVerificationResponse,
@@ -163,6 +165,14 @@ export async function matrixCopyImageToClipboard(
 
 export async function matrixReadClipboardText(): Promise<string> {
   return invokeMatrixCommand<string>("matrix_read_clipboard_text");
+}
+
+export async function matrixResolveVideoUrl(
+  input: MatrixResolveVideoUrlRequest,
+): Promise<MatrixResolveVideoUrlResponse> {
+  return invokeMatrixCommand<MatrixResolveVideoUrlResponse>("matrix_resolve_video_url", {
+    request: input,
+  });
 }
 
 export async function matrixTriggerRoomUpdate(

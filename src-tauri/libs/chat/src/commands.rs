@@ -2,8 +2,10 @@ use std::borrow::Cow;
 
 use arboard::{Clipboard, ImageData};
 use matrix_sdk::Client;
+use serde_json::Value;
 
 use crate::emoji::load_picker_assets_from_client;
+use crate::media::{DefaultMediaResolver, MediaResolver};
 use crate::reactions::toggle_reaction_from_client;
 use crate::receive::fetch_room_messages_from_client;
 use crate::send::{
@@ -12,8 +14,8 @@ use crate::send::{
 };
 use types::chat::{
     MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse, MatrixGetUserAvatarResponse,
-    MatrixPickerCustomEmoji, MatrixSendChatMessageResponse, MatrixSendMediaFileResponse,
-    MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
+    MatrixPickerCustomEmoji, MatrixResolveVideoUrlResponse, MatrixSendChatMessageResponse,
+    MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
     MatrixToggleReactionResponse,
 };
 use types::EventSink;
@@ -194,4 +196,44 @@ pub async fn read_clipboard_text() -> Result<String, String> {
     clipboard
         .get_text()
         .map_err(|error| format!("Failed to read clipboard text: {error}"))
+}
+
+/// Resolve the local cache path for a video message's media, downloading it on
+/// demand. Returns `None` when the event is not a video or has no media.
+pub async fn resolve_video_url(
+    client: &Client,
+    room_id: &str,
+    event_id: &str,
+) -> Result<MatrixResolveVideoUrlResponse, String> {
+    let room_id = protocol::parse_room_id(room_id)?;
+    let event_id = protocol::parse_event_id(event_id)?;
+
+    let room = client
+        .get_room(&room_id)
+        .ok_or_else(|| String::from("Room is not available in current session"))?;
+
+    let timeline_event = room
+        .event(&event_id, None)
+        .await
+        .map_err(|error| format!("Failed to fetch video event: {error}"))?;
+
+    let Ok(event) = timeline_event.raw().deserialize_as::<Value>() else {
+        return Ok(MatrixResolveVideoUrlResponse { video_url: None });
+    };
+
+    let message_type = event
+        .get("content")
+        .and_then(|content| content.get("msgtype"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    if message_type != "m.video" {
+        return Ok(MatrixResolveVideoUrlResponse { video_url: None });
+    }
+
+    let video_url = DefaultMediaResolver
+        .resolve_video_cache_path(client, &event)
+        .await;
+
+    Ok(MatrixResolveVideoUrlResponse { video_url })
 }

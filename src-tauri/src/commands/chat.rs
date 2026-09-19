@@ -11,9 +11,10 @@ use types::chat::{
     MatrixCancelMediaTranscodeRequest, MatrixCancelMediaTranscodeResponse,
     MatrixChatMessageStreamEvent, MatrixCopyImageToClipboardRequest, MatrixGetChatMessagesRequest,
     MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse, MatrixGetUserAvatarRequest,
-    MatrixGetUserAvatarResponse, MatrixSendChatMessageRequest, MatrixSendChatMessageResponse,
-    MatrixSendMediaFileRequest, MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest,
-    MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest, MatrixToggleReactionResponse,
+    MatrixGetUserAvatarResponse, MatrixResolveVideoUrlRequest, MatrixResolveVideoUrlResponse,
+    MatrixSendChatMessageRequest, MatrixSendChatMessageResponse, MatrixSendMediaFileRequest,
+    MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
+    MatrixToggleReactionRequest, MatrixToggleReactionResponse,
 };
 use types::{event_paths, Paths, RoomRefreshTrigger, RoomUpdateTriggerState};
 
@@ -332,4 +333,16 @@ pub async fn matrix_copy_image_to_clipboard(
 pub async fn matrix_read_clipboard_text() -> Result<String, String> {
     log::info!("matrix_read_clipboard_text requested");
     chat::read_clipboard_text().await
+}
+
+#[tauri::command]
+pub async fn matrix_resolve_video_url(
+    request: MatrixResolveVideoUrlRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    app_db: State<'_, Arc<AppDb>>,
+    paths: State<'_, Paths>,
+) -> Result<MatrixResolveVideoUrlResponse, String> {
+    log::info!("matrix_resolve_video_url requested");
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    chat::resolve_video_url(&client, request.room_id.as_str(), request.event_id.as_str()).await
 }

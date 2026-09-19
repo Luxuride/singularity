@@ -54,6 +54,29 @@ pub(super) fn image_mime_type_from_event(event: &Value) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+/// Build a `MediaSource` for the thumbnail of a media event's content.
+///
+/// Matrix media events may carry a thumbnail in `content.info.thumbnail_url`
+/// (plain) or `content.info.thumbnail_file` (encrypted). Returns `None` when
+/// the event has no thumbnail.
+pub(super) fn image_thumbnail_source_from_event(event: &Value) -> Option<MediaSource> {
+    let content = event.get("content")?;
+    let info = content.get("info")?;
+
+    if let Some(url) = info.get("thumbnail_url").and_then(Value::as_str) {
+        let mxc_uri = matrix_sdk::ruma::OwnedMxcUri::from(url);
+        return Some(MediaSource::Plain(mxc_uri));
+    }
+
+    if let Some(file) = info.get("thumbnail_file") {
+        if let Some(encrypted_file) = serde_json::from_value::<EncryptedFile>(file.clone()).ok() {
+            return Some(MediaSource::Encrypted(Box::new(encrypted_file)));
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use matrix_sdk::ruma::events::room::MediaSource;

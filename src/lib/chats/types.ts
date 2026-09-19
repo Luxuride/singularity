@@ -106,6 +106,15 @@ export interface MatrixCopyImageToClipboardRequest {
   imageUrl: string;
 }
 
+export interface MatrixResolveVideoUrlRequest {
+  roomId: string;
+  eventId: string;
+}
+
+export interface MatrixResolveVideoUrlResponse {
+  videoUrl: string | null;
+}
+
 export type MatrixMessageDecryptionStatus = "plaintext" | "decrypted" | "unableToDecrypt";
 
 export type MatrixMessageVerificationStatus = "unknown" | "verified" | "unverified";
@@ -160,6 +169,7 @@ export interface MatrixChatMessage {
   formattedBody: string | null;
   messageType: string | null;
   imageUrl: string | null;
+  thumbnailUrl: string | null;
   customEmojis: MatrixCustomEmoji[];
   reactions: MatrixReactionSummary[];
   encrypted: boolean;
