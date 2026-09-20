@@ -1,6 +1,4 @@
-//! Shared parsing of the `m.direct` account-data event. Both the room-update
-//! worker (to mark direct chats) and the DM avatar resolver (to find the other
-//! participant) need the same mapping, so it lives here to avoid drift.
+//! Shared parsing of the `m.direct` account-data event.
 
 use std::collections::{HashMap, HashSet};
 

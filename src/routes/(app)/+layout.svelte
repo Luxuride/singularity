@@ -31,6 +31,7 @@
   } from "$lib/chats/shell";
   import type {
     MatrixChatSummary,
+    MatrixGetChatNavigationRequest,
     MatrixRoomRemovedEvent,
     MatrixSelectedRoomMessagesEvent,
   } from "$lib/chats/types";
@@ -226,7 +227,7 @@
     await goto(path, { replaceState: true, noScroll: true, keepFocus: true });
   }
 
-  async function refreshChatNavigation(input?: { rootSpaceId?: string; selectedRoomId?: string }) {
+  async function refreshChatNavigation(input?: MatrixGetChatNavigationRequest) {
     const response = await matrixGetChatNavigation(input);
     const nextRootSpaceId = response.selectedRootSpaceId ?? "";
 

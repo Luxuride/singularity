@@ -1,6 +1,6 @@
 <script lang="ts">
   interface Props {
-    imageUrl: string | null;
+    imageUrl: string | null | undefined;
     displayName: string;
   }
 

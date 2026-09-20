@@ -27,7 +27,7 @@ impl RoomUpdateTriggerState {
     }
 
     /// Enqueue a refresh for an optional selected room, optionally including
-    /// that room's messages. Convenience wrapper for the common command pattern.
+    /// that room's messages.
     pub fn enqueue_refresh(
         &self,
         selected_room_id: Option<String>,

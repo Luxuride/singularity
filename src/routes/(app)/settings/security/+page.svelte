@@ -100,7 +100,8 @@
       }
 
       await matrixTriggerRoomUpdate({
-        selectedRoomId: $shellSelectedRoomId || undefined,
+        selectedRoomId: $shellSelectedRoomId || null,
+        includeSelectedMessages: false,
       });
       cacheMessage = "Cache cleared. Auth session is preserved.";
     } catch (error) {

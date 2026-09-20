@@ -19,8 +19,7 @@ export const shellSelectedRootSpaceId = writable("");
 export const shellSelectedRoomId = writable("");
 export const shellPickerCustomEmoji = writable<MatrixPickerCustomEmoji[]>([]);
 
-/// Reset all shell state to its signed-out default. Shared by the logout flows
-/// in the app layout and settings page so the reset set cannot drift.
+/// Reset all shell state to its signed-out default.
 export function resetShellState() {
 	shellChats.set([]);
 	shellRootSpaces.set([]);
