@@ -26,6 +26,8 @@ import type {
   MatrixCopyImageToClipboardRequest,
   MatrixResolveVideoUrlRequest,
   MatrixResolveVideoUrlResponse,
+  MatrixDownloadFileRequest,
+  MatrixDownloadFileResponse,
   MatrixGetUserDevicesResponse,
   MatrixOwnVerificationStatus,
   MatrixRequestVerificationResponse,
@@ -171,6 +173,14 @@ export async function matrixResolveVideoUrl(
   input: MatrixResolveVideoUrlRequest,
 ): Promise<MatrixResolveVideoUrlResponse> {
   return invokeMatrixCommand<MatrixResolveVideoUrlResponse>("matrix_resolve_video_url", {
+    request: input,
+  });
+}
+
+export async function matrixDownloadFile(
+  input: MatrixDownloadFileRequest,
+): Promise<MatrixDownloadFileResponse> {
+  return invokeMatrixCommand<MatrixDownloadFileResponse>("matrix_download_file", {
     request: input,
   });
 }

@@ -59,7 +59,7 @@ mod tests {
         let dir = std::env::temp_dir().join("singularity-test-media");
         fs::create_dir_all(&dir).expect("create temp media dir");
         let file = dir.join("img-123.png");
-        fs::write(&file, &[1, 2, 3]).expect("write temp media file");
+        fs::write(&file, [1, 2, 3]).expect("write temp media file");
 
         // asset:// URLs percent-encode the absolute path.
         let encoded = file.to_string_lossy().replace("/", "%2F");

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { matrixResolveVideoUrl } from "$lib/chats/api";
+  import { matrixDownloadFile, matrixResolveVideoUrl } from "$lib/chats/api";
   import type { TimelineMessage } from "../shared";
 
   interface Props {
@@ -17,6 +17,10 @@
   let videoUrl = $state<string | null>(null);
   let videoError = $state(false);
   let videoLoading = $state(false);
+
+  let fileSaved = $state(false);
+  let fileError = $state(false);
+  let fileLoading = $state(false);
 
   function stripMxReplyBlock(html: string): string {
     return html.replace(/<mx-reply>[\s\S]*?<\/mx-reply>/i, "").trimStart();
@@ -47,6 +51,30 @@
       videoError = true;
     } finally {
       videoLoading = false;
+    }
+  }
+
+  async function loadFile() {
+    if (fileSaved || fileLoading || !message.eventId) {
+      return;
+    }
+
+    fileLoading = true;
+    fileError = false;
+    try {
+      const { saved } = await matrixDownloadFile({
+        roomId,
+        eventId: message.eventId,
+      });
+      if (saved) {
+        fileSaved = true;
+      } else {
+        fileError = true;
+      }
+    } catch {
+      fileError = true;
+    } finally {
+      fileLoading = false;
     }
   }
 </script>
@@ -128,10 +156,20 @@
   </figure>
 {:else if message.messageType === "m.file"}
   <div class="rounded preset-outlined-surface-300-700 bg-surface-100-900 p-4 text-sm text-surface-700-300">
-    {#if message.imageUrl}
-      <a class="underline" href={message.imageUrl} target="_blank" rel="noreferrer">Open file</a>
+    {#if fileSaved}
+      <span class="text-surface-700-300">File saved</span>
+    {:else if fileError}
+      <span class="text-surface-700-300">File unavailable</span>
     {:else}
-      File attachment
+      <button
+        type="button"
+        class="underline"
+        onclick={loadFile}
+        aria-label="Download file"
+        title="Download file"
+      >
+        {fileLoading ? "Loading…" : "Download file"}
+      </button>
     {/if}
     {#if message.body}
       <div class="mt-2 whitespace-pre-wrap break-words">{message.body}</div>

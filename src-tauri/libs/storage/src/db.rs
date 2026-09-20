@@ -953,7 +953,9 @@ mod tests {
 
         app_db.store_initial_room_messages(&response).unwrap();
 
-        let loaded = app_db.load_initial_room_messages("!room:example.org").unwrap();
+        let loaded = app_db
+            .load_initial_room_messages("!room:example.org")
+            .unwrap();
         assert!(loaded.is_some());
 
         let loaded = loaded.unwrap();
@@ -975,7 +977,7 @@ mod tests {
             MatrixMessageVerificationStatus::Unknown
         );
 
-        let _ = std::fs::remove_dir_all(&path.parent().unwrap());
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[tokio::test]
@@ -992,9 +994,11 @@ mod tests {
         };
         app_db.store_initial_room_messages(&response).unwrap();
 
-        let loaded = app_db.load_initial_room_messages("!room:example.org").unwrap();
+        let loaded = app_db
+            .load_initial_room_messages("!room:example.org")
+            .unwrap();
         assert!(loaded.is_none());
 
-        let _ = std::fs::remove_dir_all(&path.parent().unwrap());
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }

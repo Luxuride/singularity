@@ -13,10 +13,10 @@ use crate::send::{
     send_room_message_from_client, MediaTranscodeCancellationState,
 };
 use types::chat::{
-    MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse, MatrixGetUserAvatarResponse,
-    MatrixPickerCustomEmoji, MatrixResolveVideoUrlResponse, MatrixSendChatMessageResponse,
-    MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
-    MatrixToggleReactionResponse,
+    MatrixDownloadFileData, MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse,
+    MatrixGetUserAvatarResponse, MatrixPickerCustomEmoji, MatrixResolveVideoUrlResponse,
+    MatrixSendChatMessageResponse, MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest,
+    MatrixStreamChatMessagesResponse, MatrixToggleReactionResponse,
 };
 use types::EventSink;
 
@@ -236,4 +236,65 @@ pub async fn resolve_video_url(
         .await;
 
     Ok(MatrixResolveVideoUrlResponse { video_url })
+}
+
+/// Download the raw bytes for a file message's media. Files are not cached;
+/// the caller writes the bytes to a user-chosen destination path. Returns
+/// `None` when the event is not a file or has no media.
+pub async fn download_file_data(
+    client: &Client,
+    room_id: &str,
+    event_id: &str,
+) -> Result<Option<MatrixDownloadFileData>, String> {
+    let room_id = protocol::parse_room_id(room_id)?;
+    let event_id = protocol::parse_event_id(event_id)?;
+
+    let room = client
+        .get_room(&room_id)
+        .ok_or_else(|| String::from("Room is not available in current session"))?;
+
+    let timeline_event = room
+        .event(&event_id, None)
+        .await
+        .map_err(|error| format!("Failed to fetch file event: {error}"))?;
+
+    let Ok(event) = timeline_event.raw().deserialize_as::<Value>() else {
+        return Ok(None);
+    };
+
+    let Some(content) = event.get("content") else {
+        return Ok(None);
+    };
+
+    let message_type = content
+        .get("msgtype")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    if message_type != "m.file" {
+        return Ok(None);
+    }
+
+    let Some(bytes) = DefaultMediaResolver
+        .download_file_bytes(client, &event)
+        .await
+    else {
+        return Ok(None);
+    };
+
+    let file_name = content
+        .get("filename")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    let mime_type = content
+        .get("info")
+        .and_then(|info| info.get("mimetype"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+
+    Ok(Some(MatrixDownloadFileData {
+        bytes,
+        file_name,
+        mime_type,
+    }))
 }

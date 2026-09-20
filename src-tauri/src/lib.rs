@@ -146,6 +146,7 @@ pub fn run() {
             commands::chat::matrix_copy_image_to_clipboard,
             commands::chat::matrix_read_clipboard_text,
             commands::chat::matrix_resolve_video_url,
+            commands::chat::matrix_download_file,
             commands::verification::matrix_own_verification_status,
             commands::verification::matrix_get_user_devices,
             commands::verification::matrix_request_device_verification,
