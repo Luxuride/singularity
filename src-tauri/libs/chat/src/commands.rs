@@ -13,12 +13,22 @@ use crate::send::{
     send_room_message_from_client, MediaTranscodeCancellationState,
 };
 use types::chat::{
-    MatrixDownloadFileData, MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse,
-    MatrixGetUserAvatarResponse, MatrixPickerCustomEmoji, MatrixResolveVideoUrlResponse,
-    MatrixSendChatMessageResponse, MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest,
-    MatrixStreamChatMessagesResponse, MatrixToggleReactionResponse,
+    MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse, MatrixGetUserAvatarResponse,
+    MatrixPickerCustomEmoji, MatrixResolveVideoUrlResponse, MatrixSendChatMessageResponse,
+    MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
+    MatrixToggleReactionResponse,
 };
 use types::EventSink;
+
+/// Raw file download data returned from the chat layer to the command layer.
+/// The bytes are written to a user-chosen path in the command layer and never
+/// cross the Tauri/JS boundary.
+#[derive(Clone)]
+pub struct MatrixDownloadFileData {
+    pub bytes: Vec<u8>,
+    pub file_name: Option<String>,
+    pub mime_type: Option<String>,
+}
 
 pub async fn get_chat_messages(
     client: &Client,

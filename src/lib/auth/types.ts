@@ -19,14 +19,7 @@ export interface MatrixPasswordLoginRequest {
   password: string;
 }
 
-export interface MatrixCompleteOAuthResponse {
-  authenticated: boolean;
-  homeserverUrl: string;
-  userId: string;
-  deviceId: string;
-}
-
-export interface MatrixPasswordLoginResponse {
+export interface MatrixAuthenticatedSessionResponse {
   authenticated: boolean;
   homeserverUrl: string;
   userId: string;

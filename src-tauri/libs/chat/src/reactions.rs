@@ -6,82 +6,54 @@ use crate::helpers::build_messages_options;
 use protocol::events_schema::parse_reaction_event;
 use protocol::{parse_event_id, parse_room_id};
 
-#[allow(async_fn_in_trait)]
-pub trait ReactionManager {
-    async fn toggle_reaction(
-        &self,
-        client: &matrix_sdk::Client,
-        room_id_raw: &str,
-        target_event_id_raw: &str,
-        key: &str,
-    ) -> Result<(bool, Option<String>), String>;
-}
-
-#[derive(Default, Clone, Copy)]
-pub struct MatrixReactionManager;
-
-impl ReactionManager for MatrixReactionManager {
-    async fn toggle_reaction(
-        &self,
-        client: &matrix_sdk::Client,
-        room_id_raw: &str,
-        target_event_id_raw: &str,
-        key: &str,
-    ) -> Result<(bool, Option<String>), String> {
-        let reaction_key = key.trim();
-        if reaction_key.is_empty() {
-            return Err(String::from("Reaction key cannot be empty"));
-        }
-
-        let room_id = parse_room_id(room_id_raw)?;
-        let target_event_id = parse_event_id(target_event_id_raw)?;
-
-        let room = client
-            .get_room(&room_id)
-            .ok_or_else(|| String::from("Room is not available in current session"))?;
-
-        let own_user_id = client
-            .user_id()
-            .ok_or_else(|| String::from("Session user ID is unavailable"))?
-            .to_string();
-
-        if let Some(existing_event_id) = find_matching_own_reaction_event_id(
-            &room,
-            &own_user_id,
-            target_event_id_raw,
-            reaction_key,
-        )
-        .await?
-        {
-            let redact_target = parse_event_id(&existing_event_id)?;
-
-            room.redact(&redact_target, Some("Toggle reaction off"), None)
-                .await
-                .map_err(|error| format!("Failed to remove reaction: {error}"))?;
-
-            return Ok((false, Some(existing_event_id)));
-        }
-
-        let content =
-            ReactionEventContent::new(Annotation::new(target_event_id, reaction_key.to_owned()));
-        let response = room
-            .send(content)
-            .await
-            .map_err(|error| format!("Failed to send reaction: {error}"))?;
-
-        Ok((true, Some(response.response.event_id.to_string())))
-    }
-}
-
 pub async fn toggle_reaction_from_client(
     client: &matrix_sdk::Client,
     room_id_raw: &str,
     target_event_id_raw: &str,
     key: &str,
 ) -> Result<(bool, Option<String>), String> {
-    MatrixReactionManager
-        .toggle_reaction(client, room_id_raw, target_event_id_raw, key)
+    let reaction_key = key.trim();
+    if reaction_key.is_empty() {
+        return Err(String::from("Reaction key cannot be empty"));
+    }
+
+    let room_id = parse_room_id(room_id_raw)?;
+    let target_event_id = parse_event_id(target_event_id_raw)?;
+
+    let room = client
+        .get_room(&room_id)
+        .ok_or_else(|| String::from("Room is not available in current session"))?;
+
+    let own_user_id = client
+        .user_id()
+        .ok_or_else(|| String::from("Session user ID is unavailable"))?
+        .to_string();
+
+    if let Some(existing_event_id) = find_matching_own_reaction_event_id(
+        &room,
+        &own_user_id,
+        target_event_id_raw,
+        reaction_key,
+    )
+    .await?
+    {
+        let redact_target = parse_event_id(&existing_event_id)?;
+
+        room.redact(&redact_target, Some("Toggle reaction off"), None)
+            .await
+            .map_err(|error| format!("Failed to remove reaction: {error}"))?;
+
+        return Ok((false, Some(existing_event_id)));
+    }
+
+    let content =
+        ReactionEventContent::new(Annotation::new(target_event_id, reaction_key.to_owned()));
+    let response = room
+        .send(content)
         .await
+        .map_err(|error| format!("Failed to send reaction: {error}"))?;
+
+    Ok((true, Some(response.response.event_id.to_string())))
 }
 
 async fn find_matching_own_reaction_event_id(
