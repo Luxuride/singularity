@@ -14,6 +14,7 @@
     matrixToggleReaction,
   } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
+  import { EVENT_MEDIA_TRANSCODE_PROGRESS } from "$lib/events";
   import {
     shellChats,
     shellCurrentUserId,
@@ -58,8 +59,6 @@
   let mediaErrorMessage = $state("");
   let activeMediaFilePath = $state("");
   let mediaTranscodeProgress = $state<MatrixMediaTranscodeProgressEvent | null>(null);
-
-  const EVENT_MEDIA_TRANSCODE_PROGRESS = "matrix://media/transcode/progress";
 
   let messages = $state<TimelineMessage[]>([]);
   let nextFrom = $state<string | null>(null);

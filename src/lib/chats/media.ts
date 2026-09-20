@@ -1,5 +1,3 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
-
 import type {
   MatrixChatSummary,
   MatrixChatMessage,
@@ -7,22 +5,21 @@ import type {
   MatrixSelectedRoomMessagesEvent,
 } from "./types";
 
+/// Whether a string is a media URL (mxc, http(s), or the local asset scheme)
+/// rather than a shortcode token.
+export function isMediaUrl(value: string): boolean {
+  return (
+    value.startsWith("mxc://") ||
+    value.startsWith("http://") ||
+    value.startsWith("https://") ||
+    value.startsWith("asset://")
+  );
+}
+
+/// The backend resolves all media to `asset://` URLs (or leaves http(s) URLs
+/// untouched). This passes the backend-provided URL through unchanged.
 export function normalizeImageUrl(imageUrl: string | null | undefined): string | null {
-  if (!imageUrl) {
-    return null;
-  }
-
-  if (
-    imageUrl.startsWith("data:") ||
-    imageUrl.startsWith("http://") ||
-    imageUrl.startsWith("https://") ||
-    imageUrl.startsWith("tauri://") ||
-    imageUrl.startsWith("asset://")
-  ) {
-    return imageUrl;
-  }
-
-  return convertFileSrc(imageUrl);
+  return imageUrl || null;
 }
 
 export function normalizeMessageImageUrl(message: MatrixChatMessage): MatrixChatMessage {

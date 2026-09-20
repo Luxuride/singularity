@@ -59,7 +59,6 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
 
         if let Some(parsed) = parse_timeline_message(
             &event,
-            &client.homeserver(),
             decryption_status,
             verification_status,
         ) {
@@ -110,12 +109,14 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
             // Videos are downloaded on demand (when the user presses play) to
             // avoid fetching large files for every message in the timeline.
             // We eagerly resolve the thumbnail (poster) so the message shows a
-            // preview without downloading the full video.
+            // preview without downloading the full video. The video's own
+            // `image_url` is left unset; only the resolved `asset://` thumbnail
+            // is exposed to the frontend.
             let (image_url, thumbnail_url) = if is_video {
                 let thumbnail_url = media_resolver
                     .resolve_thumbnail_cache_path(client, &event)
                     .await;
-                (parsed.image_url, thumbnail_url)
+                (None, thumbnail_url)
             } else if matches!(
                 parsed.message_type.as_deref(),
                 Some("m.image") | Some("m.file")
@@ -125,7 +126,7 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                     .await;
                 (image_url, None)
             } else {
-                (parsed.image_url, None)
+                (None, None)
             };
 
             messages.push(MatrixChatMessage {
