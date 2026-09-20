@@ -229,14 +229,14 @@ pub async fn matrix_send_chat_message(
         &picker_custom_emoji,
         request.in_reply_to_event_id.as_deref(),
     )
-    .await?;
+    .await;
 
     let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
         selected_room_id: Some(room_id),
-        include_selected_messages: false,
+        include_selected_messages: response.is_err(),
     });
 
-    Ok(response)
+    response
 }
 
 #[tauri::command]
