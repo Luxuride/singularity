@@ -1,5 +1,15 @@
 use serde::{Deserialize, Serialize};
 
+/// The recovery state of the account's cross-signing keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MatrixRecoveryState {
+    Unknown,
+    Enabled,
+    Disabled,
+    Incomplete,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixStartOAuthRequest {
@@ -53,7 +63,7 @@ pub struct MatrixClearCacheExceptAuthResponse {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixRecoveryStatusResponse {
-    pub state: String,
+    pub state: MatrixRecoveryState,
 }
 
 #[derive(Deserialize)]
@@ -66,21 +76,14 @@ pub struct MatrixRecoverWithKeyRequest {
 #[serde(rename_all = "camelCase")]
 pub struct MatrixRecoverWithKeyResponse {
     pub recovered: bool,
-    pub state: String,
+    pub state: MatrixRecoveryState,
 }
 
+/// The authenticated session returned by both OAuth completion and password
+/// login.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MatrixCompleteOAuthResponse {
-    pub authenticated: bool,
-    pub homeserver_url: String,
-    pub user_id: String,
-    pub device_id: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MatrixPasswordLoginResponse {
+pub struct MatrixAuthenticatedSessionResponse {
     pub authenticated: bool,
     pub homeserver_url: String,
     pub user_id: String,

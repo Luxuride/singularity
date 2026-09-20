@@ -1,4 +1,27 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+/// Request to list a user's devices.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetUserDevicesRequest {
+    pub user_id: String,
+}
+
+/// Request to start device verification with a specific device.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixRequestDeviceVerificationRequest {
+    pub user_id: String,
+    pub device_id: String,
+}
+
+/// Request to interact with an existing verification flow.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixVerificationFlowRequest {
+    pub user_id: String,
+    pub flow_id: String,
+}
 
 /// Trust state for a specific other device as seen from this client, using
 /// cross-signing trust that may propagate from other verified clients.

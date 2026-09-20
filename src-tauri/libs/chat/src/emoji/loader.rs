@@ -14,19 +14,14 @@ use super::pack_parsing::{
     fallback_usage_from_event_type, image_usage, pack_media_url, unique_picker_name, usage_has_kind,
 };
 
-pub trait EmojiLoader {
-    async fn load_picker_assets(
-        &self,
-        client: &matrix_sdk::Client,
-    ) -> Result<Vec<MatrixPickerCustomEmoji>, String>;
-}
-
+/// Loads custom emoji from room/user emoji packs, resolving media URLs through
+/// the default media resolver.
 #[derive(Default, Clone)]
-pub struct MatrixEmojiLoader<M: MediaResolver = DefaultMediaResolver> {
-    media_resolver: M,
+pub struct EmojiLoader {
+    media_resolver: DefaultMediaResolver,
 }
 
-impl<M: MediaResolver> EmojiLoader for MatrixEmojiLoader<M> {
+impl EmojiLoader {
     async fn load_picker_assets(
         &self,
         client: &matrix_sdk::Client,
@@ -109,7 +104,7 @@ struct EmojiPackAccumulator {
     used_custom_emoji_names: BTreeSet<String>,
 }
 
-impl<M: MediaResolver> MatrixEmojiLoader<M> {
+impl EmojiLoader {
     async fn merge_pack_content(
         &self,
         client: &matrix_sdk::Client,
@@ -408,7 +403,7 @@ impl<M: MediaResolver> MatrixEmojiLoader<M> {
 pub async fn load_picker_assets_from_client(
     client: &matrix_sdk::Client,
 ) -> Result<Vec<MatrixPickerCustomEmoji>, String> {
-    MatrixEmojiLoader::<DefaultMediaResolver>::default()
+    EmojiLoader::default()
         .load_picker_assets(client)
         .await
 }
