@@ -235,22 +235,6 @@
       verificationActionPending = false;
     }
   }
-
-  function flowStateLabel(flow: MatrixVerificationFlowResponse): string {
-    if (flow.isDone) {
-      return "Verification complete";
-    }
-
-    if (flow.isCancelled) {
-      return "Verification cancelled";
-    }
-
-    if (flow.sasState) {
-      return `SAS ${flow.sasState}`;
-    }
-
-    return `Request ${flow.requestState}`;
-  }
 </script>
 
 <section class="card p-4 preset-outlined-surface-200-800 bg-surface-100-900 space-y-4 max-h-[70vh] overflow-y-auto">

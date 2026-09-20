@@ -1,15 +1,7 @@
 import type { PickerCustomEmoji } from "$lib/emoji/picker";
+import { emojiName, shortcodeToken } from "$lib/emoji/shortcodes";
 
 import type { TimelineMessage } from "../shared";
-
-export function shortcodeToken(value: string): string {
-  const clean = value.trim().replace(/^:+|:+$/g, "");
-  return clean ? `:${clean.toLowerCase()}:` : "";
-}
-
-export function emojiName(value: string): string {
-  return value.trim().replace(/^:+|:+$/g, "");
-}
 
 export function buildPickerEmojiBySourceUrl(pickerCustomEmoji: PickerCustomEmoji[]): Map<string, string> {
   const map = new Map<string, string>();

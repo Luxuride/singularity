@@ -5709,16 +5709,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "settings"
-version = "0.1.0"
-dependencies = [
- "assets",
- "serde",
- "serde_json",
- "types",
-]
-
-[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5799,7 +5789,6 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "settings",
  "storage",
  "tauri",
  "tauri-build",

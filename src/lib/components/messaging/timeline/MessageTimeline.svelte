@@ -9,9 +9,9 @@
   import {
     TimelineContent,
     TimelineEmptySelection,
-    TimelineErrorBanner,
     TimelineHeader,
   } from ".";
+  import { ErrorBanner } from "../shared";
 
   interface Props {
     messages: TimelineMessage[];
@@ -62,7 +62,7 @@
 <section
   class="card preset-outlined-surface-200-800 bg-surface-100-900 flex flex-col flex-grow min-h-0 min-w-0 gap-3"
 >
-  <TimelineErrorBanner {error} />
+  <ErrorBanner {error} />
 
   {#if !selectedRoomId}
     <TimelineEmptySelection />

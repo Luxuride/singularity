@@ -1,8 +1,8 @@
 //! Tauri binder: transport and setup only.
 //!
 //! This crate is the thin frontend adapter. All domain logic lives in the
-//! workspace library crates (`auth`, `rooms`, `chat`, `settings`,
-//! `verification`, `assets`, `storage`, `protocol`, `types`). The binder:
+//! workspace library crates (`auth`, `rooms`, `chat`, `verification`,
+//! `assets`, `storage`, `protocol`, `types`). The binder:
 //!
 //! - resolves `types::Paths` from the `AppHandle` during setup,
 //! - initializes the app secret + encrypted database,

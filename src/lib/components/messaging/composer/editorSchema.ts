@@ -1,8 +1,7 @@
 import { Node as PMNode, Schema } from "prosemirror-model";
 
 import type { PickerCustomEmoji } from "$lib/emoji/picker";
-
-const TOKEN_PATTERN = /:([A-Za-z0-9_+\-]+):/g;
+import { TOKEN_PATTERN, emojiName, normalizeShortcode } from "$lib/emoji/shortcodes";
 
 export const composerSchema = new Schema({
   nodes: {
@@ -66,8 +65,8 @@ export const composerSchema = new Schema({
         {
           src: node.attrs.url,
           alt: node.attrs.token,
-          title: String(node.attrs.token).replace(/^:+|:+$/g, ""),
-          "aria-label": String(node.attrs.token).replace(/^:+|:+$/g, ""),
+          title: emojiName(String(node.attrs.token)),
+          "aria-label": emojiName(String(node.attrs.token)),
           "data-custom-emoji-token": node.attrs.token,
           contenteditable: "false",
           class: "composer-custom-emoji",
@@ -83,7 +82,7 @@ function buildCustomEmojiByToken(customEmoji: PickerCustomEmoji[]): Map<string, 
 
   for (const emoji of customEmoji) {
     for (const shortcode of emoji.shortcodes ?? []) {
-      const normalized = shortcode.trim().replace(/^:+|:+$/g, "").toLowerCase();
+      const normalized = normalizeShortcode(shortcode);
       if (!normalized) {
         continue;
       }

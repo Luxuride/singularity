@@ -1,43 +1,45 @@
-type RoomImageValue = string | null;
+type ImageValue = string | null;
 
-type RoomImageLoader = () => Promise<RoomImageValue>;
+type ImageLoader = () => Promise<ImageValue>;
 
-class RoomImageCache {
-  private cache = new Map<string, RoomImageValue>();
-  private inFlight = new Map<string, Promise<RoomImageValue>>();
+/// A small cache that dedupes concurrent loads of the same key and memoizes
+/// the resolved value. Used for room/space images and sender avatars.
+export class ImageCache {
+  private cache = new Map<string, ImageValue>();
+  private inFlight = new Map<string, Promise<ImageValue>>();
 
-  getCached(roomId: string): RoomImageValue | undefined {
-    return this.cache.get(roomId);
+  getCached(key: string): ImageValue | undefined {
+    return this.cache.get(key);
   }
 
-  prime(roomId: string, value: RoomImageValue) {
-    this.cache.set(roomId, value);
+  prime(key: string, value: ImageValue) {
+    this.cache.set(key, value);
   }
 
-  async getOrLoad(roomId: string, loader: RoomImageLoader): Promise<RoomImageValue> {
-    const cached = this.cache.get(roomId);
+  async getOrLoad(key: string, loader: ImageLoader): Promise<ImageValue> {
+    const cached = this.cache.get(key);
     if (cached !== undefined) {
       return cached;
     }
 
-    const existing = this.inFlight.get(roomId);
+    const existing = this.inFlight.get(key);
     if (existing) {
       return existing;
     }
 
     const request = loader()
       .then((value) => {
-        this.cache.set(roomId, value);
+        this.cache.set(key, value);
         return value;
       })
       .catch(() => null)
       .finally(() => {
-        this.inFlight.delete(roomId);
+        this.inFlight.delete(key);
       });
 
-    this.inFlight.set(roomId, request);
+    this.inFlight.set(key, request);
     return request;
   }
 }
 
-export const roomImageCache = new RoomImageCache();
+export const roomImageCache = new ImageCache();

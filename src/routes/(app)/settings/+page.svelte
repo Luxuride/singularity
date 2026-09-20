@@ -2,18 +2,13 @@
 	import { onMount } from "svelte";
 	import { get } from "svelte/store";
 
-	import { matrixLogout, matrixRecoveryStatus } from "$lib/auth/api";
 	import { matrixTriggerRoomUpdate } from "$lib/chats/api";
 	import {
-		shellChats,
-		shellCurrentUserId,
+		logout as logoutSession,
+		refreshRecoveryState,
 		shellErrorMessage,
-		shellPickerCustomEmoji,
 		shellRecoveryState,
 		shellRefreshing,
-		shellRootScopedRooms,
-		shellRootSpaces,
-		shellSelectedRootSpaceId,
 		shellSelectedRoomId,
 	} from "$lib/chats/shell";
 	import { recoveryStateLabel } from "$lib/components/verification/helpers";
@@ -35,12 +30,7 @@
 				selectedRoomId: get(shellSelectedRoomId) || undefined,
 			});
 
-			try {
-				const recovery = await matrixRecoveryStatus();
-				shellRecoveryState.set(recovery.state);
-			} catch {
-				shellRecoveryState.set(null);
-			}
+			await refreshRecoveryState();
 
 			settingsMessage = "Refresh requested.";
 		} catch (error) {
@@ -56,18 +46,12 @@
 		shellErrorMessage.set("");
 
 		try {
-			await matrixLogout();
-			shellChats.set([]);
-			shellRootSpaces.set([]);
-			shellRootScopedRooms.set([]);
-			shellSelectedRoomId.set("");
-			shellSelectedRootSpaceId.set("");
-			shellCurrentUserId.set("");
-			shellRecoveryState.set(null);
-			shellPickerCustomEmoji.set([]);
-			window.location.replace("/");
-		} catch (error) {
-			shellErrorMessage.set(error instanceof Error ? error.message : "Failed to log out");
+			const error = await logoutSession();
+			if (error) {
+				shellErrorMessage.set(error);
+			} else {
+				window.location.replace("/");
+			}
 		} finally {
 			loggingOut = false;
 		}

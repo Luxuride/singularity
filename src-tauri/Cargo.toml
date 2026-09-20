@@ -45,7 +45,6 @@ auth = { path = "libs/auth" }
 verification = { path = "libs/verification" }
 chat = { path = "libs/chat" }
 rooms = { path = "libs/rooms" }
-settings = { path = "libs/settings" }
 
 [package]
 name = "singularity"
@@ -88,7 +87,6 @@ auth = { workspace = true }
 verification = { workspace = true }
 chat = { workspace = true }
 rooms = { workspace = true }
-settings = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 rusqlite = { workspace = true, features = ["bundled-sqlcipher-vendored-openssl"] }

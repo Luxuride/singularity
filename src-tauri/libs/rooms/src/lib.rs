@@ -7,6 +7,7 @@
 //! without depending on Tauri.
 
 pub mod commands;
+pub mod direct;
 pub mod image;
 pub mod join;
 pub mod navigation;

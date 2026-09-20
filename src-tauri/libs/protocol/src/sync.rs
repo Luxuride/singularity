@@ -17,3 +17,8 @@ pub async fn sync_once_serialized(client: &Client, settings: SyncSettings) -> Re
         .map(|_| ())
         .map_err(|error| format!("Failed to sync Matrix client: {error}"))
 }
+
+/// Run a single serialized sync with default settings.
+pub async fn sync_once_default(client: &Client) -> Result<(), String> {
+    sync_once_serialized(client, SyncSettings::default()).await
+}
