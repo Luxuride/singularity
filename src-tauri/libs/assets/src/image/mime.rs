@@ -14,27 +14,6 @@ pub fn image_extension_from_mime(mime_type: &str) -> &'static str {
     }
 }
 
-pub fn media_extension_from_mime(mime_type: &str) -> &'static str {
-    match mime_type {
-        "video/mp4" => "mp4",
-        "video/webm" => "webm",
-        "video/ogg" => "ogv",
-        "video/quicktime" => "mov",
-        "video/x-matroska" => "mkv",
-        "video/mpeg" => "mpeg",
-        "audio/mpeg" => "mp3",
-        "audio/ogg" => "ogg",
-        "audio/opus" => "opus",
-        "audio/wav" | "audio/x-wav" => "wav",
-        "audio/flac" => "flac",
-        "audio/aac" => "aac",
-        "application/pdf" => "pdf",
-        "application/zip" => "zip",
-        "text/plain" => "txt",
-        _ => image_extension_from_mime(mime_type),
-    }
-}
-
 pub(super) fn mime_type_from_extension(extension: &str) -> &'static str {
     match extension {
         "jpg" => "image/jpeg",
@@ -71,24 +50,12 @@ pub(super) fn image_extension_from_raw_url(raw_url: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{image_extension_from_mime, media_extension_from_mime};
+    use super::image_extension_from_mime;
 
     #[test]
     fn image_extension_from_mime_is_stable() {
         assert_eq!(image_extension_from_mime("image/jpeg"), "jpg");
         assert_eq!(image_extension_from_mime("image/png"), "png");
         assert_eq!(image_extension_from_mime("image/unknown"), "bin");
-    }
-
-    #[test]
-    fn media_extension_from_mime_maps_video_and_audio() {
-        assert_eq!(media_extension_from_mime("video/mp4"), "mp4");
-        assert_eq!(media_extension_from_mime("video/webm"), "webm");
-        assert_eq!(media_extension_from_mime("audio/mpeg"), "mp3");
-        assert_eq!(media_extension_from_mime("audio/opus"), "opus");
-        // Falls back to image extension mapping for image mime types.
-        assert_eq!(media_extension_from_mime("image/png"), "png");
-        // Unknown mime types fall back to the generic binary extension.
-        assert_eq!(media_extension_from_mime("application/octet-stream"), "bin");
     }
 }
