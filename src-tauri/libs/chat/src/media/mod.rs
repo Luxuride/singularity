@@ -1,13 +1,11 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
 use log::warn;
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
 use serde_json::Value;
 
 use assets::{
-    cache_event_image, cache_media_bytes, cache_mxc_media_to_local_path as assets_cache_mxc,
-    canonical_pack_source_url, resolve_pack_media_url, ImageCacheKeyParts,
+    cache_event_image, cache_mxc_media_to_local_path as assets_cache_mxc,
+    canonical_pack_source_url, resolve_pack_media_url, video::cache_video,
+    video::VideoCacheKeyParts, ImageCacheKeyParts,
 };
 
 mod url_parsing;
@@ -39,6 +37,13 @@ pub trait MediaResolver {
         client: &matrix_sdk::Client,
         event: &Value,
     ) -> Option<String>;
+    /// Download the raw bytes for a file message's media. Files are not cached;
+    /// the caller writes the bytes to a user-chosen destination path.
+    async fn download_file_bytes(
+        &self,
+        client: &matrix_sdk::Client,
+        event: &Value,
+    ) -> Option<Vec<u8>>;
     async fn cache_mxc_media_to_local_path(
         &self,
         client: &matrix_sdk::Client,
@@ -155,17 +160,34 @@ impl MediaResolver for DefaultMediaResolver {
             }
         };
 
-        let file_stem = format!(
-            "vid-{:016x}",
-            {
-                let mut hasher = DefaultHasher::new();
-                image_source_key(event).hash(&mut hasher);
-                bytes.len().hash(&mut hasher);
-                hasher.finish()
-            }
-        );
+        let cache_key_parts = VideoCacheKeyParts::builder()
+            .source_key(image_source_key(event))
+            .mime_type(mime_type)
+            .bytes_len(bytes.len())
+            .build()?;
 
-        cache_media_bytes(&bytes, &file_stem, &mime_type)
+        cache_video(&bytes, cache_key_parts)
+    }
+
+    async fn download_file_bytes(
+        &self,
+        client: &matrix_sdk::Client,
+        event: &Value,
+    ) -> Option<Vec<u8>> {
+        let media_source = image_media_source_from_event(event)?;
+
+        let request = MediaRequestParameters {
+            source: media_source,
+            format: MediaFormat::File,
+        };
+
+        match client.media().get_media_content(&request, true).await {
+            Ok(bytes) => Some(bytes),
+            Err(error) => {
+                warn!("Failed to fetch file media content: {error}");
+                None
+            }
+        }
     }
 
     async fn cache_mxc_media_to_local_path(

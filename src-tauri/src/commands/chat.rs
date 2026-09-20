@@ -9,12 +9,13 @@ use auth::AuthState;
 use storage::AppDb;
 use types::chat::{
     MatrixCancelMediaTranscodeRequest, MatrixCancelMediaTranscodeResponse,
-    MatrixChatMessageStreamEvent, MatrixCopyImageToClipboardRequest, MatrixGetChatMessagesRequest,
-    MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse, MatrixGetUserAvatarRequest,
-    MatrixGetUserAvatarResponse, MatrixResolveVideoUrlRequest, MatrixResolveVideoUrlResponse,
-    MatrixSendChatMessageRequest, MatrixSendChatMessageResponse, MatrixSendMediaFileRequest,
-    MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
-    MatrixToggleReactionRequest, MatrixToggleReactionResponse,
+    MatrixChatMessageStreamEvent, MatrixCopyImageToClipboardRequest, MatrixDownloadFileRequest,
+    MatrixDownloadFileResponse, MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse,
+    MatrixGetEmojiPacksResponse, MatrixGetUserAvatarRequest, MatrixGetUserAvatarResponse,
+    MatrixResolveVideoUrlRequest, MatrixResolveVideoUrlResponse, MatrixSendChatMessageRequest,
+    MatrixSendChatMessageResponse, MatrixSendMediaFileRequest, MatrixSendMediaFileResponse,
+    MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest,
+    MatrixToggleReactionResponse,
 };
 use types::{event_paths, Paths, RoomRefreshTrigger, RoomUpdateTriggerState};
 
@@ -345,4 +346,57 @@ pub async fn matrix_resolve_video_url(
     log::info!("matrix_resolve_video_url requested");
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
     chat::resolve_video_url(&client, request.room_id.as_str(), request.event_id.as_str()).await
+}
+
+#[tauri::command]
+pub async fn matrix_download_file(
+    request: MatrixDownloadFileRequest,
+    app: tauri::AppHandle,
+    auth_state: State<'_, Arc<AuthState>>,
+    app_db: State<'_, Arc<AppDb>>,
+    paths: State<'_, Paths>,
+) -> Result<MatrixDownloadFileResponse, String> {
+    log::info!("matrix_download_file requested");
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+
+    let Some(data) =
+        chat::download_file_data(&client, request.room_id.as_str(), request.event_id.as_str())
+            .await?
+    else {
+        return Ok(MatrixDownloadFileResponse { saved: false });
+    };
+
+    let default_name = data
+        .file_name
+        .clone()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| {
+            let extension = assets::file_extension_from_mime(
+                data.mime_type
+                    .as_deref()
+                    .unwrap_or("application/octet-stream"),
+            );
+            format!("download.{extension}")
+        });
+
+    use tauri_plugin_dialog::DialogExt;
+    let destination = app
+        .dialog()
+        .file()
+        .set_title("Save file")
+        .set_file_name(default_name)
+        .blocking_save_file();
+
+    let Some(destination) = destination else {
+        // User cancelled the save dialog.
+        return Ok(MatrixDownloadFileResponse { saved: false });
+    };
+
+    let destination = destination
+        .into_path()
+        .map_err(|error| format!("Failed to resolve save path: {error}"))?;
+
+    assets::save_file_to_path(&data.bytes, &destination)?;
+
+    Ok(MatrixDownloadFileResponse { saved: true })
 }

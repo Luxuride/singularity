@@ -37,7 +37,7 @@ pub(super) fn image_media_source_from_event(event: &Value) -> Option<MediaSource
     }
 
     if let Some(file) = content.get("file") {
-        if let Some(encrypted_file) = serde_json::from_value::<EncryptedFile>(file.clone()).ok() {
+        if let Ok(encrypted_file) = serde_json::from_value::<EncryptedFile>(file.clone()) {
             return Some(MediaSource::Encrypted(Box::new(encrypted_file)));
         }
     }
@@ -69,7 +69,7 @@ pub(super) fn image_thumbnail_source_from_event(event: &Value) -> Option<MediaSo
     }
 
     if let Some(file) = info.get("thumbnail_file") {
-        if let Some(encrypted_file) = serde_json::from_value::<EncryptedFile>(file.clone()).ok() {
+        if let Ok(encrypted_file) = serde_json::from_value::<EncryptedFile>(file.clone()) {
             return Some(MediaSource::Encrypted(Box::new(encrypted_file)));
         }
     }

@@ -167,6 +167,30 @@ pub struct MatrixResolveVideoUrlResponse {
     pub video_url: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixDownloadFileRequest {
+    pub room_id: String,
+    pub event_id: String,
+}
+
+/// Raw file download data returned from the chat layer to the command layer.
+/// The bytes are written to a user-chosen path in the command layer and never
+/// cross the Tauri/JS boundary.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixDownloadFileData {
+    pub bytes: Vec<u8>,
+    pub file_name: Option<String>,
+    pub mime_type: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixDownloadFileResponse {
+    pub saved: bool,
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixGetChatMessagesResponse {

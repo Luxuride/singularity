@@ -115,6 +115,15 @@ export interface MatrixResolveVideoUrlResponse {
   videoUrl: string | null;
 }
 
+export interface MatrixDownloadFileRequest {
+  roomId: string;
+  eventId: string;
+}
+
+export interface MatrixDownloadFileResponse {
+  saved: boolean;
+}
+
 export type MatrixMessageDecryptionStatus = "plaintext" | "decrypted" | "unableToDecrypt";
 
 export type MatrixMessageVerificationStatus = "unknown" | "verified" | "unverified";
