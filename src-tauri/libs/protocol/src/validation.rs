@@ -15,12 +15,6 @@ pub fn parse_event_id(event_id_raw: &str) -> Result<OwnedEventId, String> {
     OwnedEventId::try_from(event_id_raw).map_err(|_| format!("Invalid event ID: {event_id_raw}"))
 }
 
-/// Check if an error message indicates the room is not available in the current session.
-#[allow(dead_code)]
-pub fn is_room_unavailable_error(error: &str) -> bool {
-    error.contains("Room is not available in current session")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,23 +59,5 @@ mod tests {
         let result = parse_event_id("not-a-valid-event-id");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid event ID"));
-    }
-
-    #[test]
-    fn detects_room_unavailable_error() {
-        let error = "Room is not available in current session";
-        assert!(is_room_unavailable_error(error));
-    }
-
-    #[test]
-    fn detects_room_unavailable_error_with_yet() {
-        let error = "Room is not available in current session yet";
-        assert!(is_room_unavailable_error(error));
-    }
-
-    #[test]
-    fn ignores_other_errors() {
-        assert!(!is_room_unavailable_error("Some other error"));
-        assert!(!is_room_unavailable_error("Room not found"));
     }
 }

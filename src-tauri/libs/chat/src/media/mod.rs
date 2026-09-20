@@ -1,5 +1,6 @@
 use log::warn;
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
+use matrix_sdk::ruma::events::room::MediaSource;
 use serde_json::Value;
 
 use assets::{
@@ -54,6 +55,27 @@ pub trait MediaResolver {
 #[derive(Default, Clone, Copy)]
 pub struct DefaultMediaResolver;
 
+/// Fetch the raw bytes for a media source, warning and returning `None` on
+/// failure. Shared by the image/thumbnail/video/file resolution paths.
+async fn fetch_media_bytes(
+    client: &matrix_sdk::Client,
+    source: MediaSource,
+    label: &str,
+) -> Option<Vec<u8>> {
+    let request = MediaRequestParameters {
+        source,
+        format: MediaFormat::File,
+    };
+
+    match client.media().get_media_content(&request, true).await {
+        Ok(bytes) => Some(bytes),
+        Err(error) => {
+            warn!("Failed to fetch {label} media content: {error}");
+            None
+        }
+    }
+}
+
 impl MediaResolver for DefaultMediaResolver {
     async fn resolve_pack_media_url(
         &self,
@@ -77,18 +99,7 @@ impl MediaResolver for DefaultMediaResolver {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| String::from("application/octet-stream"));
 
-        let request = MediaRequestParameters {
-            source: media_source,
-            format: MediaFormat::File,
-        };
-
-        let bytes = match client.media().get_media_content(&request, true).await {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                warn!("Failed to fetch image media content: {error}");
-                return None;
-            }
-        };
+        let bytes = fetch_media_bytes(client, media_source, "image").await?;
 
         let cache_key_parts = ImageCacheKeyParts::builder()
             .event_id(event.get("event_id").and_then(Value::as_str))
@@ -112,18 +123,7 @@ impl MediaResolver for DefaultMediaResolver {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| String::from("application/octet-stream"));
 
-        let request = MediaRequestParameters {
-            source: media_source,
-            format: MediaFormat::File,
-        };
-
-        let bytes = match client.media().get_media_content(&request, true).await {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                warn!("Failed to fetch thumbnail media content: {error}");
-                return None;
-            }
-        };
+        let bytes = fetch_media_bytes(client, media_source, "thumbnail").await?;
 
         let cache_key_parts = ImageCacheKeyParts::builder()
             .event_id(event.get("event_id").and_then(Value::as_str))
@@ -147,18 +147,7 @@ impl MediaResolver for DefaultMediaResolver {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| String::from("application/octet-stream"));
 
-        let request = MediaRequestParameters {
-            source: media_source,
-            format: MediaFormat::File,
-        };
-
-        let bytes = match client.media().get_media_content(&request, true).await {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                warn!("Failed to fetch video media content: {error}");
-                return None;
-            }
-        };
+        let bytes = fetch_media_bytes(client, media_source, "video").await?;
 
         let cache_key_parts = VideoCacheKeyParts::builder()
             .source_key(image_source_key(event))
@@ -175,19 +164,7 @@ impl MediaResolver for DefaultMediaResolver {
         event: &Value,
     ) -> Option<Vec<u8>> {
         let media_source = image_media_source_from_event(event)?;
-
-        let request = MediaRequestParameters {
-            source: media_source,
-            format: MediaFormat::File,
-        };
-
-        match client.media().get_media_content(&request, true).await {
-            Ok(bytes) => Some(bytes),
-            Err(error) => {
-                warn!("Failed to fetch file media content: {error}");
-                None
-            }
-        }
+        fetch_media_bytes(client, media_source, "file").await
     }
 
     async fn cache_mxc_media_to_local_path(

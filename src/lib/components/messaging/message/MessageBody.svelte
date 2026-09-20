@@ -1,5 +1,6 @@
 <script lang="ts">
   import { matrixDownloadFile, matrixResolveVideoUrl } from "$lib/chats/api";
+  import { stripMxReplyBlock } from "../shared";
   import type { TimelineMessage } from "../shared";
 
   interface Props {
@@ -21,10 +22,6 @@
   let fileSaved = $state(false);
   let fileError = $state(false);
   let fileLoading = $state(false);
-
-  function stripMxReplyBlock(html: string): string {
-    return html.replace(/<mx-reply>[\s\S]*?<\/mx-reply>/i, "").trimStart();
-  }
 
   const renderedFormattedBody = $derived(
     message.formattedBody ? stripMxReplyBlock(message.formattedBody) : null,

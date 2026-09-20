@@ -1,8 +1,6 @@
 use log::{debug, warn};
-use matrix_sdk::room::MessagesOptions;
-use matrix_sdk::ruma::api::Direction;
-use matrix_sdk::ruma::uint;
 
+use crate::helpers::build_messages_options;
 use crate::media::MediaResolver;
 use types::chat::MatrixGetChatMessagesResponse;
 
@@ -63,14 +61,4 @@ pub(super) async fn fetch_room_messages_impl<M: MediaResolver>(
         next_from,
         messages,
     })
-}
-
-fn build_messages_options(from: Option<String>, limit: Option<u32>) -> MessagesOptions {
-    let mut options = MessagesOptions::new(Direction::Backward);
-    options.from = from;
-    options.limit = uint!(50);
-    if let Some(limit) = limit {
-        options.limit = limit.min(100).into();
-    }
-    options
 }

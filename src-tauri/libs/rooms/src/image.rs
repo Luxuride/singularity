@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use assets::media_url_is_available;
 use log::warn;
-use matrix_sdk::ruma::events::GlobalAccountDataEventType;
 
 use auth::AuthState;
 use chat::cache_mxc_media_to_local_path;
@@ -12,6 +11,7 @@ use types::event_paths;
 use types::rooms::{MatrixGetChatsResponse, MatrixGetRoomImageRequest, MatrixGetRoomImageResponse};
 use types::{EventSink, Paths};
 
+use crate::direct::direct_room_target_user_id;
 use crate::persistence::{load_cached_chats, store_cached_chats};
 
 pub fn has_stale_cached_chat_media(chats: &MatrixGetChatsResponse) -> bool {
@@ -20,38 +20,6 @@ pub fn has_stale_cached_chat_media(chats: &MatrixGetChatsResponse) -> bool {
             .as_deref()
             .is_some_and(|url| !media_url_is_available(url))
     })
-}
-
-async fn direct_room_target_user_id(client: &matrix_sdk::Client, room_id: &str) -> Option<String> {
-    let raw_content = client
-        .account()
-        .account_data_raw(GlobalAccountDataEventType::from("m.direct"))
-        .await
-        .ok()??;
-
-    let content = raw_content.deserialize_as::<serde_json::Value>().ok()?;
-    let mapping = content.as_object()?;
-    let own_user_id = client.user_id().map(|value| value.as_str().to_string());
-
-    for (user_id, room_ids) in mapping {
-        if own_user_id.as_deref() == Some(user_id.as_str()) {
-            continue;
-        }
-
-        let Some(room_ids) = room_ids.as_array() else {
-            continue;
-        };
-
-        if room_ids
-            .iter()
-            .filter_map(|value| value.as_str())
-            .any(|candidate_room_id| candidate_room_id == room_id)
-        {
-            return Some(user_id.to_string());
-        }
-    }
-
-    None
 }
 
 async fn resolve_dm_avatar_source_url(

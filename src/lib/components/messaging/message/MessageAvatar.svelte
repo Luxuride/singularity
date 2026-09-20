@@ -1,8 +1,8 @@
 <script lang="ts">
   import { matrixGetUserAvatar } from "$lib/chats/api";
+  import { ImageCache } from "$lib/components/navigation/shared/image-cache";
 
-  const avatarCache = new Map<string, string | null>();
-  const avatarInFlight = new Map<string, Promise<string | null>>();
+  const avatarCache = new ImageCache();
 
   interface Props {
     roomId: string;
@@ -22,38 +22,8 @@
   $effect(() => {
     lazyImageUrl = null;
 
-    const cachedImage = avatarCache.get(sender);
-    if (cachedImage !== undefined) {
-      lazyImageUrl = cachedImage;
-      return;
-    }
-
-    const inFlight = avatarInFlight.get(sender);
-    if (inFlight) {
-      const senderId = sender;
-      void inFlight.then((imageUrl) => {
-        avatarCache.set(senderId, imageUrl);
-        if (sender === senderId) {
-          lazyImageUrl = imageUrl;
-        }
-      });
-      return;
-    }
-
     const senderId = sender;
-    const request = matrixGetUserAvatar(roomId, senderId)
-      .then((imageUrl) => {
-        avatarCache.set(senderId, imageUrl);
-        return imageUrl;
-      })
-      .catch(() => null)
-      .finally(() => {
-        avatarInFlight.delete(senderId);
-      });
-
-    avatarInFlight.set(senderId, request);
-
-    void request.then((imageUrl) => {
+    void avatarCache.getOrLoad(senderId, () => matrixGetUserAvatar(roomId, senderId)).then((imageUrl) => {
       if (sender === senderId) {
         lazyImageUrl = imageUrl;
       }

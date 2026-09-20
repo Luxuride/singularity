@@ -16,10 +16,6 @@ export interface MatrixGetChatsResponse {
   chats: MatrixChatSummary[];
 }
 
-export interface MatrixGetRoomImageRequest {
-  roomId: string;
-}
-
 export interface MatrixGetRoomImageResponse {
   roomId: string;
   imageUrl: string | null;
@@ -143,11 +139,6 @@ export interface MatrixPickerCustomEmoji {
 
 export interface MatrixGetEmojiPacksResponse {
   customEmoji: MatrixPickerCustomEmoji[];
-}
-
-export interface MatrixGetUserAvatarRequest {
-  roomId: string;
-  userId: string;
 }
 
 export interface MatrixGetUserAvatarResponse {

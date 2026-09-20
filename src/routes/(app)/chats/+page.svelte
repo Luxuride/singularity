@@ -368,7 +368,7 @@
     const incomingTimestamp = message.timestamp;
 
     const optimisticIndex = messages.findIndex((candidate) => {
-      if (candidate.sendState !== "sending") {
+      if (candidate.sendState !== "sending" && candidate.sendState !== "failed") {
         return false;
       }
 

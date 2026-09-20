@@ -1,10 +1,8 @@
-use matrix_sdk::room::MessagesOptions;
-use matrix_sdk::ruma::api::Direction;
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
-use matrix_sdk::ruma::uint;
 use serde_json::Value;
 
+use crate::helpers::build_messages_options;
 use protocol::events_schema::parse_reaction_event;
 use protocol::{parse_event_id, parse_room_id};
 
@@ -124,14 +122,4 @@ async fn find_matching_own_reaction_event_id(
     }
 
     Ok(None)
-}
-
-fn build_messages_options(from: Option<String>, limit: Option<u32>) -> MessagesOptions {
-    let mut options = MessagesOptions::new(Direction::Backward);
-    options.from = from;
-    options.limit = uint!(50);
-    if let Some(limit) = limit {
-        options.limit = limit.min(100).into();
-    }
-    options
 }

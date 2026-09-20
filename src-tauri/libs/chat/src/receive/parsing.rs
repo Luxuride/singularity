@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use matrix_sdk::deserialized_responses::{TimelineEvent, VerificationState};
 use serde_json::Value;
 
-use protocol::events_schema::{parse_reaction_event, parse_timeline_message};
+use protocol::events_schema::{extract_html_attribute, parse_reaction_event, parse_timeline_message};
 
 use crate::media::MediaResolver;
 use types::chat::{
@@ -233,24 +233,6 @@ fn rewrite_img_tag(tag: &str, custom_emoji_urls_by_source: &HashMap<String, Stri
     }
 
     result
-}
-
-fn extract_html_attribute(tag: &str, attribute: &str) -> Option<String> {
-    let quoted_pattern = format!("{attribute}=\"");
-    if let Some(start_index) = tag.find(&quoted_pattern) {
-        let value_start = start_index + quoted_pattern.len();
-        let value_end = tag[value_start..].find('"')? + value_start;
-        return Some(tag[value_start..value_end].to_owned());
-    }
-
-    let single_quote_pattern = format!("{attribute}='");
-    if let Some(start_index) = tag.find(&single_quote_pattern) {
-        let value_start = start_index + single_quote_pattern.len();
-        let value_end = tag[value_start..].find('\'')? + value_start;
-        return Some(tag[value_start..value_end].to_owned());
-    }
-
-    None
 }
 
 fn replace_html_attribute(tag: &str, attribute: &str, value: &str) -> String {

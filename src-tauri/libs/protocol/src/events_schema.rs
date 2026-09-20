@@ -263,7 +263,7 @@ fn parse_custom_emojis_from_formatted_body(formatted_body: &str) -> Vec<ParsedCu
 
     emojis
 }
-fn extract_html_attribute(tag: &str, attribute: &str) -> Option<String> {
+pub fn extract_html_attribute(tag: &str, attribute: &str) -> Option<String> {
     let quoted_pattern = format!("{attribute}=\"");
     if let Some(start_index) = tag.find(&quoted_pattern) {
         let value_start = start_index + quoted_pattern.len();
