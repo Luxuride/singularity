@@ -15,7 +15,7 @@ pub mod persistence;
 pub mod url;
 
 pub use cache_key::{ImageCacheKeyParts, ImageCacheKeyPartsBuilder};
-pub use mime::{image_extension_from_mime, media_extension_from_mime};
+pub use mime::image_extension_from_mime;
 pub use persistence::{
     cached_media_path_for_source_url, clear_media_cache, initialize_media_cache_dir,
     load_media_bytes_from_resolved_url, media_cache_dir_path, media_url_is_available,
@@ -23,6 +23,6 @@ pub use persistence::{
     NormalizedMediaLoad, NormalizedMediaLoadBuilder,
 };
 pub use url::{
-    cache_event_image, cache_media_bytes, cache_mxc_media_to_local_path, canonical_pack_source_url,
+    cache_event_image, cache_mxc_media_to_local_path, canonical_pack_source_url,
     resolve_pack_media_url,
 };

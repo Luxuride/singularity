@@ -102,23 +102,6 @@ pub fn cache_event_image(bytes: &[u8], key_parts: ImageCacheKeyParts) -> Option<
     persist_normalized_media(&request)
 }
 
-/// Cache arbitrary media bytes (e.g. video) to the media cache directory and
-/// return the resolved `asset://` URL. Unlike `cache_event_image`, this does
-/// not normalize or re-encode the bytes; it writes them verbatim so the file
-/// keeps its original container/codec.
-pub fn cache_media_bytes(bytes: &[u8], file_stem: &str, mime_type: &str) -> Option<String> {
-    let extension = super::mime::media_extension_from_mime(mime_type);
-
-    let request = NormalizedMediaLoad::builder()
-        .bytes(bytes)
-        .file_stem(file_stem)
-        .extension(extension)
-        .mime_type(mime_type)
-        .build()?;
-
-    persist_normalized_media(&request)
-}
-
 fn mxc_image_cache_key(raw_url: &str, bytes: &[u8]) -> String {
     let mut hasher = DefaultHasher::new();
     raw_url.hash(&mut hasher);
