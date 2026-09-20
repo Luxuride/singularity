@@ -127,25 +127,9 @@
 
     if (!selectedRoomId) {
       previousSelectedRoomId = "";
-      lastAutoLoadOlderAt = 0;
       pendingRestoreRoomId = "";
-      pendingRestoreToBottom = false;
-      pendingRestoreAttempts = 0;
-      activeStreamId = "";
-      activeLoadKind = null;
-      streamMessageCount = 0;
-      seenEventIds.clear();
       loadingMessages = false;
-      messageDraft = "";
-      sendingMessage = false;
-      composerErrorMessage = "";
-      pendingMedia = null;
-      mediaErrorMessage = "";
-      activeMediaFilePath = "";
-      mediaTranscodeProgress = null;
-      replyToMessage = null;
-      messages = [];
-      nextFrom = null;
+      resetRoomState();
       return;
     }
 
@@ -155,24 +139,8 @@
 
     pendingRestoreRoomId = selectedRoomId;
     pendingRestoreToBottom = !roomScrollStates.has(selectedRoomId);
-    pendingRestoreAttempts = 0;
     previousSelectedRoomId = selectedRoomId;
-    lastAutoLoadOlderAt = 0;
-    activeStreamId = "";
-    activeLoadKind = null;
-    streamMessageCount = 0;
-    seenEventIds.clear();
-    messageDraft = "";
-    sendingMessage = false;
-    composerErrorMessage = "";
-    pendingMedia = null;
-    mediaErrorMessage = "";
-    activeMediaFilePath = "";
-    mediaTranscodeProgress = null;
-    replyToMessage = null;
-
-    messages = [];
-    nextFrom = null;
+    resetRoomState();
 
     void loadMessages(selectedRoomId);
   });
@@ -1035,6 +1003,26 @@
 
   function clearReplyToMessage() {
     replyToMessage = null;
+  }
+
+  function resetRoomState() {
+    lastAutoLoadOlderAt = 0;
+    pendingRestoreToBottom = false;
+    pendingRestoreAttempts = 0;
+    activeStreamId = "";
+    activeLoadKind = null;
+    streamMessageCount = 0;
+    seenEventIds.clear();
+    messageDraft = "";
+    sendingMessage = false;
+    composerErrorMessage = "";
+    pendingMedia = null;
+    mediaErrorMessage = "";
+    activeMediaFilePath = "";
+    mediaTranscodeProgress = null;
+    replyToMessage = null;
+    messages = [];
+    nextFrom = null;
   }
 
   function handleComposerSubmit(event: SubmitEvent) {
