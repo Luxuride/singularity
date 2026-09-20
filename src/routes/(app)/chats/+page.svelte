@@ -403,7 +403,7 @@
     }
 
     if (payload.done) {
-      nextFrom = payload.nextFrom;
+      nextFrom = payload.nextFrom ?? null;
       loadingMessages = false;
       activeStreamId = "";
       activeLoadKind = null;
@@ -1076,6 +1076,7 @@
     try {
       await matrixStreamChatMessages({
         roomId,
+        from: null,
         limit: 50,
         streamId,
         loadKind: "initial",

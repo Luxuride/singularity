@@ -24,14 +24,14 @@
   }: Props = $props();
 
   const isSpace = $derived(room.kind === "space");
-  let lazyImageUrl = $state<string | null>(null);
+  let lazyImageUrl = $state<string | null | undefined>(null);
 
   const indentation = $derived(`${Math.max(0, depth) * 0.9}rem`);
 
   $effect(() => {
     lazyImageUrl = room.imageUrl;
 
-    if (room.imageUrl !== null) {
+    if (room.imageUrl) {
       roomImageCache.prime(room.roomId, room.imageUrl);
     }
   });

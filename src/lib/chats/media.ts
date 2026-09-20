@@ -7,7 +7,7 @@ import type {
   MatrixSelectedRoomMessagesEvent,
 } from "./types";
 
-export function normalizeImageUrl(imageUrl: string | null): string | null {
+export function normalizeImageUrl(imageUrl: string | null | undefined): string | null {
   if (!imageUrl) {
     return null;
   }

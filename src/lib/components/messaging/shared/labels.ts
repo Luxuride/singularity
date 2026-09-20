@@ -1,6 +1,6 @@
 import type { MatrixChatMessage } from "$lib/chats/types";
 
-export function toTime(timestamp: number | null): string {
+export function toTime(timestamp: number | null | undefined): string {
   if (!timestamp) {
     return "";
   }

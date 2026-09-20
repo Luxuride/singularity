@@ -1,6 +1,5 @@
 /// Shared shortcode parsing/normalization for emoji. The shortcode charset is
-/// protocol-sensitive (matches the Matrix custom-emoji convention), so it lives
-/// in one place to avoid drift between the picker, composer, and message renderer.
+/// protocol-sensitive (matches the Matrix custom-emoji convention).
 
 /// Matches `:shortcode:` tokens anywhere in a string.
 export const TOKEN_PATTERN = /:([A-Za-z0-9_+\-]+):/g;

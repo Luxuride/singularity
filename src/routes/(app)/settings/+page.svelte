@@ -27,7 +27,8 @@
 
 		try {
 			await matrixTriggerRoomUpdate({
-				selectedRoomId: get(shellSelectedRoomId) || undefined,
+				selectedRoomId: get(shellSelectedRoomId) || null,
+				includeSelectedMessages: false,
 			});
 
 			await refreshRecoveryState();

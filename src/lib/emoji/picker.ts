@@ -1,8 +1,6 @@
 import type { MatrixPickerCustomEmoji } from "$lib/chats/types";
 
-/// Component-facing alias of the Tauri-boundary emoji DTO. Kept as a named
-/// alias so components can import from `$lib/emoji/picker` without coupling to
-/// the chats boundary module.
+/// Alias of the Tauri-boundary emoji DTO for component-facing imports.
 export type PickerCustomEmoji = MatrixPickerCustomEmoji;
 
 export type EmojiShortcodeSuggestion = {
@@ -70,7 +68,7 @@ async function getEmojiDatabase(customEmoji: PickerCustomEmoji[]) {
     name: emoji.name,
     shortcodes: emoji.shortcodes,
     url: emoji.url,
-    category: emoji.category,
+    category: emoji.category ?? undefined,
   }));
 
   if (!emojiDatabasePromise) {
