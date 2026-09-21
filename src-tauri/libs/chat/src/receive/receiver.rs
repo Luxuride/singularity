@@ -5,7 +5,7 @@ use types::{EventSink, RoomUpdateTriggerState};
 
 use super::super::media::DefaultMediaResolver;
 use super::fetch::fetch_room_messages_impl;
-use super::stream::stream_room_messages_impl;
+use super::stream::ChatMessageStreamer;
 use types::chat::{
     MatrixGetChatMessagesResponse, MatrixStreamChatMessagesRequest,
     MatrixStreamChatMessagesResponse,
@@ -34,8 +34,11 @@ pub async fn stream_room_messages_from_client(
 ) -> Result<MatrixStreamChatMessagesResponse, String> {
     let client = context.client;
     let media_resolver = &DefaultMediaResolver;
-    stream_room_messages_impl(context, request, |room_id_raw, from, limit| async move {
-        fetch_room_messages_impl(media_resolver, client, room_id_raw.as_str(), from, limit).await
-    })
-    .await
+    let mut streamer = ChatMessageStreamer::new(context, &request);
+    streamer
+        .run(request, |room_id_raw, from, limit| async move {
+            fetch_room_messages_impl(media_resolver, client, room_id_raw.as_str(), from, limit)
+                .await
+        })
+        .await
 }
