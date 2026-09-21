@@ -14,6 +14,7 @@
     matrixToggleReaction,
   } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
+  import { EVENT_MEDIA_TRANSCODE_PROGRESS } from "$lib/events";
   import {
     shellChats,
     shellCurrentUserId,
@@ -58,8 +59,6 @@
   let mediaErrorMessage = $state("");
   let activeMediaFilePath = $state("");
   let mediaTranscodeProgress = $state<MatrixMediaTranscodeProgressEvent | null>(null);
-
-  const EVENT_MEDIA_TRANSCODE_PROGRESS = "matrix://media/transcode/progress";
 
   let messages = $state<TimelineMessage[]>([]);
   let nextFrom = $state<string | null>(null);
@@ -128,25 +127,9 @@
 
     if (!selectedRoomId) {
       previousSelectedRoomId = "";
-      lastAutoLoadOlderAt = 0;
       pendingRestoreRoomId = "";
-      pendingRestoreToBottom = false;
-      pendingRestoreAttempts = 0;
-      activeStreamId = "";
-      activeLoadKind = null;
-      streamMessageCount = 0;
-      seenEventIds.clear();
       loadingMessages = false;
-      messageDraft = "";
-      sendingMessage = false;
-      composerErrorMessage = "";
-      pendingMedia = null;
-      mediaErrorMessage = "";
-      activeMediaFilePath = "";
-      mediaTranscodeProgress = null;
-      replyToMessage = null;
-      messages = [];
-      nextFrom = null;
+      resetRoomState();
       return;
     }
 
@@ -156,24 +139,8 @@
 
     pendingRestoreRoomId = selectedRoomId;
     pendingRestoreToBottom = !roomScrollStates.has(selectedRoomId);
-    pendingRestoreAttempts = 0;
     previousSelectedRoomId = selectedRoomId;
-    lastAutoLoadOlderAt = 0;
-    activeStreamId = "";
-    activeLoadKind = null;
-    streamMessageCount = 0;
-    seenEventIds.clear();
-    messageDraft = "";
-    sendingMessage = false;
-    composerErrorMessage = "";
-    pendingMedia = null;
-    mediaErrorMessage = "";
-    activeMediaFilePath = "";
-    mediaTranscodeProgress = null;
-    replyToMessage = null;
-
-    messages = [];
-    nextFrom = null;
+    resetRoomState();
 
     void loadMessages(selectedRoomId);
   });
@@ -368,7 +335,7 @@
     const incomingTimestamp = message.timestamp;
 
     const optimisticIndex = messages.findIndex((candidate) => {
-      if (candidate.sendState !== "sending") {
+      if (candidate.sendState !== "sending" && candidate.sendState !== "failed") {
         return false;
       }
 
@@ -403,7 +370,7 @@
     }
 
     if (payload.done) {
-      nextFrom = payload.nextFrom;
+      nextFrom = payload.nextFrom ?? null;
       loadingMessages = false;
       activeStreamId = "";
       activeLoadKind = null;
@@ -1038,6 +1005,26 @@
     replyToMessage = null;
   }
 
+  function resetRoomState() {
+    lastAutoLoadOlderAt = 0;
+    pendingRestoreToBottom = false;
+    pendingRestoreAttempts = 0;
+    activeStreamId = "";
+    activeLoadKind = null;
+    streamMessageCount = 0;
+    seenEventIds.clear();
+    messageDraft = "";
+    sendingMessage = false;
+    composerErrorMessage = "";
+    pendingMedia = null;
+    mediaErrorMessage = "";
+    activeMediaFilePath = "";
+    mediaTranscodeProgress = null;
+    replyToMessage = null;
+    messages = [];
+    nextFrom = null;
+  }
+
   function handleComposerSubmit(event: SubmitEvent) {
     event.preventDefault();
 
@@ -1076,6 +1063,7 @@
     try {
       await matrixStreamChatMessages({
         roomId,
+        from: null,
         limit: 50,
         streamId,
         loadKind: "initial",

@@ -37,7 +37,7 @@
     const known: Record<string, string | null> = {};
 
     for (const space of spaces) {
-      if (space.imageUrl !== null) {
+      if (space.imageUrl) {
         known[space.roomId] = space.imageUrl;
         roomImageCache.prime(space.roomId, space.imageUrl);
         continue;

@@ -5,4 +5,3 @@ export { default as MessageHeader } from "./MessageHeader.svelte";
 export { default as MessageItem } from "./MessageItem.svelte";
 export { default as MessageReactions } from "./MessageReactions.svelte";
 export { default as MessageSendState } from "./MessageSendState.svelte";
-export type { TimelineMessage } from "../shared";

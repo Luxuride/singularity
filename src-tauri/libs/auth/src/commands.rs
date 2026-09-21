@@ -7,9 +7,9 @@ use protocol::endpoints::normalize_homeserver_url;
 use protocol::sync::sync_once_serialized;
 use storage::AppDb;
 use types::auth::{
-    MatrixClearCacheExceptAuthResponse, MatrixCompleteOAuthResponse, MatrixLogoutResponse,
-    MatrixPasswordLoginRequest, MatrixPasswordLoginResponse, MatrixRecoverWithKeyRequest,
-    MatrixRecoverWithKeyResponse, MatrixRecoveryStatusResponse, MatrixSessionStatusResponse,
+    MatrixAuthenticatedSessionResponse, MatrixClearCacheExceptAuthResponse, MatrixLogoutResponse,
+    MatrixPasswordLoginRequest, MatrixRecoverWithKeyRequest, MatrixRecoverWithKeyResponse,
+    MatrixRecoveryState, MatrixRecoveryStatusResponse, MatrixSessionStatusResponse,
     MatrixStartOAuthRequest, MatrixStartOAuthResponse,
 };
 use types::{config, Paths};
@@ -21,12 +21,12 @@ use crate::persistence::{
 use crate::state::{wait_for_e2ee_initialization, AuthState, MatrixSession};
 use crate::workers::start_session_persistence_watcher;
 
-fn map_recovery_state(state: RecoveryState) -> String {
+fn map_recovery_state(state: RecoveryState) -> MatrixRecoveryState {
     match state {
-        RecoveryState::Unknown => String::from("unknown"),
-        RecoveryState::Enabled => String::from("enabled"),
-        RecoveryState::Disabled => String::from("disabled"),
-        RecoveryState::Incomplete => String::from("incomplete"),
+        RecoveryState::Unknown => MatrixRecoveryState::Unknown,
+        RecoveryState::Enabled => MatrixRecoveryState::Enabled,
+        RecoveryState::Disabled => MatrixRecoveryState::Disabled,
+        RecoveryState::Incomplete => MatrixRecoveryState::Incomplete,
     }
 }
 
@@ -93,7 +93,7 @@ pub async fn complete_oauth(
     app_db: &Arc<AppDb>,
     auth_state: &AuthState,
     callback_url: &str,
-) -> Result<MatrixCompleteOAuthResponse, String> {
+) -> Result<MatrixAuthenticatedSessionResponse, String> {
     let callback_url =
         Url::parse(callback_url).map_err(|_| String::from("Callback URL is not a valid URL"))?;
 
@@ -164,7 +164,7 @@ pub async fn complete_oauth(
     start_session_persistence_watcher(app_db.clone(), client.clone());
     auth_state.fire_client_ready(&client);
 
-    Ok(MatrixCompleteOAuthResponse {
+    Ok(MatrixAuthenticatedSessionResponse {
         authenticated: true,
         homeserver_url,
         user_id,
@@ -178,7 +178,7 @@ pub async fn password_login(
     app_db: &Arc<AppDb>,
     auth_state: &AuthState,
     request: &MatrixPasswordLoginRequest,
-) -> Result<MatrixPasswordLoginResponse, String> {
+) -> Result<MatrixAuthenticatedSessionResponse, String> {
     let homeserver_url = normalize_homeserver_url(&request.homeserver_url)?;
     let username = request.username.trim();
 
@@ -252,7 +252,7 @@ pub async fn password_login(
     start_session_persistence_watcher(app_db.clone(), client.clone());
     auth_state.fire_client_ready(&client);
 
-    Ok(MatrixPasswordLoginResponse {
+    Ok(MatrixAuthenticatedSessionResponse {
         authenticated: true,
         homeserver_url,
         user_id,

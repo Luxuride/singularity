@@ -8,7 +8,7 @@ use types::rooms::{
     MatrixJoinRoomResponse, MatrixSetRootSpaceOrderRequest, MatrixSetRootSpaceOrderResponse,
     MatrixTriggerRoomUpdateRequest, MatrixTriggerRoomUpdateResponse,
 };
-use types::{Paths, RoomRefreshTrigger, RoomUpdateTriggerState};
+use types::{Paths, RoomUpdateTriggerState};
 
 use crate::image::{self, has_stale_cached_chat_media};
 use crate::navigation::{build_navigation_response, orderable_root_space_ids};
@@ -20,51 +20,31 @@ pub async fn get_chats(
     auth_state: &Arc<AuthState>,
     trigger_state: &RoomUpdateTriggerState,
 ) -> Result<MatrixGetChatsResponse, String> {
-    if let Some(cached_chats) = load_cached_chats(app_db)? {
-        let cached = MatrixGetChatsResponse {
-            chats: cached_chats,
-        };
+    let mut chats = load_cached_chats(app_db)?;
 
-        if has_stale_cached_chat_media(&cached) {
+    if let Some(cached_chats) = chats.as_deref() {
+        if has_stale_cached_chat_media(&MatrixGetChatsResponse {
+            chats: cached_chats.to_vec(),
+        }) {
             let client = auth_state.restore_client_and_get(paths, app_db).await?;
-
             let local_chats = collect_and_store_chats(app_db, &client).await;
             if !local_chats.is_empty() {
-                let _ = trigger_state.enqueue(RoomRefreshTrigger {
-                    selected_room_id: None,
-                    include_selected_messages: false,
-                });
-
-                return Ok(MatrixGetChatsResponse { chats: local_chats });
+                chats = Some(local_chats);
             }
         }
-
-        let _ = trigger_state.enqueue(RoomRefreshTrigger {
-            selected_room_id: None,
-            include_selected_messages: false,
-        });
-
-        return Ok(cached);
+    } else {
+        let client = auth_state.restore_client_and_get(paths, app_db).await?;
+        let local_chats = collect_and_store_chats(app_db, &client).await;
+        if !local_chats.is_empty() {
+            chats = Some(local_chats);
+        }
     }
 
-    let client = auth_state.restore_client_and_get(paths, app_db).await?;
+    let _ = trigger_state.enqueue_refresh(None, false);
 
-    let local_chats = collect_and_store_chats(app_db, &client).await;
-    if !local_chats.is_empty() {
-        let _ = trigger_state.enqueue(RoomRefreshTrigger {
-            selected_room_id: None,
-            include_selected_messages: false,
-        });
-
-        return Ok(MatrixGetChatsResponse { chats: local_chats });
-    }
-
-    let _ = trigger_state.enqueue(RoomRefreshTrigger {
-        selected_room_id: None,
-        include_selected_messages: false,
-    });
-
-    Ok(MatrixGetChatsResponse { chats: local_chats })
+    Ok(MatrixGetChatsResponse {
+        chats: chats.unwrap_or_default(),
+    })
 }
 
 pub fn get_chat_navigation(
@@ -119,10 +99,8 @@ pub fn trigger_room_update(
     trigger_state: &RoomUpdateTriggerState,
 ) -> Result<MatrixTriggerRoomUpdateResponse, String> {
     let payload = request.unwrap_or_default();
-    let _ = trigger_state.enqueue(RoomRefreshTrigger {
-        selected_room_id: payload.selected_room_id,
-        include_selected_messages: payload.include_selected_messages,
-    });
+    let _ =
+        trigger_state.enqueue_refresh(payload.selected_room_id, payload.include_selected_messages);
 
     Ok(MatrixTriggerRoomUpdateResponse { queued: true })
 }

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use log::{error, info, warn};
-use matrix_sdk::ruma::events::GlobalAccountDataEventType;
 use matrix_sdk::ruma::events::StateEventType;
 use tokio::sync::mpsc;
 
@@ -20,6 +19,7 @@ use types::rooms::{
 };
 use types::{EventSink, Paths, RoomRefreshTrigger, RoomUpdateTriggerState};
 
+use crate::direct::direct_room_ids;
 use crate::persistence::{collect_and_store_chats, refresh_room_snapshot};
 
 pub type RoomSnapshot = HashMap<String, MatrixChatSummary>;
@@ -74,48 +74,6 @@ pub async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixCh
     });
 
     chats
-}
-
-async fn direct_room_ids(client: &matrix_sdk::Client) -> HashSet<String> {
-    let mut direct_room_ids = HashSet::new();
-    let raw_content = match client
-        .account()
-        .account_data_raw(GlobalAccountDataEventType::from("m.direct"))
-        .await
-    {
-        Ok(raw_content) => raw_content,
-        Err(_) => return direct_room_ids,
-    };
-
-    let Some(raw_content) = raw_content else {
-        return direct_room_ids;
-    };
-
-    let Ok(content) = raw_content.deserialize_as::<serde_json::Value>() else {
-        return direct_room_ids;
-    };
-
-    let Some(mapping) = content.as_object() else {
-        return direct_room_ids;
-    };
-
-    for room_ids in mapping.values() {
-        let Some(room_ids) = room_ids.as_array() else {
-            continue;
-        };
-
-        for room_id in room_ids {
-            let Some(room_id) = room_id.as_str() else {
-                continue;
-            };
-
-            if !room_id.is_empty() {
-                direct_room_ids.insert(room_id.to_string());
-            }
-        }
-    }
-
-    direct_room_ids
 }
 
 async fn children_room_ids_by_parent_room(
@@ -221,20 +179,16 @@ impl RoomUpdateWorker {
                     include_selected_messages = false;
                     retry_delay = None;
 
-                    if !refresh_completed {
-                        tokio::select! {
-                            _ = tokio::time::sleep(unauthenticated_delay) => {}
-                            maybe_trigger = self.receiver.recv() => {
-                                let Some(trigger) = maybe_trigger else {
-                                    break;
-                                };
-                                apply_trigger(
-                                    trigger,
-                                    &mut selected_room_id,
-                                    &mut include_selected_messages,
-                                );
-                            }
-                        }
+                    if !refresh_completed
+                        && !drain_triggers_and_wait(
+                            &mut self.receiver,
+                            unauthenticated_delay,
+                            &mut selected_room_id,
+                            &mut include_selected_messages,
+                        )
+                        .await
+                    {
+                        break;
                     }
                 }
                 Err(error) => {
@@ -260,18 +214,15 @@ impl RoomUpdateWorker {
 
                     retry_delay = Some(next_delay.saturating_mul(2).min(max_retry_delay));
 
-                    tokio::select! {
-                        _ = tokio::time::sleep(next_delay) => {}
-                        maybe_trigger = self.receiver.recv() => {
-                            let Some(trigger) = maybe_trigger else {
-                                break;
-                            };
-                            apply_trigger(
-                                trigger,
-                                &mut selected_room_id,
-                                &mut include_selected_messages,
-                            );
-                        }
+                    if !drain_triggers_and_wait(
+                        &mut self.receiver,
+                        next_delay,
+                        &mut selected_room_id,
+                        &mut include_selected_messages,
+                    )
+                    .await
+                    {
+                        break;
                     }
                 }
             }
@@ -445,5 +396,25 @@ fn apply_trigger(
 
     if trigger.include_selected_messages {
         *include_selected_messages = true;
+    }
+}
+
+/// Wait for a trigger or a delay, applying any received trigger to the worker
+/// state. Returns `false` when the channel closed (worker should stop).
+async fn drain_triggers_and_wait(
+    receiver: &mut mpsc::UnboundedReceiver<RoomRefreshTrigger>,
+    delay: Duration,
+    selected_room_id: &mut Option<String>,
+    include_selected_messages: &mut bool,
+) -> bool {
+    tokio::select! {
+        _ = tokio::time::sleep(delay) => true,
+        maybe_trigger = receiver.recv() => {
+            let Some(trigger) = maybe_trigger else {
+                return false;
+            };
+            apply_trigger(trigger, selected_room_id, include_selected_messages);
+            true
+        }
     }
 }

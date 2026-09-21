@@ -1,6 +1,14 @@
 import { listen } from "@tauri-apps/api/event";
 
 import {
+  EVENT_CHAT_MESSAGES_STREAM,
+  EVENT_ROOM_ADDED,
+  EVENT_ROOM_REMOVED,
+  EVENT_ROOM_UPDATED,
+  EVENT_SELECTED_ROOM_MESSAGES,
+  EVENT_VERIFICATION_STATE_CHANGED,
+} from "$lib/events";
+import {
   normalizeChatSummaryImageUrl,
   normalizeChatMessageStreamEvent,
   normalizeSelectedRoomMessagesEvent,
@@ -12,13 +20,6 @@ import type {
   MatrixSelectedRoomMessagesEvent,
   MatrixVerificationStateChangedEvent,
 } from "./types";
-
-const EVENT_ROOM_ADDED = "matrix://rooms/added";
-const EVENT_ROOM_UPDATED = "matrix://rooms/updated";
-const EVENT_ROOM_REMOVED = "matrix://rooms/removed";
-const EVENT_SELECTED_ROOM_MESSAGES = "matrix://rooms/selected/messages";
-const EVENT_CHAT_MESSAGES_STREAM = "matrix://rooms/messages/stream";
-const EVENT_VERIFICATION_STATE_CHANGED = "matrix://verification/state";
 
 export interface RoomUpdateHandlers {
   onRoomAdded: (room: MatrixChatSummary) => void;

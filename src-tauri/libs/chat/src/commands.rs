@@ -13,12 +13,22 @@ use crate::send::{
     send_room_message_from_client, MediaTranscodeCancellationState,
 };
 use types::chat::{
-    MatrixDownloadFileData, MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse,
-    MatrixGetUserAvatarResponse, MatrixPickerCustomEmoji, MatrixResolveVideoUrlResponse,
-    MatrixSendChatMessageResponse, MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest,
-    MatrixStreamChatMessagesResponse, MatrixToggleReactionResponse,
+    MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse, MatrixGetUserAvatarResponse,
+    MatrixPickerCustomEmoji, MatrixResolveVideoUrlResponse, MatrixSendChatMessageResponse,
+    MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
+    MatrixToggleReactionResponse,
 };
 use types::EventSink;
+
+/// Raw file download data returned from the chat layer to the command layer.
+/// The bytes are written to a user-chosen path in the command layer and never
+/// cross the Tauri/JS boundary.
+#[derive(Clone)]
+pub struct MatrixDownloadFileData {
+    pub bytes: Vec<u8>,
+    pub file_name: Option<String>,
+    pub mime_type: Option<String>,
+}
 
 pub async fn get_chat_messages(
     client: &Client,
@@ -205,19 +215,8 @@ pub async fn resolve_video_url(
     room_id: &str,
     event_id: &str,
 ) -> Result<MatrixResolveVideoUrlResponse, String> {
-    let room_id = protocol::parse_room_id(room_id)?;
-    let event_id = protocol::parse_event_id(event_id)?;
-
-    let room = client
-        .get_room(&room_id)
-        .ok_or_else(|| String::from("Room is not available in current session"))?;
-
-    let timeline_event = room
-        .event(&event_id, None)
-        .await
-        .map_err(|error| format!("Failed to fetch video event: {error}"))?;
-
-    let Ok(event) = timeline_event.raw().deserialize_as::<Value>() else {
+    let event = load_event_content(client, room_id, event_id).await?;
+    let Some(event) = event else {
         return Ok(MatrixResolveVideoUrlResponse { video_url: None });
     };
 
@@ -246,19 +245,8 @@ pub async fn download_file_data(
     room_id: &str,
     event_id: &str,
 ) -> Result<Option<MatrixDownloadFileData>, String> {
-    let room_id = protocol::parse_room_id(room_id)?;
-    let event_id = protocol::parse_event_id(event_id)?;
-
-    let room = client
-        .get_room(&room_id)
-        .ok_or_else(|| String::from("Room is not available in current session"))?;
-
-    let timeline_event = room
-        .event(&event_id, None)
-        .await
-        .map_err(|error| format!("Failed to fetch file event: {error}"))?;
-
-    let Ok(event) = timeline_event.raw().deserialize_as::<Value>() else {
+    let event = load_event_content(client, room_id, event_id).await?;
+    let Some(event) = event else {
         return Ok(None);
     };
 
@@ -297,4 +285,29 @@ pub async fn download_file_data(
         file_name,
         mime_type,
     }))
+}
+
+/// Load a room event and deserialize its raw content as JSON. Returns `None`
+/// when the event cannot be deserialized.
+async fn load_event_content(
+    client: &Client,
+    room_id: &str,
+    event_id: &str,
+) -> Result<Option<Value>, String> {
+    let room_id = protocol::parse_room_id(room_id)?;
+    let event_id = protocol::parse_event_id(event_id)?;
+
+    let room = client
+        .get_room(&room_id)
+        .ok_or_else(|| String::from("Room is not available in current session"))?;
+
+    let timeline_event = room
+        .event(&event_id, None)
+        .await
+        .map_err(|error| format!("Failed to fetch event: {error}"))?;
+
+    match timeline_event.raw().deserialize_as::<Value>() {
+        Ok(event) => Ok(Some(event)),
+        Err(_) => Ok(None),
+    }
 }

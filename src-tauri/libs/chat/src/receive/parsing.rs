@@ -3,7 +3,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use matrix_sdk::deserialized_responses::{TimelineEvent, VerificationState};
 use serde_json::Value;
 
-use protocol::events_schema::{parse_reaction_event, parse_timeline_message};
+use protocol::events_schema::{
+    extract_html_attribute, parse_reaction_event, parse_timeline_message,
+};
 
 use crate::media::MediaResolver;
 use types::chat::{
@@ -57,12 +59,8 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
             continue;
         }
 
-        if let Some(parsed) = parse_timeline_message(
-            &event,
-            &client.homeserver(),
-            decryption_status,
-            verification_status,
-        ) {
+        if let Some(parsed) = parse_timeline_message(&event, decryption_status, verification_status)
+        {
             let mut custom_emojis = Vec::with_capacity(parsed.custom_emojis.len());
             let mut custom_emoji_urls_by_source = HashMap::<String, String>::new();
             for emoji in parsed.custom_emojis {
@@ -110,12 +108,14 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
             // Videos are downloaded on demand (when the user presses play) to
             // avoid fetching large files for every message in the timeline.
             // We eagerly resolve the thumbnail (poster) so the message shows a
-            // preview without downloading the full video.
+            // preview without downloading the full video. The video's own
+            // `image_url` is left unset; only the resolved `asset://` thumbnail
+            // is exposed to the frontend.
             let (image_url, thumbnail_url) = if is_video {
                 let thumbnail_url = media_resolver
                     .resolve_thumbnail_cache_path(client, &event)
                     .await;
-                (parsed.image_url, thumbnail_url)
+                (None, thumbnail_url)
             } else if matches!(
                 parsed.message_type.as_deref(),
                 Some("m.image") | Some("m.file")
@@ -125,7 +125,7 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                     .await;
                 (image_url, None)
             } else {
-                (parsed.image_url, None)
+                (None, None)
             };
 
             messages.push(MatrixChatMessage {
@@ -233,24 +233,6 @@ fn rewrite_img_tag(tag: &str, custom_emoji_urls_by_source: &HashMap<String, Stri
     }
 
     result
-}
-
-fn extract_html_attribute(tag: &str, attribute: &str) -> Option<String> {
-    let quoted_pattern = format!("{attribute}=\"");
-    if let Some(start_index) = tag.find(&quoted_pattern) {
-        let value_start = start_index + quoted_pattern.len();
-        let value_end = tag[value_start..].find('"')? + value_start;
-        return Some(tag[value_start..value_end].to_owned());
-    }
-
-    let single_quote_pattern = format!("{attribute}='");
-    if let Some(start_index) = tag.find(&single_quote_pattern) {
-        let value_start = start_index + single_quote_pattern.len();
-        let value_end = tag[value_start..].find('\'')? + value_start;
-        return Some(tag[value_start..value_end].to_owned());
-    }
-
-    None
 }
 
 fn replace_html_attribute(tag: &str, attribute: &str, value: &str) -> String {

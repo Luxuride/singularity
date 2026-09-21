@@ -100,7 +100,8 @@
       }
 
       await matrixTriggerRoomUpdate({
-        selectedRoomId: $shellSelectedRoomId || undefined,
+        selectedRoomId: $shellSelectedRoomId || null,
+        includeSelectedMessages: false,
       });
       cacheMessage = "Cache cleared. Auth session is preserved.";
     } catch (error) {
@@ -234,22 +235,6 @@
     } finally {
       verificationActionPending = false;
     }
-  }
-
-  function flowStateLabel(flow: MatrixVerificationFlowResponse): string {
-    if (flow.isDone) {
-      return "Verification complete";
-    }
-
-    if (flow.isCancelled) {
-      return "Verification cancelled";
-    }
-
-    if (flow.sasState) {
-      return `SAS ${flow.sasState}`;
-    }
-
-    return `Request ${flow.requestState}`;
   }
 </script>
 

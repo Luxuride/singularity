@@ -5,7 +5,7 @@
   import { get } from "svelte/store";
   import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 
-  import { matrixLogout, matrixRecoveryStatus, matrixSessionStatus } from "$lib/auth/api";
+  import { matrixSessionStatus } from "$lib/auth/api";
   import {
     matrixGetChatNavigation,
     matrixGetChats,
@@ -16,10 +16,11 @@
   } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
   import {
+    logout as logoutSession,
+    refreshRecoveryState,
     shellChats,
     shellCurrentUserId,
     shellErrorMessage,
-    shellLoading,
     shellRecoveryState,
     shellRefreshing,
     shellPickerCustomEmoji,
@@ -30,6 +31,7 @@
   } from "$lib/chats/shell";
   import type {
     MatrixChatSummary,
+    MatrixGetChatNavigationRequest,
     MatrixRoomRemovedEvent,
     MatrixSelectedRoomMessagesEvent,
   } from "$lib/chats/types";
@@ -133,7 +135,6 @@
   }
 
   async function loadShell() {
-    shellLoading.set(true);
     shellErrorMessage.set("");
 
     try {
@@ -163,18 +164,11 @@
       void loadShellMetadata();
     } catch (error) {
       shellErrorMessage.set(error instanceof Error ? error.message : "Failed to load chats");
-    } finally {
-      shellLoading.set(false);
     }
   }
 
   async function loadShellMetadata() {
-    try {
-      const recovery = await matrixRecoveryStatus();
-      shellRecoveryState.set(recovery.state);
-    } catch {
-      shellRecoveryState.set(null);
-    }
+    await refreshRecoveryState();
 
     try {
       const { customEmoji: pickerCustomEmoji } = await matrixGetPickerAssets();
@@ -233,7 +227,7 @@
     await goto(path, { replaceState: true, noScroll: true, keepFocus: true });
   }
 
-  async function refreshChatNavigation(input?: { rootSpaceId?: string; selectedRoomId?: string }) {
+  async function refreshChatNavigation(input?: MatrixGetChatNavigationRequest) {
     const response = await matrixGetChatNavigation(input);
     const nextRootSpaceId = response.selectedRootSpaceId ?? "";
 
@@ -296,29 +290,19 @@
     shellErrorMessage.set("");
 
     try {
-      await matrixLogout();
-      shellChats.set([]);
-      shellRootSpaces.set([]);
-      shellRootScopedRooms.set([]);
-      shellSelectedRootSpaceId.set("");
-      shellSelectedRoomId.set("");
-      shellCurrentUserId.set("");
-      shellPickerCustomEmoji.set([]);
-      await goto("/");
-    } catch (error) {
-      shellErrorMessage.set(error instanceof Error ? error.message : "Failed to log out");
+      const error = await logoutSession();
+      if (error) {
+        shellErrorMessage.set(error);
+      } else {
+        await goto("/");
+      }
     } finally {
       loggingOut = false;
     }
   }
 </script>
 
-{#if false}
-  <main class="min-h-screen grid place-items-center p-4">
-    <p class="card p-3 text-sm bg-surface-100-900">Loading session...</p>
-  </main>
-{:else}
-  <main class="h-screen overflow-x-hidden">
+<main class="h-screen overflow-x-hidden">
     {#if $shellErrorMessage}
       <p class="card p-3 text-sm preset-filled-error-500 mx-4 md:mx-6 mt-4">{$shellErrorMessage}</p>
     {/if}
@@ -348,4 +332,3 @@
       </section>
     </div>
   </main>
-{/if}

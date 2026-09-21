@@ -1,6 +1,6 @@
 <script lang="ts">
   import MessageAvatar from "./MessageAvatar.svelte";
-  import { toTime } from "../shared";
+  import { replyTextPreview as deriveReplyTextPreview, toTime } from "../shared";
   import type { JumpToMessageHandler, TimelineMessage } from "../shared";
 
   interface Props {
@@ -18,11 +18,7 @@
   }: Props = $props();
 
   const replySenderLabel = $derived(repliedMessage?.sender ?? "message");
-  const replyTextPreview = $derived(
-    repliedMessage?.messageType === "m.image"
-      ? "Image"
-      : (repliedMessage?.body ?? "").trim().split("\n")[0]?.slice(0, 72) ?? "",
-  );
+  const replyTextPreview = $derived(deriveReplyTextPreview(repliedMessage));
 
   function jumpToReply() {
     if (!message.inReplyToEventId) {

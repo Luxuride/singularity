@@ -8,8 +8,8 @@ use tauri::State;
 use auth::AuthState;
 use storage::AppDb;
 use types::auth::{
-    MatrixClearCacheExceptAuthResponse, MatrixCompleteOAuthRequest, MatrixCompleteOAuthResponse,
-    MatrixLogoutResponse, MatrixPasswordLoginRequest, MatrixPasswordLoginResponse,
+    MatrixAuthenticatedSessionResponse, MatrixClearCacheExceptAuthResponse,
+    MatrixCompleteOAuthRequest, MatrixLogoutResponse, MatrixPasswordLoginRequest,
     MatrixRecoverWithKeyRequest, MatrixRecoverWithKeyResponse, MatrixRecoveryStatusResponse,
     MatrixSessionStatusResponse, MatrixStartOAuthRequest, MatrixStartOAuthResponse,
 };
@@ -30,7 +30,7 @@ pub async fn matrix_complete_oauth(
     auth_state: State<'_, Arc<AuthState>>,
     app_db: State<'_, Arc<AppDb>>,
     paths: State<'_, Paths>,
-) -> Result<MatrixCompleteOAuthResponse, String> {
+) -> Result<MatrixAuthenticatedSessionResponse, String> {
     auth::complete_oauth(&paths, &app_db, auth_state.as_ref(), &request.callback_url).await
 }
 
@@ -40,7 +40,7 @@ pub async fn matrix_password_login(
     auth_state: State<'_, Arc<AuthState>>,
     app_db: State<'_, Arc<AppDb>>,
     paths: State<'_, Paths>,
-) -> Result<MatrixPasswordLoginResponse, String> {
+) -> Result<MatrixAuthenticatedSessionResponse, String> {
     auth::password_login(&paths, &app_db, auth_state.as_ref(), &request).await
 }
 

@@ -1,11 +1,10 @@
 import { invokeMatrixCommand } from "../command-client";
 import type {
+  MatrixAuthenticatedSessionResponse,
   MatrixClearCacheExceptAuthResponse,
   MatrixCompleteOAuthRequest,
-  MatrixCompleteOAuthResponse,
   MatrixLogoutResponse,
   MatrixPasswordLoginRequest,
-  MatrixPasswordLoginResponse,
   MatrixRecoveryStatusResponse,
   MatrixRecoverWithKeyRequest,
   MatrixRecoverWithKeyResponse,
@@ -24,16 +23,16 @@ export async function matrixStartOAuth(
 
 export async function matrixCompleteOAuth(
   input: MatrixCompleteOAuthRequest,
-): Promise<MatrixCompleteOAuthResponse> {
-  return invokeMatrixCommand<MatrixCompleteOAuthResponse>("matrix_complete_oauth", {
+): Promise<MatrixAuthenticatedSessionResponse> {
+  return invokeMatrixCommand<MatrixAuthenticatedSessionResponse>("matrix_complete_oauth", {
     request: input,
   });
 }
 
 export async function matrixPasswordLogin(
   input: MatrixPasswordLoginRequest,
-): Promise<MatrixPasswordLoginResponse> {
-  return invokeMatrixCommand<MatrixPasswordLoginResponse>("matrix_password_login", {
+): Promise<MatrixAuthenticatedSessionResponse> {
+  return invokeMatrixCommand<MatrixAuthenticatedSessionResponse>("matrix_password_login", {
     request: input,
   });
 }

@@ -827,37 +827,32 @@ impl AppDb {
         connection
             .execute("DELETE FROM session_cache", [])
             .map_err(|error| format!("Failed to clear session cache: {error}"))?;
-        connection
-            .execute("DELETE FROM chats_cache", [])
-            .map_err(|error| format!("Failed to clear chats cache: {error}"))?;
-        connection
-            .execute("DELETE FROM root_space_order", [])
-            .map_err(|error| format!("Failed to clear root space order: {error}"))?;
-        connection
-            .execute("DELETE FROM message_cache_state", [])
-            .map_err(|error| format!("Failed to clear message cache state: {error}"))?;
-        connection
-            .execute("DELETE FROM message_cache", [])
-            .map_err(|error| format!("Failed to clear message cache: {error}"))?;
+        clear_cache_tables(&connection)?;
         Ok(())
     }
 
     pub fn clear_non_auth_cache(&self) -> Result<(), String> {
         let connection = self.lock()?;
-        connection
-            .execute("DELETE FROM chats_cache", [])
-            .map_err(|error| format!("Failed to clear chats cache: {error}"))?;
-        connection
-            .execute("DELETE FROM root_space_order", [])
-            .map_err(|error| format!("Failed to clear root space order: {error}"))?;
-        connection
-            .execute("DELETE FROM message_cache_state", [])
-            .map_err(|error| format!("Failed to clear message cache state: {error}"))?;
-        connection
-            .execute("DELETE FROM message_cache", [])
-            .map_err(|error| format!("Failed to clear message cache: {error}"))?;
+        clear_cache_tables(&connection)?;
         Ok(())
     }
+}
+
+/// Clear the non-session cache tables (chats, root space order, message cache).
+fn clear_cache_tables(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute("DELETE FROM chats_cache", [])
+        .map_err(|error| format!("Failed to clear chats cache: {error}"))?;
+    connection
+        .execute("DELETE FROM root_space_order", [])
+        .map_err(|error| format!("Failed to clear root space order: {error}"))?;
+    connection
+        .execute("DELETE FROM message_cache_state", [])
+        .map_err(|error| format!("Failed to clear message cache state: {error}"))?;
+    connection
+        .execute("DELETE FROM message_cache", [])
+        .map_err(|error| format!("Failed to clear message cache: {error}"))?;
+    Ok(())
 }
 
 fn is_database_key_mismatch(error: &str) -> bool {
