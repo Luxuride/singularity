@@ -23,7 +23,9 @@ pub async fn get_chats(
     let mut chats = load_cached_chats(app_db)?;
 
     if let Some(cached_chats) = chats.as_deref() {
-        if has_stale_cached_chat_media(&MatrixGetChatsResponse { chats: cached_chats.to_vec() }) {
+        if has_stale_cached_chat_media(&MatrixGetChatsResponse {
+            chats: cached_chats.to_vec(),
+        }) {
             let client = auth_state.restore_client_and_get(paths, app_db).await?;
             let local_chats = collect_and_store_chats(app_db, &client).await;
             if !local_chats.is_empty() {
@@ -40,7 +42,9 @@ pub async fn get_chats(
 
     let _ = trigger_state.enqueue_refresh(None, false);
 
-    Ok(MatrixGetChatsResponse { chats: chats.unwrap_or_default() })
+    Ok(MatrixGetChatsResponse {
+        chats: chats.unwrap_or_default(),
+    })
 }
 
 pub fn get_chat_navigation(
@@ -95,10 +99,8 @@ pub fn trigger_room_update(
     trigger_state: &RoomUpdateTriggerState,
 ) -> Result<MatrixTriggerRoomUpdateResponse, String> {
     let payload = request.unwrap_or_default();
-    let _ = trigger_state.enqueue_refresh(
-        payload.selected_room_id,
-        payload.include_selected_messages,
-    );
+    let _ =
+        trigger_state.enqueue_refresh(payload.selected_room_id, payload.include_selected_messages);
 
     Ok(MatrixTriggerRoomUpdateResponse { queued: true })
 }

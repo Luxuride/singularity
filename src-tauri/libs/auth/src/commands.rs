@@ -8,9 +8,9 @@ use protocol::sync::sync_once_serialized;
 use storage::AppDb;
 use types::auth::{
     MatrixAuthenticatedSessionResponse, MatrixClearCacheExceptAuthResponse, MatrixLogoutResponse,
-    MatrixPasswordLoginRequest, MatrixRecoverWithKeyRequest,
-    MatrixRecoverWithKeyResponse, MatrixRecoveryState, MatrixRecoveryStatusResponse,
-    MatrixSessionStatusResponse, MatrixStartOAuthRequest, MatrixStartOAuthResponse,
+    MatrixPasswordLoginRequest, MatrixRecoverWithKeyRequest, MatrixRecoverWithKeyResponse,
+    MatrixRecoveryState, MatrixRecoveryStatusResponse, MatrixSessionStatusResponse,
+    MatrixStartOAuthRequest, MatrixStartOAuthResponse,
 };
 use types::{config, Paths};
 

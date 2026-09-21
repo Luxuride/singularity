@@ -41,10 +41,7 @@ pub async fn matrix_get_chat_messages(
         from.as_deref(),
         limit,
     )? {
-        let _ = room_update_trigger_state.enqueue_refresh(
-            Some(request.room_id.clone()),
-            true,
-        );
+        let _ = room_update_trigger_state.enqueue_refresh(Some(request.room_id.clone()), true);
 
         if !chat::helpers::has_stale_cached_media_urls(&cached.messages) {
             return Ok(cached);
@@ -122,8 +119,7 @@ pub async fn matrix_stream_chat_messages(
 
         if let Err(error) = stream_result {
             if chat::helpers::is_room_unavailable_error(&error) {
-                if let Err(sync_error) = protocol::sync::sync_once_default(&client_for_task).await
-                {
+                if let Err(sync_error) = protocol::sync::sync_once_default(&client_for_task).await {
                     log::warn!(
                         "Background matrix stream sync failed after room-unavailable error: {sync_error}"
                     );

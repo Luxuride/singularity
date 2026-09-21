@@ -3,7 +3,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use matrix_sdk::deserialized_responses::{TimelineEvent, VerificationState};
 use serde_json::Value;
 
-use protocol::events_schema::{extract_html_attribute, parse_reaction_event, parse_timeline_message};
+use protocol::events_schema::{
+    extract_html_attribute, parse_reaction_event, parse_timeline_message,
+};
 
 use crate::media::MediaResolver;
 use types::chat::{
@@ -57,11 +59,8 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
             continue;
         }
 
-        if let Some(parsed) = parse_timeline_message(
-            &event,
-            decryption_status,
-            verification_status,
-        ) {
+        if let Some(parsed) = parse_timeline_message(&event, decryption_status, verification_status)
+        {
             let mut custom_emojis = Vec::with_capacity(parsed.custom_emojis.len());
             let mut custom_emoji_urls_by_source = HashMap::<String, String>::new();
             for emoji in parsed.custom_emojis {
