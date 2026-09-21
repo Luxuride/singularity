@@ -1,10 +1,7 @@
-export type PickerCustomEmoji = {
-  name: string;
-  shortcodes: string[];
-  url: string;
-  sourceUrl: string;
-  category?: string;
-};
+import type { MatrixPickerCustomEmoji } from "$lib/chats/types";
+
+/// Alias of the Tauri-boundary emoji DTO for component-facing imports.
+export type PickerCustomEmoji = MatrixPickerCustomEmoji;
 
 export type EmojiShortcodeSuggestion = {
   shortcode: string;
@@ -27,12 +24,7 @@ type EmojiClickDetail = {
   };
 };
 
-const SHORTCODE_PATTERN = /:([A-Za-z0-9_+\-]+):/g;
-const ACTIVE_SHORTCODE_PATTERN = /(^|\s):([A-Za-z0-9_+\-]{1,64})$/;
-
-function normalizeShortcode(value: string): string {
-  return value.trim().replace(/^:+|:+$/g, "").toLowerCase();
-}
+import { ACTIVE_SHORTCODE_PATTERN, TOKEN_PATTERN, normalizeShortcode } from "./shortcodes";
 
 function buildSourceByShortcode(customEmoji: PickerCustomEmoji[]): Map<string, string> {
   const sourceByShortcode = new Map<string, string>();
@@ -76,7 +68,7 @@ async function getEmojiDatabase(customEmoji: PickerCustomEmoji[]) {
     name: emoji.name,
     shortcodes: emoji.shortcodes,
     url: emoji.url,
-    category: emoji.category,
+    category: emoji.category ?? undefined,
   }));
 
   if (!emojiDatabasePromise) {
@@ -199,7 +191,7 @@ export async function normalizeShortcodesToEmoji(
   }
 
   const shortcodes = new Set<string>();
-  for (const match of input.matchAll(SHORTCODE_PATTERN)) {
+  for (const match of input.matchAll(TOKEN_PATTERN)) {
     const shortcode = match[1]?.trim();
     if (shortcode) {
       shortcodes.add(shortcode.toLowerCase());
@@ -224,7 +216,7 @@ export async function normalizeShortcodesToEmoji(
     return input;
   }
 
-  return input.replace(SHORTCODE_PATTERN, (_fullMatch, shortcodeRaw: string) => {
+  return input.replace(TOKEN_PATTERN, (_fullMatch, shortcodeRaw: string) => {
     const replacement = replacements.get(shortcodeRaw.toLowerCase());
     return replacement ?? `:${shortcodeRaw}:`;
   });

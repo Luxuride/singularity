@@ -199,7 +199,7 @@ export async function matrixOwnVerificationStatus(): Promise<MatrixOwnVerificati
 
 export async function matrixGetUserDevices(userId: string): Promise<MatrixGetUserDevicesResponse> {
   return invokeMatrixCommand<MatrixGetUserDevicesResponse>("matrix_get_user_devices", {
-    userIdRaw: userId,
+    request: { userId },
   });
 }
 
@@ -209,7 +209,7 @@ export async function matrixRequestDeviceVerification(
 ): Promise<MatrixRequestVerificationResponse> {
   return invokeMatrixCommand<MatrixRequestVerificationResponse>(
     "matrix_request_device_verification",
-    { userIdRaw: userId, deviceIdRaw: deviceId },
+    { request: { userId, deviceId } },
   );
 }
 
@@ -218,8 +218,7 @@ export async function matrixGetVerificationFlow(
   flowId: string,
 ): Promise<MatrixVerificationFlowResponse> {
   return invokeMatrixCommand<MatrixVerificationFlowResponse>("matrix_get_verification_flow", {
-    userIdRaw: userId,
-    flowId,
+    request: { userId, flowId },
   });
 }
 
@@ -228,8 +227,7 @@ export async function matrixAcceptVerificationRequest(
   flowId: string,
 ): Promise<MatrixVerificationFlowResponse> {
   return invokeMatrixCommand<MatrixVerificationFlowResponse>("matrix_accept_verification_request", {
-    userIdRaw: userId,
-    flowId,
+    request: { userId, flowId },
   });
 }
 
@@ -238,8 +236,7 @@ export async function matrixStartSasVerification(
   flowId: string,
 ): Promise<MatrixVerificationFlowResponse> {
   return invokeMatrixCommand<MatrixVerificationFlowResponse>("matrix_start_sas_verification", {
-    userIdRaw: userId,
-    flowId,
+    request: { userId, flowId },
   });
 }
 
@@ -248,8 +245,7 @@ export async function matrixAcceptSasVerification(
   flowId: string,
 ): Promise<MatrixVerificationFlowResponse> {
   return invokeMatrixCommand<MatrixVerificationFlowResponse>("matrix_accept_sas_verification", {
-    userIdRaw: userId,
-    flowId,
+    request: { userId, flowId },
   });
 }
 
@@ -258,8 +254,7 @@ export async function matrixConfirmSasVerification(
   flowId: string,
 ): Promise<MatrixVerificationFlowResponse> {
   return invokeMatrixCommand<MatrixVerificationFlowResponse>("matrix_confirm_sas_verification", {
-    userIdRaw: userId,
-    flowId,
+    request: { userId, flowId },
   });
 }
 

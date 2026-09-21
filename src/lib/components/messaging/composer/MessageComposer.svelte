@@ -1,9 +1,11 @@
 <script lang="ts">
   import { getShortcodeSuggestions } from "$lib/emoji/picker";
   import type { EmojiShortcodeSuggestion, PickerCustomEmoji } from "$lib/emoji/picker";
+  import { replyTextPreview as deriveReplyTextPreview, stripMxReplyBlock } from "../shared";
   import type { TimelineMessage } from "../shared";
+  import { ErrorBanner } from "../shared";
   import { ShortcodeSuggestions } from "../composer-emoji";
-  import { ComposerActions, ComposerEditor, ComposerErrorBanner, ComposerToolbar } from ".";
+  import { ComposerActions, ComposerEditor, ComposerToolbar } from ".";
   import type { ComposerEditorHandle, ShortcodeRange, SuggestionPosition } from ".";
 
   interface Props {
@@ -45,16 +47,8 @@
   let suggestionPopupPosition = $state<SuggestionPosition | null>(null);
   let lastAppliedFocusNonce = $state(0);
 
-  function stripMxReplyBlock(html: string): string {
-    return html.replace(/<mx-reply>[\s\S]*?<\/mx-reply>/i, "").trimStart();
-  }
-
   const replyTextPreview = $derived.by(() => {
-    if (!replyToMessage) {
-      return "";
-    }
-
-    return replyToMessage.body.trim().split("\n")[0]?.slice(0, 72) ?? "";
+    return deriveReplyTextPreview(replyToMessage);
   });
 
   const replyFormattedPreview = $derived.by(() => {
@@ -143,7 +137,7 @@
   class="card p-3 mt-3 preset-outlined-surface-200-800 bg-surface-100-900 relative"
   onsubmit={handleSubmit}
 >
-  <ComposerErrorBanner {error} />
+  <ErrorBanner {error} class="mb-2 text-sm preset-filled-error-500 card p-2" />
 
   {#if replyToMessage}
     <div class="mb-2 flex items-start justify-between gap-2 rounded border border-surface-300-700 bg-surface-100-900 px-3 py-2">

@@ -17,7 +17,7 @@ use types::chat::{
     MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest,
     MatrixToggleReactionResponse,
 };
-use types::{event_paths, Paths, RoomRefreshTrigger, RoomUpdateTriggerState};
+use types::{event_paths, Paths, RoomUpdateTriggerState};
 
 #[tauri::command]
 pub async fn matrix_get_chat_messages(
@@ -41,10 +41,7 @@ pub async fn matrix_get_chat_messages(
         from.as_deref(),
         limit,
     )? {
-        let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
-            selected_room_id: Some(request.room_id.clone()),
-            include_selected_messages: true,
-        });
+        let _ = room_update_trigger_state.enqueue_refresh(Some(request.room_id.clone()), true);
 
         if !chat::helpers::has_stale_cached_media_urls(&cached.messages) {
             return Ok(cached);
@@ -61,7 +58,7 @@ pub async fn matrix_get_chat_messages(
     {
         Ok(response) => response,
         Err(error) if chat::helpers::is_room_unavailable_error(&error) => {
-            protocol::sync::sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
+            protocol::sync::sync_once_default(&client)
                 .await
                 .map_err(|sync_error| {
                     format!(
@@ -122,12 +119,7 @@ pub async fn matrix_stream_chat_messages(
 
         if let Err(error) = stream_result {
             if chat::helpers::is_room_unavailable_error(&error) {
-                if let Err(sync_error) = protocol::sync::sync_once_serialized(
-                    &client_for_task,
-                    matrix_sdk::config::SyncSettings::default(),
-                )
-                .await
-                {
+                if let Err(sync_error) = protocol::sync::sync_once_default(&client_for_task).await {
                     log::warn!(
                         "Background matrix stream sync failed after room-unavailable error: {sync_error}"
                     );
@@ -216,7 +208,7 @@ pub async fn matrix_send_chat_message(
     log::info!("matrix_send_chat_message requested");
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
 
-    protocol::sync::sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
+    protocol::sync::sync_once_default(&client)
         .await
         .map_err(|error| format!("Failed to sync Matrix before send: {error}"))?;
 
@@ -231,10 +223,7 @@ pub async fn matrix_send_chat_message(
     )
     .await;
 
-    let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
-        selected_room_id: Some(room_id),
-        include_selected_messages: response.is_err(),
-    });
+    let _ = room_update_trigger_state.enqueue_refresh(Some(room_id), response.is_err());
 
     response
 }
@@ -252,7 +241,7 @@ pub async fn matrix_send_media_file(
     log::info!("matrix_send_media_file requested");
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
 
-    protocol::sync::sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
+    protocol::sync::sync_once_default(&client)
         .await
         .map_err(|error| format!("Failed to sync Matrix before send: {error}"))?;
 
@@ -267,10 +256,7 @@ pub async fn matrix_send_media_file(
     )
     .await?;
 
-    let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
-        selected_room_id: Some(room_id),
-        include_selected_messages: false,
-    });
+    let _ = room_update_trigger_state.enqueue_refresh(Some(room_id), false);
 
     Ok(response)
 }
@@ -301,7 +287,7 @@ pub async fn matrix_toggle_reaction(
     log::info!("matrix_toggle_reaction requested");
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
 
-    protocol::sync::sync_once_serialized(&client, matrix_sdk::config::SyncSettings::default())
+    protocol::sync::sync_once_default(&client)
         .await
         .map_err(|error| format!("Failed to sync Matrix before reaction toggle: {error}"))?;
 
@@ -314,10 +300,7 @@ pub async fn matrix_toggle_reaction(
     )
     .await?;
 
-    let _ = room_update_trigger_state.enqueue(RoomRefreshTrigger {
-        selected_room_id: Some(room_id),
-        include_selected_messages: true,
-    });
+    let _ = room_update_trigger_state.enqueue_refresh(Some(room_id), true);
 
     Ok(response)
 }

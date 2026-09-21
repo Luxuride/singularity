@@ -25,4 +25,17 @@ impl RoomUpdateTriggerState {
             .send(trigger)
             .map_err(|_| String::from("Room update worker is not available"))
     }
+
+    /// Enqueue a refresh for an optional selected room, optionally including
+    /// that room's messages.
+    pub fn enqueue_refresh(
+        &self,
+        selected_room_id: Option<String>,
+        include_selected_messages: bool,
+    ) -> Result<(), String> {
+        self.enqueue(RoomRefreshTrigger {
+            selected_room_id,
+            include_selected_messages,
+        })
+    }
 }

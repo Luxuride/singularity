@@ -1,4 +1,7 @@
 use assets::media_url_is_available;
+use matrix_sdk::room::MessagesOptions;
+use matrix_sdk::ruma::api::Direction;
+use matrix_sdk::ruma::uint;
 use types::chat::MatrixChatMessage;
 
 /// Whether any cached message references media that is no longer available on
@@ -15,6 +18,18 @@ pub fn has_stale_cached_media_urls(messages: &[MatrixChatMessage]) -> bool {
 
 pub fn is_room_unavailable_error(error: &str) -> bool {
     error.contains("Room is not available in current session")
+}
+
+/// Build `MessagesOptions` for a backward pagination request, defaulting to a
+/// 50-message limit (capped at 100 when an explicit limit is provided).
+pub fn build_messages_options(from: Option<String>, limit: Option<u32>) -> MessagesOptions {
+    let mut options = MessagesOptions::new(Direction::Backward);
+    options.from = from;
+    options.limit = uint!(50);
+    if let Some(limit) = limit {
+        options.limit = limit.min(100).into();
+    }
+    options
 }
 
 #[cfg(test)]

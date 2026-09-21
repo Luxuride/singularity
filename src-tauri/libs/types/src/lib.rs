@@ -11,7 +11,6 @@ pub mod event_sink;
 pub mod event_types;
 pub mod paths;
 pub mod rooms;
-pub mod settings;
 pub mod storage_keys;
 pub mod triggers;
 pub mod verification;

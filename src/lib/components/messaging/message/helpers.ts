@@ -1,15 +1,8 @@
 import type { PickerCustomEmoji } from "$lib/emoji/picker";
+import { emojiName, shortcodeToken } from "$lib/emoji/shortcodes";
+import { isMediaUrl } from "$lib/chats/media";
 
 import type { TimelineMessage } from "../shared";
-
-export function shortcodeToken(value: string): string {
-  const clean = value.trim().replace(/^:+|:+$/g, "");
-  return clean ? `:${clean.toLowerCase()}:` : "";
-}
-
-export function emojiName(value: string): string {
-  return value.trim().replace(/^:+|:+$/g, "");
-}
 
 export function buildPickerEmojiBySourceUrl(pickerCustomEmoji: PickerCustomEmoji[]): Map<string, string> {
   const map = new Map<string, string>();
@@ -66,12 +59,7 @@ export function customEmojiUrlForToken(
     return null;
   }
 
-  if (
-    trimmed.startsWith("mxc://") ||
-    trimmed.startsWith("http://") ||
-    trimmed.startsWith("https://") ||
-    trimmed.startsWith("asset://")
-  ) {
+  if (isMediaUrl(trimmed)) {
     const bySource = pickerEmojiBySourceUrl.get(trimmed);
     if (bySource) {
       return bySource;
@@ -92,10 +80,7 @@ export function reactionDisplayName(key: string, message: TimelineMessage, picke
     return "";
   }
 
-  const isSourceKey =
-    trimmed.startsWith("mxc://") ||
-    trimmed.startsWith("http://") ||
-    trimmed.startsWith("https://");
+  const isSourceKey = isMediaUrl(trimmed);
 
   if (isSourceKey) {
     const fromMessageEmoji = (message.customEmojis ?? []).find(
