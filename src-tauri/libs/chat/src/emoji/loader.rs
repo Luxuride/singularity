@@ -403,7 +403,5 @@ impl EmojiLoader {
 pub async fn load_picker_assets_from_client(
     client: &matrix_sdk::Client,
 ) -> Result<Vec<MatrixPickerCustomEmoji>, String> {
-    EmojiLoader::default()
-        .load_picker_assets(client)
-        .await
+    EmojiLoader::default().load_picker_assets(client).await
 }

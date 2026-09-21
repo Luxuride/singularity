@@ -29,13 +29,9 @@ pub async fn toggle_reaction_from_client(
         .ok_or_else(|| String::from("Session user ID is unavailable"))?
         .to_string();
 
-    if let Some(existing_event_id) = find_matching_own_reaction_event_id(
-        &room,
-        &own_user_id,
-        target_event_id_raw,
-        reaction_key,
-    )
-    .await?
+    if let Some(existing_event_id) =
+        find_matching_own_reaction_event_id(&room, &own_user_id, target_event_id_raw, reaction_key)
+            .await?
     {
         let redact_target = parse_event_id(&existing_event_id)?;
 

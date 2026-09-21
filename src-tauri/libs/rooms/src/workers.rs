@@ -179,17 +179,16 @@ impl RoomUpdateWorker {
                     include_selected_messages = false;
                     retry_delay = None;
 
-                    if !refresh_completed {
-                        if !drain_triggers_and_wait(
+                    if !refresh_completed
+                        && !drain_triggers_and_wait(
                             &mut self.receiver,
                             unauthenticated_delay,
                             &mut selected_room_id,
                             &mut include_selected_messages,
                         )
                         .await
-                        {
-                            break;
-                        }
+                    {
+                        break;
                     }
                 }
                 Err(error) => {

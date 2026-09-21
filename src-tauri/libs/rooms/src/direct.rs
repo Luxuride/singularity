@@ -6,9 +6,7 @@ use matrix_sdk::ruma::events::GlobalAccountDataEventType;
 
 /// Load the `m.direct` mapping: user ID -> list of direct room IDs. Returns an
 /// empty map when the account data is absent or malformed.
-pub async fn direct_room_mapping(
-    client: &matrix_sdk::Client,
-) -> HashMap<String, Vec<String>> {
+pub async fn direct_room_mapping(client: &matrix_sdk::Client) -> HashMap<String, Vec<String>> {
     let mut mapping = HashMap::<String, Vec<String>>::new();
 
     let raw_content = match client
