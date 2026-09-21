@@ -208,10 +208,12 @@ pub async fn read_clipboard_text() -> Result<String, String> {
         .map_err(|error| format!("Failed to read clipboard text: {error}"))
 }
 
-/// Resolve the local cache path for a video message's media, downloading it on
-/// demand. Returns `None` when the event is not a video or has no media.
+/// Resolve a video message's media to a loopback HTTP URL served by the
+/// secure video server, downloading it on demand. Returns `None` when the
+/// event is not a video, has no media, or cannot be served.
 pub async fn resolve_video_url(
     client: &Client,
+    server: &assets::VideoServer,
     room_id: &str,
     event_id: &str,
 ) -> Result<MatrixResolveVideoUrlResponse, String> {
@@ -230,9 +232,22 @@ pub async fn resolve_video_url(
         return Ok(MatrixResolveVideoUrlResponse { video_url: None });
     }
 
-    let video_url = DefaultMediaResolver
+    let mime_type = event
+        .get("content")
+        .and_then(|content| content.get("info"))
+        .and_then(|info| info.get("mimetype"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("application/octet-stream");
+
+    let cached_url = DefaultMediaResolver
         .resolve_video_cache_path(client, &event)
         .await;
+
+    let video_url = cached_url
+        .as_deref()
+        .and_then(assets::resolved_media_file_path)
+        .and_then(|path| server.register_video(&path, mime_type));
 
     Ok(MatrixResolveVideoUrlResponse { video_url })
 }

@@ -172,7 +172,9 @@ pub fn media_url_is_available(raw_url: &str) -> bool {
     resolved_media_file_path(raw_url).is_some_and(|path| path.exists())
 }
 
-fn resolved_media_file_path(raw_url: &str) -> Option<PathBuf> {
+/// Resolve a media URL (`asset://`, `file://`, or absolute path) to its
+/// filesystem path. Returns `None` for empty or unrecognized URLs.
+pub fn resolved_media_file_path(raw_url: &str) -> Option<PathBuf> {
     if raw_url.starts_with("asset://") {
         let parsed = url::Url::parse(raw_url).ok()?;
         let path = percent_decode_str(parsed.path()).decode_utf8().ok()?;

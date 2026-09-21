@@ -9,6 +9,13 @@ matrix-sdk = { workspace = true }
 url = { workspace = true }
 percent-encoding = { workspace = true }
 log = { workspace = true }
+tokio = { workspace = true }
+rand = { workspace = true }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+http = "1"
+http-body-util = "0.1"
+tokio-util = { version = "0.7", features = ["io"] }
 
 [dev-dependencies]
 tokio = { workspace = true }
+reqwest = { workspace = true }

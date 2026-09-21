@@ -584,11 +584,12 @@
   }
 
   function createPendingMedia(filePath: string) {
+    const messageType = detectMediaKind(filePath);
     pendingMedia = {
       filePath,
       fileName: filePath.split(/[\\/]/).pop() || "attachment",
-      messageType: detectMediaKind(filePath),
-      compressMedia: true,
+      messageType,
+      compressMedia: messageType !== "m.video",
     };
     mediaErrorMessage = "";
   }

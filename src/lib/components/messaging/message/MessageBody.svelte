@@ -15,6 +15,7 @@
     onImageContextMenu,
   }: Props = $props();
 
+  let videoElement = $state<HTMLVideoElement | null>(null);
   let videoUrl = $state<string | null>(null);
   let videoError = $state(false);
   let videoLoading = $state(false);
@@ -27,13 +28,15 @@
     message.formattedBody ? stripMxReplyBlock(message.formattedBody) : null,
   );
 
-  async function loadVideo() {
-    if (videoUrl || videoLoading || !message.eventId) {
+  /// Resolve the video URL on demand when the user starts playback. The video
+  /// element is always rendered (with the thumbnail as poster); the API is only
+  /// hit once the user presses play.
+  async function handleVideoPlay() {
+    if (videoUrl || videoLoading || videoError || !message.eventId) {
       return;
     }
 
     videoLoading = true;
-    videoError = false;
     try {
       const { videoUrl: resolved } = await matrixResolveVideoUrl({
         roomId,
@@ -41,6 +44,31 @@
       });
       if (resolved) {
         videoUrl = resolved;
+        const element = videoElement;
+        if (element) {
+          element.src = resolved;
+          element.load();
+          if (element.readyState < HTMLMediaElement.HAVE_METADATA) {
+            await new Promise<void>((resolve, reject) => {
+              const handleMetadata = () => {
+                cleanup();
+                resolve();
+              };
+              const handleError = () => {
+                cleanup();
+                reject(new Error("Video metadata could not be loaded"));
+              };
+              const cleanup = () => {
+                element.removeEventListener("loadedmetadata", handleMetadata);
+                element.removeEventListener("error", handleError);
+              };
+
+              element.addEventListener("loadedmetadata", handleMetadata, { once: true });
+              element.addEventListener("error", handleError, { once: true });
+            });
+          }
+          await element.play();
+        }
       } else {
         videoError = true;
       }
@@ -103,47 +131,21 @@
   </figure>
 {:else if message.messageType === "m.video"}
   <figure class="space-y-2">
-    {#if videoUrl}
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video
-        src={videoUrl}
-        controls
-        playsinline
-        class="max-h-[28rem] w-full rounded preset-outlined-surface-300-700 bg-surface-100-900"
-      ></video>
-    {:else if videoError}
+    {#if videoError}
       <div class="rounded preset-outlined-surface-300-700 bg-surface-100-900 p-4 text-sm text-surface-700-300">
         Video unavailable
       </div>
     {:else}
-      <button
-        type="button"
-        class="relative block w-full max-h-[28rem] rounded preset-outlined-surface-300-700 bg-surface-100-900 overflow-hidden"
-        onclick={loadVideo}
-        aria-label="Play video"
-        title="Play video"
-      >
-        {#if message.thumbnailUrl}
-          <img
-            src={message.thumbnailUrl}
-            alt={message.body || "Video"}
-            loading="lazy"
-            class="w-full object-contain"
-          />
-        {:else}
-          <div class="flex aspect-video w-full items-center justify-center text-sm text-surface-700-300">
-            Video
-          </div>
-        {/if}
-        <div
-          class="absolute inset-0 flex items-center justify-center bg-black/40"
-          class:opacity-0={videoLoading}
-        >
-          <span class="flex h-14 w-14 items-center justify-center rounded-full bg-black/60 text-2xl text-white">
-            {videoLoading ? "…" : "▶"}
-          </span>
-        </div>
-      </button>
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video
+        bind:this={videoElement}
+        poster={message.thumbnailUrl ?? undefined}
+        controls
+        playsinline
+        preload="none"
+        onclick={handleVideoPlay}
+        class="max-h-[28rem] w-full rounded preset-outlined-surface-300-700 bg-surface-100-900"
+      ></video>
     {/if}
     {#if message.body}
       <figcaption class="text-base whitespace-pre-wrap break-words text-surface-700-300">
