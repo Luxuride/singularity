@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use matrix_sdk::ruma::events::relation::InReplyTo;
 use matrix_sdk::ruma::events::room::message::{
     FileMessageEventContent, ImageMessageEventContent, MessageType, Relation,
-    RoomMessageEventContent, VideoMessageEventContent,
+    RoomMessageEventContent, VideoInfo, VideoMessageEventContent,
 };
 
 use protocol::{parse_event_id, parse_room_id};
@@ -268,9 +268,14 @@ async fn send_media_file_impl(
             content
         }
         MediaKind::Video => {
-            let mut content = RoomMessageEventContent::new(MessageType::Video(
-                VideoMessageEventContent::plain(file_name.clone(), upload_response.content_uri),
-            ));
+            let mut video_info = VideoInfo::default();
+            video_info.mimetype = Some(content_type.to_string());
+            let video = VideoMessageEventContent::plain(
+                file_name.clone(),
+                upload_response.content_uri,
+            )
+            .info(Box::new(video_info));
+            let mut content = RoomMessageEventContent::new(MessageType::Video(video));
             if let MessageType::Video(video) = &mut content.msgtype {
                 video.filename = Some(file_name.clone());
             }

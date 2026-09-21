@@ -70,6 +70,15 @@ pub fn run() {
             })
             .expect("Failed to initialize app secret");
 
+            // Start the secure loopback video server used to serve cached
+            // videos over HTTP (WebKitGTK cannot play media via `asset://`).
+            // Binding to ephemeral port 0 is the fallback, so startup only
+            // fails if all loopback binding fails entirely.
+            let video_server = Arc::new(
+                tauri::async_runtime::block_on(assets::VideoServer::start())
+                    .expect("Failed to start loopback video server"),
+            );
+
             let secret = storage::secret::get_secret().expect("App secret not initialized");
             let app_db = Arc::new(storage::AppDb::initialize(
                 &paths.data_file(types::storage_keys::APP_DB_FILE),
@@ -109,6 +118,7 @@ pub fn run() {
             app.manage(auth_state);
             app.manage(event_sink);
             app.manage(trigger_state);
+            app.manage(video_server);
             app.manage(chat::MediaTranscodeCancellationState::default());
             Ok(())
         })

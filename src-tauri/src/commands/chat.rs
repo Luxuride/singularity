@@ -325,10 +325,17 @@ pub async fn matrix_resolve_video_url(
     auth_state: State<'_, Arc<AuthState>>,
     app_db: State<'_, Arc<AppDb>>,
     paths: State<'_, Paths>,
+    video_server: State<'_, Arc<assets::VideoServer>>,
 ) -> Result<MatrixResolveVideoUrlResponse, String> {
     log::info!("matrix_resolve_video_url requested");
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
-    chat::resolve_video_url(&client, request.room_id.as_str(), request.event_id.as_str()).await
+    chat::resolve_video_url(
+        &client,
+        &video_server,
+        request.room_id.as_str(),
+        request.event_id.as_str(),
+    )
+    .await
 }
 
 #[tauri::command]
