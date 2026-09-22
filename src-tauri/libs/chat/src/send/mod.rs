@@ -270,11 +270,9 @@ async fn send_media_file_impl(
         MediaKind::Video => {
             let mut video_info = VideoInfo::default();
             video_info.mimetype = Some(content_type.to_string());
-            let video = VideoMessageEventContent::plain(
-                file_name.clone(),
-                upload_response.content_uri,
-            )
-            .info(Box::new(video_info));
+            let video =
+                VideoMessageEventContent::plain(file_name.clone(), upload_response.content_uri)
+                    .info(Box::new(video_info));
             let mut content = RoomMessageEventContent::new(MessageType::Video(video));
             if let MessageType::Video(video) = &mut content.msgtype {
                 video.filename = Some(file_name.clone());

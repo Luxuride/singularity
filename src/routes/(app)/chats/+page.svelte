@@ -69,27 +69,13 @@
 
   const seenEventIds = new Set<string>();
 
-  type RoomScrollState = {
-    bottomOffset: number;
-    anchorEventId: string | null;
-    anchorOffset: number;
-  };
-
-  const roomScrollStates = new Map<string, RoomScrollState>();
   const AUTO_LOAD_TOP_THRESHOLD_PX = 96;
-  const AUTO_LOAD_OLDER_COOLDOWN_MS = 400;
   const MESSAGE_LOAD_TIMEOUT_MS = 15000;
 
-  let pendingRestoreRoomId = "";
-  let pendingRestoreToBottom = false;
-  let pendingRestoreAttempts = 0;
-  let restoringScroll = false;
   let pendingPinToBottomRoomId = "";
 
-  const MAX_RESTORE_ATTEMPTS = 8;
-
   let previousSelectedRoomId = "";
-  let lastAutoLoadOlderAt = 0;
+  let lastScrollTop = 0;
 
   onMount(() => {
     let unlisten = () => {};
@@ -127,7 +113,6 @@
 
     if (!selectedRoomId) {
       previousSelectedRoomId = "";
-      pendingRestoreRoomId = "";
       loadingMessages = false;
       resetRoomState();
       return;
@@ -137,146 +122,37 @@
       return;
     }
 
-    pendingRestoreRoomId = selectedRoomId;
-    pendingRestoreToBottom = !roomScrollStates.has(selectedRoomId);
     previousSelectedRoomId = selectedRoomId;
     resetRoomState();
 
     void loadMessages(selectedRoomId);
   });
 
-  $effect(() => {
+  function handleTimelineScroll() {
     const selectedRoomId = $shellSelectedRoomId;
+
+    if (!selectedRoomId || !timelineElement) {
+      return;
+    }
+
+    const scrollTop = timelineElement.scrollTop;
+    const scrollingUp = scrollTop < lastScrollTop;
+    lastScrollTop = scrollTop;
+
+    // Only auto-load older messages while the user is actively scrolling up
+    // toward the top. When older messages are prepended, CSS scroll anchoring
+    // keeps scrollTop stable, so `scrollingUp` is false and this won't
+    // re-trigger — preventing a loop that loads the entire history at once.
     if (
-      !selectedRoomId ||
-      !timelineElement ||
+      !scrollingUp ||
+      scrollTop > AUTO_LOAD_TOP_THRESHOLD_PX ||
       loadingMessages ||
-      pendingRestoreRoomId !== selectedRoomId
+      !nextFrom
     ) {
       return;
     }
 
-    const targetScrollState = roomScrollStates.get(selectedRoomId) ?? {
-      bottomOffset: 0,
-      anchorEventId: null,
-      anchorOffset: 0,
-    };
-    const restoreToBottom = pendingRestoreToBottom;
-
-    void (async () => {
-      await tick();
-
-      if (!timelineElement || $shellSelectedRoomId !== selectedRoomId) {
-        return;
-      }
-
-      // Wait an extra frame so li nodes have their final layout before restoring.
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-
-      if (!timelineElement || $shellSelectedRoomId !== selectedRoomId) {
-        return;
-      }
-
-      const maxScrollTop = Math.max(0, timelineElement.scrollHeight - timelineElement.clientHeight);
-      let nextScrollTop = restoreToBottom
-        ? maxScrollTop
-        : Math.max(0, Math.min(maxScrollTop - targetScrollState.bottomOffset, maxScrollTop));
-
-      const hasRenderableMessages =
-        timelineElement.querySelector("[data-message-event-id]") !== null;
-      const shouldRetryRestore =
-        !restoreToBottom &&
-        messages.length > 0 &&
-        targetScrollState.bottomOffset > 0 &&
-        (!hasRenderableMessages || maxScrollTop === 0) &&
-        pendingRestoreAttempts < MAX_RESTORE_ATTEMPTS;
-
-      if (shouldRetryRestore) {
-        pendingRestoreAttempts += 1;
-        return;
-      }
-
-      if (!restoreToBottom && targetScrollState.anchorEventId) {
-        const anchorElement = timelineElement.querySelector<HTMLElement>(
-          `[data-message-event-id="${targetScrollState.anchorEventId}"]`
-        );
-
-        if (anchorElement) {
-          nextScrollTop = Math.max(
-            0,
-            Math.min(anchorElement.offsetTop - targetScrollState.anchorOffset, maxScrollTop)
-          );
-        }
-      }
-
-      restoringScroll = true;
-      timelineElement.scrollTop = nextScrollTop;
-      saveRoomScrollState(selectedRoomId);
-      restoringScroll = false;
-
-      pendingRestoreRoomId = "";
-      pendingRestoreToBottom = false;
-      pendingRestoreAttempts = 0;
-    })();
-  });
-
-  function handleTimelineScroll() {
-    const selectedRoomId = $shellSelectedRoomId;
-
-    if (!selectedRoomId || !timelineElement || restoringScroll) {
-      return;
-    }
-
-    saveRoomScrollState(selectedRoomId);
-
-    if (timelineElement.scrollTop > AUTO_LOAD_TOP_THRESHOLD_PX || loadingMessages || !nextFrom) {
-      return;
-    }
-
-    const now = Date.now();
-    if (now - lastAutoLoadOlderAt < AUTO_LOAD_OLDER_COOLDOWN_MS) {
-      return;
-    }
-
-    lastAutoLoadOlderAt = now;
     void loadOlder();
-  }
-
-  function saveRoomScrollState(roomId: string) {
-    if (!timelineElement) {
-      return;
-    }
-
-    roomScrollStates.set(roomId, {
-      bottomOffset: Math.max(0, timelineElement.scrollHeight - timelineElement.clientHeight - timelineElement.scrollTop),
-      ...findTopVisibleMessageAnchor(),
-    });
-  }
-
-  function findTopVisibleMessageAnchor(): { anchorEventId: string | null; anchorOffset: number } {
-    if (!timelineElement) {
-      return { anchorEventId: null, anchorOffset: 0 };
-    }
-
-    const children = timelineElement.querySelectorAll<HTMLElement>("[data-message-event-id]");
-
-    for (const child of children) {
-      if (child.offsetTop + child.offsetHeight <= timelineElement.scrollTop) {
-        continue;
-      }
-
-      const eventId = child.dataset.messageEventId;
-      if (!eventId) {
-        continue;
-      }
-
-      return {
-        anchorEventId: eventId,
-        anchorOffset: child.offsetTop - timelineElement.scrollTop,
-      };
-    }
-
-    return { anchorEventId: null, anchorOffset: 0 };
   }
 
   function createStreamId(): string {
@@ -304,11 +180,7 @@
       }
 
       const maxScrollTop = Math.max(0, timelineElement.scrollHeight - timelineElement.clientHeight);
-
-      restoringScroll = true;
       timelineElement.scrollTop = maxScrollTop;
-      saveRoomScrollState(roomId);
-      restoringScroll = false;
 
       pendingPinToBottomRoomId = "";
     })();
@@ -375,6 +247,15 @@
       activeStreamId = "";
       activeLoadKind = null;
       streamMessageCount = 0;
+
+      // Pin to the bottom once the initial stream has fully rendered, so the
+      // viewport lands on the newest messages. Pinning per-message would leave
+      // the viewport stuck near the top (only the first message's height),
+      // which then makes the scroll handler think the user is at the top and
+      // auto-load the entire history.
+      if (payload.loadKind === "initial") {
+        queuePinTimelineToBottom(payload.roomId);
+      }
       return;
     }
 
@@ -397,10 +278,6 @@
     } else {
       // Initial streaming emits oldest->newest so appending keeps timeline ascending.
       messages = [...messages, payload.message];
-    }
-
-    if (payload.loadKind === "initial") {
-      queuePinTimelineToBottom(payload.roomId);
     }
   }
 
@@ -1007,9 +884,7 @@
   }
 
   function resetRoomState() {
-    lastAutoLoadOlderAt = 0;
-    pendingRestoreToBottom = false;
-    pendingRestoreAttempts = 0;
+    lastScrollTop = 0;
     activeStreamId = "";
     activeLoadKind = null;
     streamMessageCount = 0;
