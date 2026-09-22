@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use axum::body::Body;
 use axum::extract::{Path as AxumPath, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
@@ -62,13 +62,19 @@ struct Registry(Arc<Mutex<HashMap<String, RegisteredVideo>>>);
 
 impl Registry {
     fn get(&self, capability: &str) -> Option<RegisteredVideo> {
-        let mut registry = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut registry = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         evict_expired(&mut registry);
         registry.get(capability).cloned()
     }
 
     fn insert(&self, capability: String, video: RegisteredVideo) {
-        let mut registry = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut registry = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         evict_expired(&mut registry);
         if registry.len() >= MAX_REGISTRY_ENTRIES {
             evict_oldest(&mut registry);
@@ -280,7 +286,10 @@ fn parse_range(value: Option<&str>, len: u64) -> Result<Option<ByteRange>, ()> {
             return Err(());
         }
         let start = len.saturating_sub(suffix);
-        return Ok(Some(ByteRange { start, end: len - 1 }));
+        return Ok(Some(ByteRange {
+            start,
+            end: len - 1,
+        }));
     }
 
     let Ok(start) = start.parse::<u64>() else {
@@ -345,16 +354,16 @@ async fn serve_video(
         let mut response = Response::new(body);
         response.headers_mut().insert(
             header::CONTENT_TYPE,
-            HeaderValue::from_str(&registered.mime_type).unwrap_or(HeaderValue::from_static(
-                "application/octet-stream",
-            )),
+            HeaderValue::from_str(&registered.mime_type)
+                .unwrap_or(HeaderValue::from_static("application/octet-stream")),
         );
         response
             .headers_mut()
             .insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-        response
-            .headers_mut()
-            .insert(header::CONTENT_LENGTH, HeaderValue::from_str(&len.to_string()).unwrap());
+        response.headers_mut().insert(
+            header::CONTENT_LENGTH,
+            HeaderValue::from_str(&len.to_string()).unwrap(),
+        );
         return response;
     };
 
@@ -372,16 +381,16 @@ async fn serve_video(
     *response.status_mut() = StatusCode::PARTIAL_CONTENT;
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_str(&registered.mime_type).unwrap_or(HeaderValue::from_static(
-            "application/octet-stream",
-        )),
+        HeaderValue::from_str(&registered.mime_type)
+            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
     );
     response
         .headers_mut()
         .insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-    response
-        .headers_mut()
-        .insert(header::CONTENT_LENGTH, HeaderValue::from_str(&chunk_len.to_string()).unwrap());
+    response.headers_mut().insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&chunk_len.to_string()).unwrap(),
+    );
     response.headers_mut().insert(
         header::CONTENT_RANGE,
         HeaderValue::from_str(&format!("bytes {}-{}/{}", range.start, range.end, len)).unwrap(),
@@ -395,7 +404,7 @@ mod tests {
     use std::fs;
     use std::net::SocketAddr;
 
-    use super::{ByteRange, MAX_REGISTRY_ENTRIES, VideoServer, parse_range, validate_capability};
+    use super::{parse_range, validate_capability, ByteRange, VideoServer, MAX_REGISTRY_ENTRIES};
 
     async fn start_server() -> VideoServer {
         VideoServer::start().await.expect("start video server")
@@ -482,7 +491,10 @@ mod tests {
     fn validate_capability_rejects_invalid_shapes() {
         assert_eq!(validate_capability(""), None);
         assert_eq!(validate_capability("short"), None);
-        assert_eq!(validate_capability("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"), None);
+        assert_eq!(
+            validate_capability("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"),
+            None
+        );
     }
 
     #[test]
@@ -527,7 +539,10 @@ mod tests {
         let response = http_request(server.addr(), "GET", &format!("/v/{capability}"), None).await;
 
         assert!(status_line(&response).contains("200"));
-        assert_eq!(header(&response, "CONTENT-TYPE").as_deref(), Some("video/mp4"));
+        assert_eq!(
+            header(&response, "CONTENT-TYPE").as_deref(),
+            Some("video/mp4")
+        );
         assert_eq!(header(&response, "CONTENT-LENGTH").as_deref(), Some("10"));
         assert_eq!(body(&response), "0123456789");
 
@@ -549,7 +564,10 @@ mod tests {
         .await;
 
         assert!(status_line(&response).contains("206"));
-        assert_eq!(header(&response, "CONTENT-RANGE").as_deref(), Some("bytes 2-5/10"));
+        assert_eq!(
+            header(&response, "CONTENT-RANGE").as_deref(),
+            Some("bytes 2-5/10")
+        );
         assert_eq!(header(&response, "CONTENT-LENGTH").as_deref(), Some("4"));
         assert_eq!(body(&response), "2345");
 
@@ -571,7 +589,10 @@ mod tests {
         .await;
 
         assert!(status_line(&response).contains("206"));
-        assert_eq!(header(&response, "CONTENT-RANGE").as_deref(), Some("bytes 6-9/10"));
+        assert_eq!(
+            header(&response, "CONTENT-RANGE").as_deref(),
+            Some("bytes 6-9/10")
+        );
         assert_eq!(body(&response), "6789");
 
         fs::remove_file(&path).ok();
