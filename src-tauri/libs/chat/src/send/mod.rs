@@ -19,8 +19,8 @@ use types::EventSink;
 
 use media::{
     detect_media_kind, emit_transcode_progress, prepare_image_upload, prepare_video_upload,
-    report_transcode_progress,
-    transmission_progress_percent, MediaKind, PreparedUpload, VideoTranscodeMode,
+    report_transcode_progress, transmission_progress_percent, MediaKind, PreparedUpload,
+    VideoTranscodeMode,
 };
 
 #[derive(Default)]

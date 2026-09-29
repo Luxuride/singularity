@@ -5,6 +5,7 @@ use types::{EventSink, RoomUpdateTriggerState};
 
 use super::super::media::DefaultMediaResolver;
 use super::fetch::fetch_room_messages_impl;
+use super::parsing::ReactionAccumulator;
 use super::stream::ChatMessageStreamer;
 use types::chat::{
     MatrixGetChatMessagesResponse, MatrixStreamChatMessagesRequest,
@@ -25,7 +26,20 @@ pub async fn fetch_room_messages_from_client(
     from: Option<String>,
     limit: Option<u32>,
 ) -> Result<MatrixGetChatMessagesResponse, String> {
-    fetch_room_messages_impl(&DefaultMediaResolver, client, room_id_raw, from, limit).await
+    // A one-shot fetch is a single page, so reactions from a previous page are
+    // simply not in scope for a fresh load; the ones inside this page still
+    // land on their targets.
+    let mut reactions = ReactionAccumulator::new();
+    fetch_room_messages_impl(
+        &DefaultMediaResolver,
+        client,
+        room_id_raw,
+        from,
+        limit,
+        &mut reactions,
+    )
+    .await
+    .map(|page| page.response)
 }
 
 pub async fn stream_room_messages_from_client(
@@ -37,8 +51,15 @@ pub async fn stream_room_messages_from_client(
     let mut streamer = ChatMessageStreamer::new(context, &request);
     streamer
         .run(request, |room_id_raw, from, limit| async move {
-            fetch_room_messages_impl(media_resolver, client, room_id_raw.as_str(), from, limit)
-                .await
+            fetch_room_messages_impl(
+                media_resolver,
+                client,
+                room_id_raw.as_str(),
+                from,
+                limit,
+                &mut ReactionAccumulator::new(),
+            )
+            .await
         })
         .await
 }

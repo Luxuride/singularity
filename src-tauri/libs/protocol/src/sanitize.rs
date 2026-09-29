@@ -134,7 +134,10 @@ mod tests {
         let sanitized = sanitize_formatted_body(html).unwrap();
 
         assert!(sanitized.contains("<pre>"));
-        assert!(sanitized.contains("language-rust"), "class must survive: {sanitized}");
+        assert!(
+            sanitized.contains("language-rust"),
+            "class must survive: {sanitized}"
+        );
     }
 
     #[test]

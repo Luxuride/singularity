@@ -95,11 +95,7 @@ pub fn run() {
             {
                 let sink = event_sink.clone();
                 auth_state.set_on_client_ready(Arc::new(move |client, cancelled| {
-                    verification::start_verification_state_watcher(
-                        sink.clone(),
-                        client,
-                        cancelled,
-                    );
+                    verification::start_verification_state_watcher(sink.clone(), client, cancelled);
                 }));
             }
 
