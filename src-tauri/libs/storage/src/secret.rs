@@ -74,15 +74,35 @@ pub async fn get_or_create_secret<S: SecretStore>(
     };
 
     if let Some(secret) = keychain_secret {
-        if let Some(file_secret) = read_file_secret(&path)? {
-            if file_secret != secret {
+        // The keychain is authoritative, so a fallback file is at best
+        // redundant and at worst corrupt. Neither is allowed to fail startup:
+        // propagating here would mean an unreadable scratch file could not open
+        // an app whose real key is safely in the keychain. Divergence is logged
+        // loudly because it means the file copy cannot open the database.
+        match read_file_secret(&path) {
+            Ok(Some(file_secret)) if file_secret != secret => {
                 log::error!(
                     "Keychain and fallback file hold DIFFERENT database secrets; the keychain \
                      copy wins and the file is removed. If this app profile has a database you \
                      still need, restore the original keychain entry from a backup."
                 );
+                remove_file_secret(&path);
             }
-            remove_file_secret(&path);
+            Ok(_) => remove_file_secret(&path),
+            Err(error) => {
+                log::warn!(
+                    "Ignoring unreadable fallback database secret while the keychain is healthy: \
+                     {error}"
+                );
+                // An empty file cannot open the database, so it is pure litter
+                // and the next first run would trip over it again. Anything
+                // non-empty is left alone: it may be a real key that is merely
+                // unreadable right now, and deleting an unreadable file we
+                // cannot inspect would be the one unrecoverable move here.
+                if std::fs::metadata(&path).is_ok_and(|meta| meta.len() == 0) {
+                    remove_file_secret(&path);
+                }
+            }
         }
         SECRET.set(secret.clone()).ok();
         return Ok(secret);
@@ -103,11 +123,16 @@ pub async fn get_or_create_secret<S: SecretStore>(
     let encoded = generate_secret(bytes_len);
 
     if let Err(error) = store.set(service_name, account_name, &encoded).await {
-        log::warn!("Failed to store keychain secret: {error}");
+        log::warn!("Failed to store keychain secret, relying on the file fallback: {error}");
     }
 
-    // Persist to the file as well: if the keychain write above failed, the
-    // file is the only copy left once this process exits.
+    // Persisted even when the keychain write succeeded. This is a deliberate
+    // durability-over-tidiness tradeoff: a keychain read that fails later
+    // (locked keyring, Secret Service not yet up) leaves the file as the only
+    // copy, and a freshly minted secret cannot open a database written under
+    // the old one — so skipping it here trades a 0600 file for a future
+    // unreadable database. The file is owner-only, and it is only ever *read*
+    // when the keychain is unusable.
     write_file_secret(&path, &encoded)?;
 
     SECRET.set(encoded.clone()).ok();
@@ -332,6 +357,53 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Regression: the keychain copy and the file copy are byte-identical, so
+    /// a later outage cannot hand the database a different key.
+    #[tokio::test]
+    async fn the_keychain_and_the_file_never_diverge() {
+        let store = MockStore::default();
+        let dir = temp_secret_dir();
+
+        let secret = get_or_create_secret(&store, &dir, "svc", "acct", 32)
+            .await
+            .unwrap();
+
+        assert!(!secret.trim().is_empty());
+        // The fallback file is intentionally written here too; see
+        // `the_file_fallback_survives_a_later_keychain_outage`. What must never
+        // happen is a *second, different* key being minted.
+        assert_eq!(
+            std::fs::read_to_string(dir.join("acct.secret")).unwrap(),
+            secret
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Regression: the keychain and the fallback file never diverge once a key
+    /// has been written.
+    #[tokio::test]
+    async fn the_file_fallback_survives_a_later_keychain_outage() {
+        let store = MockStore::default();
+        let dir = temp_secret_dir();
+
+        let secret = get_or_create_secret(&store, &dir, "svc", "acct", 32)
+            .await
+            .unwrap();
+
+        // The keychain is fine, so the file is redundant right now...
+        assert_eq!(
+            std::fs::read_to_string(dir.join("acct.secret")).unwrap(),
+            secret
+        );
+
+        // ...and decisive when the keychain stops answering.
+        let recovered = get_or_create_secret(&FailingStore, &dir, "svc", "acct", 32)
+            .await
+            .unwrap();
+        assert_eq!(recovered, secret, "an outage must not change the database key");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Regression: a transient keychain failure must not mint a *second* secret.
     /// The file secret is the only surviving copy, so it has to win.
     #[tokio::test]
@@ -365,6 +437,26 @@ mod tests {
 
         assert_eq!(secret, "file-secret");
         assert_eq!(store.get("svc", "acct").await.unwrap().as_deref(), Some("file-secret"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Regression: a corrupt fallback file must never fail startup while the
+    /// keychain is healthy. The keychain is authoritative, so the app opens
+    /// with the key it actually needs.
+    #[tokio::test]
+    async fn a_healthy_keychain_ignores_a_corrupt_file_secret() {
+        let store = MockStore::default();
+        store.set("svc", "acct", "keychain-secret").await.unwrap();
+        let dir = temp_secret_dir();
+        let path = dir.join("acct.secret");
+        std::fs::write(&path, "").unwrap();
+
+        let secret = get_or_create_secret(&store, &dir, "svc", "acct", 32)
+            .await
+            .expect("a corrupt fallback file must not abort startup");
+
+        assert_eq!(secret, "keychain-secret");
+        assert!(!path.exists(), "the useless file should be removed");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
