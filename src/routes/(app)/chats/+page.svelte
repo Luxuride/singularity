@@ -227,10 +227,8 @@
     }
 
     const updated = [...messages];
-    // The `localId` has to survive the swap. The timeline keys each row by it
-    // while the message is still optimistic, so dropping it here changes the
-    // key and makes Svelte destroy the row and build a new one -- which for a
-    // video is a fresh <video> with no source, mid-playback.
+    // The timeline keys a row by `localId` before the echo arrives, so the id
+    // has to survive the swap or the row is rebuilt under a different key.
     updated[optimisticIndex] = { ...message, localId: messages[optimisticIndex].localId };
     messages = updated;
     return true;
@@ -903,16 +901,6 @@
     replyToMessage = null;
     messages = [];
     nextFrom = null;
-  }
-
-  function handleComposerSubmit(event: SubmitEvent) {
-    event.preventDefault();
-
-    if (sendingMessage) {
-      return;
-    }
-
-    void sendDraftMessage();
   }
 
   async function loadMessages(roomId: string) {

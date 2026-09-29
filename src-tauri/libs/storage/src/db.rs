@@ -44,77 +44,7 @@ impl AppDb {
             }
         };
 
-        connection
-            .execute_batch(
-                "
-                DROP TABLE IF EXISTS app_cache;
-                DROP TABLE IF EXISTS app_settings;
-
-                CREATE TABLE IF NOT EXISTS session_cache (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    homeserver_url TEXT NOT NULL,
-                    matrix_session BLOB NOT NULL,
-                    updated_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS chats_cache (
-                    room_id TEXT PRIMARY KEY,
-                    display_name TEXT NOT NULL,
-                    image_url TEXT,
-                    encrypted INTEGER NOT NULL,
-                    joined_members INTEGER NOT NULL,
-                    room_kind TEXT NOT NULL DEFAULT 'room',
-                    joined INTEGER NOT NULL DEFAULT 1,
-                    is_direct INTEGER NOT NULL DEFAULT 0,
-                    children_room_ids TEXT NOT NULL DEFAULT '[]',
-                    position INTEGER NOT NULL DEFAULT 0,
-                    updated_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS root_space_order (
-                    room_id TEXT PRIMARY KEY,
-                    position INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS chat_image_source_cache (
-                    room_id TEXT PRIMARY KEY,
-                    source_url TEXT NOT NULL,
-                    updated_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS message_cache_state (
-                    room_id TEXT PRIMARY KEY,
-                    next_from TEXT,
-                    updated_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS message_cache (
-                    room_id TEXT NOT NULL,
-                    sequence INTEGER NOT NULL,
-                    event_id TEXT,
-                    in_reply_to_event_id TEXT,
-                    sender TEXT NOT NULL,
-                    timestamp INTEGER,
-                    body TEXT NOT NULL,
-                    formatted_body TEXT,
-                    message_type TEXT,
-                    image_url TEXT,
-                    thumbnail_url TEXT,
-                    reactions TEXT,
-                    custom_emojis TEXT,
-                    encrypted INTEGER NOT NULL,
-                    decryption_status TEXT NOT NULL,
-                    verification_status TEXT NOT NULL,
-                    updated_at INTEGER NOT NULL,
-                    PRIMARY KEY (room_id, sequence)
-                );
-                ",
-            )
-            .map_err(|error| format!("Failed to initialize app database schema: {error}"))?;
-
-        Self::ensure_chats_cache_columns(&connection)?;
-        Self::ensure_message_cache_columns(&connection)?;
+        crate::migration::migrate(&connection)?;
 
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
@@ -149,230 +79,13 @@ impl AppDb {
         Ok(connection)
     }
 
-    fn ensure_chats_cache_columns(connection: &Connection) -> Result<(), String> {
-        let mut statement = connection
-            .prepare("PRAGMA table_info(chats_cache)")
-            .map_err(|error| format!("Failed to inspect chats cache schema: {error}"))?;
-
-        let mut rows = statement
-            .query([])
-            .map_err(|error| format!("Failed to query chats cache schema: {error}"))?;
-
-        let mut has_room_kind = false;
-        let mut has_joined = false;
-        let mut has_is_direct = false;
-        let mut has_children_room_ids = false;
-        let mut has_image_url = false;
-        let mut has_position = false;
-        let mut has_legacy_parent_columns = false;
-
-        while let Some(row) = rows
-            .next()
-            .map_err(|error| format!("Failed to read chats cache schema row: {error}"))?
-        {
-            let column_name: String = row
-                .get(1)
-                .map_err(|error| format!("Failed to decode chats cache column name: {error}"))?;
-
-            if column_name == "room_kind" {
-                has_room_kind = true;
-            }
-
-            if column_name == "joined" {
-                has_joined = true;
-            }
-
-            if column_name == "is_direct" {
-                has_is_direct = true;
-            }
-
-            if column_name == "children_room_ids" {
-                has_children_room_ids = true;
-            }
-
-            if column_name == "parent_room_id" || column_name == "parent_room_ids" {
-                has_legacy_parent_columns = true;
-            }
-
-            if column_name == "image_url" {
-                has_image_url = true;
-            }
-
-            if column_name == "position" {
-                has_position = true;
-            }
-        }
-
-        let schema_incompatible = has_legacy_parent_columns
-            || !has_room_kind
-            || !has_joined
-            || !has_is_direct
-            || !has_image_url
-            || !has_children_room_ids
-            || !has_position;
-
-        if schema_incompatible {
-            log::warn!("Recreating chats_cache for breaking children_room_ids schema change");
-            connection
-                .execute_batch(
-                    "
-                    DROP TABLE IF EXISTS chats_cache;
-
-                    CREATE TABLE chats_cache (
-                        room_id TEXT PRIMARY KEY,
-                        display_name TEXT NOT NULL,
-                        image_url TEXT,
-                        encrypted INTEGER NOT NULL,
-                        joined_members INTEGER NOT NULL,
-                        room_kind TEXT NOT NULL DEFAULT 'room',
-                        joined INTEGER NOT NULL DEFAULT 1,
-                        is_direct INTEGER NOT NULL DEFAULT 0,
-                        children_room_ids TEXT NOT NULL DEFAULT '[]',
-                        position INTEGER NOT NULL DEFAULT 0,
-                        updated_at INTEGER NOT NULL
-                    );
-                    ",
-                )
-                .map_err(|error| {
-                    format!("Failed to recreate chats cache for new schema: {error}")
-                })?;
-        } else if !has_position {
-            connection
-                .execute(
-                    "ALTER TABLE chats_cache ADD COLUMN position INTEGER NOT NULL DEFAULT 0",
-                    [],
-                )
-                .map_err(|error| format!("Failed to add chats cache position column: {error}"))?;
-        }
-
-        Ok(())
-    }
-
-    fn ensure_message_cache_columns(connection: &Connection) -> Result<(), String> {
-        let mut statement = connection
-            .prepare("PRAGMA table_info(message_cache)")
-            .map_err(|error| format!("Failed to inspect message cache schema: {error}"))?;
-
-        let mut rows = statement
-            .query([])
-            .map_err(|error| format!("Failed to query message cache schema: {error}"))?;
-
-        let mut has_message_type = false;
-        let mut has_image_url = false;
-        let mut has_in_reply_to_event_id = false;
-        let mut has_formatted_body = false;
-        let mut has_thumbnail_url = false;
-        let mut has_reactions = false;
-        let mut has_custom_emojis = false;
-
-        while let Some(row) = rows
-            .next()
-            .map_err(|error| format!("Failed to read message cache schema row: {error}"))?
-        {
-            let column_name: String = row
-                .get(1)
-                .map_err(|error| format!("Failed to decode message cache column name: {error}"))?;
-
-            if column_name == "message_type" {
-                has_message_type = true;
-            }
-
-            if column_name == "image_url" {
-                has_image_url = true;
-            }
-
-            if column_name == "in_reply_to_event_id" {
-                has_in_reply_to_event_id = true;
-            }
-
-            if column_name == "formatted_body" {
-                has_formatted_body = true;
-            }
-
-            if column_name == "thumbnail_url" {
-                has_thumbnail_url = true;
-            }
-
-            if column_name == "reactions" {
-                has_reactions = true;
-            }
-
-            if column_name == "custom_emojis" {
-                has_custom_emojis = true;
-            }
-        }
-
-        if !has_message_type {
-            connection
-                .execute("ALTER TABLE message_cache ADD COLUMN message_type TEXT", [])
-                .map_err(|error| {
-                    format!("Failed to add message cache message_type column: {error}")
-                })?;
-        }
-
-        if !has_image_url {
-            connection
-                .execute("ALTER TABLE message_cache ADD COLUMN image_url TEXT", [])
-                .map_err(|error| {
-                    format!("Failed to add message cache image_url column: {error}")
-                })?;
-        }
-
-        if !has_in_reply_to_event_id {
-            connection
-                .execute(
-                    "ALTER TABLE message_cache ADD COLUMN in_reply_to_event_id TEXT",
-                    [],
-                )
-                .map_err(|error| {
-                    format!("Failed to add message cache in_reply_to_event_id column: {error}")
-                })?;
-        }
-
-        if !has_formatted_body {
-            connection
-                .execute(
-                    "ALTER TABLE message_cache ADD COLUMN formatted_body TEXT",
-                    [],
-                )
-                .map_err(|error| {
-                    format!("Failed to add message cache formatted_body column: {error}")
-                })?;
-        }
-
-        // Both are JSON-encoded; the reactions column holds a
-        // `Vec<MatrixReactionSummary>`.
-        if !has_thumbnail_url {
-            connection
-                .execute(
-                    "ALTER TABLE message_cache ADD COLUMN thumbnail_url TEXT",
-                    [],
-                )
-                .map_err(|error| {
-                    format!("Failed to add message cache thumbnail_url column: {error}")
-                })?;
-        }
-
-        if !has_reactions {
-            connection
-                .execute("ALTER TABLE message_cache ADD COLUMN reactions TEXT", [])
-                .map_err(|error| {
-                    format!("Failed to add message cache reactions column: {error}")
-                })?;
-        }
-
-        if !has_custom_emojis {
-            connection
-                .execute(
-                    "ALTER TABLE message_cache ADD COLUMN custom_emojis TEXT",
-                    [],
-                )
-                .map_err(|error| {
-                    format!("Failed to add message cache custom_emojis column: {error}")
-                })?;
-        }
-
-        Ok(())
+    /// Test-only handle for asserting on the stored representation directly,
+    /// which `run_blocking` deliberately keeps out of the public surface.
+    #[cfg(test)]
+    fn lock_for_test(&self) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
+        self.connection
+            .lock()
+            .map_err(|_| String::from("Failed to lock app database connection"))
     }
 
     /// Runs one statement sequence against the connection on a blocking thread.
@@ -891,62 +604,15 @@ impl AppDb {
                 .next()
                 .map_err(|error| format!("Failed to read message cache row: {error}"))?
             {
-                let timestamp_raw: Option<i64> = row
-                    .get(3)
-                    .map_err(|error| format!("Failed to decode cached timestamp: {error}"))?;
-                let encrypted_flag: i64 = row
-                    .get(11)
-                    .map_err(|error| format!("Failed to decode cached encrypted flag: {error}"))?;
-                let decryption_status_raw: String = row
-                    .get(12)
-                    .map_err(|error| format!("Failed to decode cached decryption status: {error}"))?;
-                let verification_status_raw: String = row
-                    .get(13)
-                    .map_err(|error| format!("Failed to decode cached verification status: {error}"))?;
-
-                let reactions: Vec<MatrixReactionSummary> = serde_json::from_str(
-                    &row.get::<_, String>(9)
-                        .map_err(|error| format!("Failed to decode cached reactions: {error}"))?,
-                )
-                .map_err(|error| format!("Failed to parse cached reactions: {error}"))?;
-                let custom_emojis: Vec<MatrixCustomEmoji> = serde_json::from_str(
-                    &row.get::<_, String>(10)
-                        .map_err(|error| format!("Failed to decode cached custom emojis: {error}"))?,
-                )
-                .map_err(|error| format!("Failed to parse cached custom emojis: {error}"))?;
-
-                messages.push(MatrixChatMessage {
-                    event_id: row
-                        .get::<_, Option<String>>(0)
-                        .map_err(|error| format!("Failed to decode cached event id: {error}"))?,
-                    in_reply_to_event_id: row.get::<_, Option<String>>(1).map_err(|error| {
-                        format!("Failed to decode cached in-reply-to event id: {error}")
-                    })?,
-                    sender: row
-                        .get::<_, String>(2)
-                        .map_err(|error| format!("Failed to decode cached sender: {error}"))?,
-                    timestamp: timestamp_raw.map(|value| value.max(0) as u64),
-                    body: row
-                        .get::<_, String>(4)
-                        .map_err(|error| format!("Failed to decode cached body: {error}"))?,
-                    formatted_body: row
-                        .get::<_, Option<String>>(5)
-                        .map_err(|error| format!("Failed to decode cached formatted body: {error}"))?,
-                    message_type: row
-                        .get::<_, Option<String>>(6)
-                        .map_err(|error| format!("Failed to decode cached message type: {error}"))?,
-                    image_url: row
-                        .get::<_, Option<String>>(7)
-                        .map_err(|error| format!("Failed to decode cached image url: {error}"))?,
-                    thumbnail_url: row
-                        .get::<_, Option<String>>(8)
-                        .map_err(|error| format!("Failed to decode cached thumbnail url: {error}"))?,
-                    custom_emojis,
-                    reactions,
-                    encrypted: encrypted_flag != 0,
-                    decryption_status: decryption_status_from_db(&decryption_status_raw)?,
-                    verification_status: verification_status_from_db(&verification_status_raw)?,
-                });
+                match decode_cached_message(row) {
+                    Ok(message) => messages.push(message),
+                    // One unreadable row must not cost the whole room: the cache
+                    // is an optimisation, and the caller falls back to a full
+                    // fetch. Dropping the row keeps the rest of the timeline.
+                    Err(error) => {
+                        log::warn!("Discarding unreadable cached message: {error}");
+                    }
+                }
             }
 
             // An empty cached message list is indistinguishable from "no messages
@@ -1019,6 +685,72 @@ fn decryption_status_to_db(status: MatrixMessageDecryptionStatus) -> &'static st
         MatrixMessageDecryptionStatus::Decrypted => "decrypted",
         MatrixMessageDecryptionStatus::UnableToDecrypt => "unable_to_decrypt",
     }
+}
+
+/// Decodes one `message_cache` row. Every text column is optional except
+/// `sender` and `body`: a row written before a column was added reads back as
+/// NULL, and absent JSON is an empty list rather than a null literal.
+fn decode_cached_message(row: &rusqlite::Row<'_>) -> Result<MatrixChatMessage, String> {
+    let timestamp_raw: Option<i64> = row
+        .get(3)
+        .map_err(|error| format!("Failed to decode cached timestamp: {error}"))?;
+    let encrypted_flag: i64 = row
+        .get(11)
+        .map_err(|error| format!("Failed to decode cached encrypted flag: {error}"))?;
+    let decryption_status_raw: String = row
+        .get(12)
+        .map_err(|error| format!("Failed to decode cached decryption status: {error}"))?;
+    let verification_status_raw: String = row
+        .get(13)
+        .map_err(|error| format!("Failed to decode cached verification status: {error}"))?;
+
+    let reactions: Vec<MatrixReactionSummary> = serde_json::from_str(
+        row.get::<_, Option<String>>(9)
+            .map_err(|error| format!("Failed to decode cached reactions: {error}"))?
+            .as_deref()
+            .unwrap_or("[]"),
+    )
+    .map_err(|error| format!("Failed to parse cached reactions: {error}"))?;
+    let custom_emojis: Vec<MatrixCustomEmoji> = serde_json::from_str(
+        row.get::<_, Option<String>>(10)
+            .map_err(|error| format!("Failed to decode cached custom emojis: {error}"))?
+            .as_deref()
+            .unwrap_or("[]"),
+    )
+    .map_err(|error| format!("Failed to parse cached custom emojis: {error}"))?;
+
+    Ok(MatrixChatMessage {
+        event_id: row
+            .get::<_, Option<String>>(0)
+            .map_err(|error| format!("Failed to decode cached event id: {error}"))?,
+        in_reply_to_event_id: row
+            .get::<_, Option<String>>(1)
+            .map_err(|error| format!("Failed to decode cached in-reply-to event id: {error}"))?,
+        sender: row
+            .get::<_, String>(2)
+            .map_err(|error| format!("Failed to decode cached sender: {error}"))?,
+        timestamp: timestamp_raw.map(|value| value.max(0) as u64),
+        body: row
+            .get::<_, String>(4)
+            .map_err(|error| format!("Failed to decode cached body: {error}"))?,
+        formatted_body: row
+            .get::<_, Option<String>>(5)
+            .map_err(|error| format!("Failed to decode cached formatted body: {error}"))?,
+        message_type: row
+            .get::<_, Option<String>>(6)
+            .map_err(|error| format!("Failed to decode cached message type: {error}"))?,
+        image_url: row
+            .get::<_, Option<String>>(7)
+            .map_err(|error| format!("Failed to decode cached image url: {error}"))?,
+        thumbnail_url: row
+            .get::<_, Option<String>>(8)
+            .map_err(|error| format!("Failed to decode cached thumbnail url: {error}"))?,
+        custom_emojis,
+        reactions,
+        encrypted: encrypted_flag != 0,
+        decryption_status: decryption_status_from_db(&decryption_status_raw)?,
+        verification_status: verification_status_from_db(&verification_status_raw)?,
+    })
 }
 
 fn decryption_status_from_db(status: &str) -> Result<MatrixMessageDecryptionStatus, String> {
@@ -1205,6 +937,82 @@ mod tests {
             .await
             .unwrap();
         assert!(loaded.is_none());
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_row_without_the_newer_columns_still_loads() {
+        let path = temp_db_path();
+        let app_db = AppDb::initialize(&path, "test-secret").unwrap();
+
+        // A row written before the reactions, custom_emojis and thumbnail_url
+        // columns existed, inserted the way the old schema would have left it.
+        {
+            let connection = app_db.lock_for_test().unwrap();
+            connection
+                .execute(
+                    "INSERT INTO message_cache (room_id, sequence, event_id, sender, body, encrypted, decryption_status, verification_status, updated_at)
+                     VALUES (?1, 0, '$legacy', 'sender', 'from an older schema', 0, 'plaintext', 'unknown', 0)",
+                    ["!room:example.org"],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO message_cache_state (room_id, next_from, updated_at) VALUES (?1, 'next', 0)",
+                    ["!room:example.org"],
+                )
+                .unwrap();
+        }
+
+        let response = app_db
+            .load_initial_room_messages("!room:example.org")
+            .await
+            .unwrap()
+            .expect("legacy row should load");
+
+        assert_eq!(response.messages.len(), 1);
+        assert_eq!(response.messages[0].event_id.as_deref(), Some("$legacy"));
+        assert!(response.messages[0].reactions.is_empty());
+        assert!(response.messages[0].custom_emojis.is_empty());
+        assert!(response.messages[0].thumbnail_url.is_none());
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn one_unreadable_row_does_not_cost_the_whole_room() {
+        let path = temp_db_path();
+        let app_db = AppDb::initialize(&path, "test-secret").unwrap();
+
+        let response = MatrixGetChatMessagesResponse {
+            room_id: String::from("!room:example.org"),
+            next_from: Some(String::from("next-token")),
+            messages: vec![sample_message()],
+        };
+        app_db.store_initial_room_messages(&response).await.unwrap();
+
+        {
+            let connection = app_db.lock_for_test().unwrap();
+            // Malformed JSON, which is what a partial write or a truncated
+            // column looks like at read time.
+            connection
+                .execute(
+                    "INSERT INTO message_cache (room_id, sequence, event_id, sender, body, reactions, custom_emojis, encrypted, decryption_status, verification_status, updated_at)
+                     VALUES (?1, 1, '$broken', 'sender', 'corrupt', '{not json', '[]', 0, 'plaintext', 'unknown', 0)",
+                    ["!room:example.org"],
+                )
+                .unwrap();
+        }
+
+        let loaded = app_db
+            .load_initial_room_messages("!room:example.org")
+            .await
+            .unwrap()
+            .expect("a partial cache is still a cache hit");
+
+        assert_eq!(loaded.messages.len(), 1);
+        assert_eq!(loaded.messages[0].body, sample_message().body);
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
