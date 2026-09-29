@@ -224,7 +224,7 @@ impl AuthState {
         }
         let _guard = RestoreGuard(&self.restore_in_progress);
 
-        let persisted = persistence::load_persisted_session(app_db)?;
+        let persisted = persistence::load_persisted_session(app_db).await?;
         let Some(persisted) = persisted else {
             return Ok(());
         };

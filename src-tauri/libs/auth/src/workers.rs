@@ -35,8 +35,8 @@ pub async fn handle_unknown_token_error(
     // under a live connection leaves the next client on a different inode and
     // the old one still writing to the unlinked files.
     auth_state.clear_runtime_session()?;
-    clear_persisted_session(app_db)?;
-    clear_app_cache(app_db)?;
+    clear_persisted_session(app_db).await?;
+    clear_app_cache(app_db).await?;
     clear_matrix_sdk_store(paths)?;
     Ok(false)
 }
@@ -62,7 +62,7 @@ pub fn start_session_persistence_watcher(
                 () = wait_for_cancel(&mut cancelled) => break,
                 change = session_changes.recv() => match change {
                     Ok(SessionChange::TokensRefreshed) => {
-                        if let Err(error) = persist_session_from_client(&app_db, &client) {
+                        if let Err(error) = persist_session_from_client(&app_db, &client).await {
                             log::warn!("Failed to persist Matrix session after token refresh: {error}");
                         }
                     }

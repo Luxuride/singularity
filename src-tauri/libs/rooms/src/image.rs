@@ -75,9 +75,11 @@ pub async fn get_room_image(
         None => None,
     };
 
-    let _ = app_db.set_chat_image_source(request.room_id.as_str(), avatar_source_url.as_deref());
+    let _ = app_db
+        .set_chat_image_source(request.room_id.as_str(), avatar_source_url.as_deref())
+        .await;
 
-    if let Some(mut chats) = load_cached_chats(app_db)? {
+    if let Some(mut chats) = load_cached_chats(app_db).await? {
         if let Some(chat) = chats
             .iter_mut()
             .find(|candidate| candidate.room_id == request.room_id)
@@ -86,7 +88,7 @@ pub async fn get_room_image(
                 chat.image_url = image_url.clone();
                 let updated_chat = chat.clone();
 
-                let _ = store_cached_chats(app_db, &chats);
+                let _ = store_cached_chats(app_db, &chats).await;
                 let payload = serde_json::to_value(&updated_chat)
                     .map_err(|error| format!("Failed to serialize room: {error}"))?;
                 let _ = event_sink.emit(event_paths::ROOM_UPDATED, &payload);

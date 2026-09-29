@@ -158,7 +158,7 @@ impl<'a> ChatMessageStreamer<'a> {
 
     /// Serve a cacheable initial request from the persisted cache when
     /// available. Returns `true` when the stream was fully served from cache.
-    fn try_serve_from_cache(
+    async fn try_serve_from_cache(
         &mut self,
         request: &MatrixStreamChatMessagesRequest,
     ) -> Result<bool, String> {
@@ -171,7 +171,8 @@ impl<'a> ChatMessageStreamer<'a> {
             request.room_id.as_str(),
             request.from.as_deref(),
             request.limit,
-        )?;
+        )
+        .await?;
 
         if let Some(cached) = cached {
             if has_stale_cached_media_urls(&cached.messages) {
@@ -330,7 +331,10 @@ impl<'a> ChatMessageStreamer<'a> {
     }
 
     /// Persist a cacheable initial request's messages for future fast loads.
-    fn store_cache(&mut self, request: &MatrixStreamChatMessagesRequest) -> Result<(), String> {
+    async fn store_cache(
+        &mut self,
+        request: &MatrixStreamChatMessagesRequest,
+    ) -> Result<(), String> {
         if !self.cacheable_initial_request {
             return Ok(());
         }
@@ -343,7 +347,8 @@ impl<'a> ChatMessageStreamer<'a> {
                 next_from: self.final_next_from.clone(),
                 messages: cache_messages,
             },
-        )?;
+        )
+        .await?;
 
         Ok(())
     }
@@ -357,7 +362,7 @@ impl<'a> ChatMessageStreamer<'a> {
         F: FnMut(String, Option<String>, Option<u32>) -> Fut,
         Fut: std::future::Future<Output = Result<FetchedPage, String>>,
     {
-        if self.try_serve_from_cache(&request)? {
+        if self.try_serve_from_cache(&request).await? {
             return Ok(MatrixStreamChatMessagesResponse {
                 stream_id: request.stream_id.clone(),
                 started: true,
@@ -375,7 +380,7 @@ impl<'a> ChatMessageStreamer<'a> {
                 && !self.initial_messages.is_empty()
             {
                 self.emit_initial_batches(&request)?;
-                self.store_cache(&request)?;
+                self.store_cache(&request).await?;
                 self.emit_completion(
                     request.room_id.as_str(),
                     request.stream_id.as_str(),
@@ -391,7 +396,7 @@ impl<'a> ChatMessageStreamer<'a> {
             self.emit_initial_batches(&request)?;
         }
 
-        self.store_cache(&request)?;
+        self.store_cache(&request).await?;
 
         self.emit_completion(
             request.room_id.as_str(),

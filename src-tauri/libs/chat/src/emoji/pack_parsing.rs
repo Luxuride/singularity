@@ -117,7 +117,10 @@ mod tests {
     #[test]
     fn usage_kind_matches_on_a_segment() {
         assert!(usage_has_kind(&usage(&["emoticon"]), "emoticon"));
-        assert!(usage_has_kind(&usage(&["org.matrix.msc2762.emoticon"]), "emoticon"));
+        assert!(usage_has_kind(
+            &usage(&["org.matrix.msc2762.emoticon"]),
+            "emoticon"
+        ));
         assert!(usage_has_kind(&usage(&["m.sticker"]), "sticker"));
     }
 
@@ -125,7 +128,10 @@ mod tests {
     fn usage_kind_does_not_match_a_substring() {
         // "notemoticon" contains the kind as text but is a different usage.
         assert!(!usage_has_kind(&usage(&["notemoticon"]), "emoticon"));
-        assert!(!usage_has_kind(&usage(&["emoticon_custom_pack"]), "emoticon"));
+        assert!(!usage_has_kind(
+            &usage(&["emoticon_custom_pack"]),
+            "emoticon"
+        ));
     }
 
     #[test]
