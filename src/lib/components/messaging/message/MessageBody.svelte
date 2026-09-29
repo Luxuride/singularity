@@ -20,6 +20,8 @@
   let videoError = $state(false);
   let videoLoading = $state(false);
 
+  let imageError = $state(false);
+
   let fileSaved = $state(false);
   let fileError = $state(false);
   let fileLoading = $state(false);
@@ -31,6 +33,12 @@
   /// Resolve the video URL on demand when the user starts playback. The video
   /// element is always rendered (with the thumbnail as poster); the API is only
   /// hit once the user presses play.
+  ///
+  /// A rejected `play()` is not a broken video: autoplay policy, a pause that
+  /// raced the call, or the browser refusing to start without a fresh gesture
+  /// all land there. Latching `videoError` on it replaced the player with a
+  /// dead "Video unavailable" box the user could never retry, so the player
+  /// stays and the user presses play again.
   async function handleVideoPlay() {
     if (videoUrl || videoLoading || videoError || !message.eventId) {
       return;
@@ -42,41 +50,51 @@
         roomId,
         eventId: message.eventId,
       });
-      if (resolved) {
-        videoUrl = resolved;
-        const element = videoElement;
-        if (element) {
-          element.src = resolved;
-          element.load();
-          if (element.readyState < HTMLMediaElement.HAVE_METADATA) {
-            await new Promise<void>((resolve, reject) => {
-              const handleMetadata = () => {
-                cleanup();
-                resolve();
-              };
-              const handleError = () => {
-                cleanup();
-                reject(new Error("Video metadata could not be loaded"));
-              };
-              const cleanup = () => {
-                element.removeEventListener("loadedmetadata", handleMetadata);
-                element.removeEventListener("error", handleError);
-              };
+      if (!resolved) {
+        videoError = true;
+        return;
+      }
 
-              element.addEventListener("loadedmetadata", handleMetadata, { once: true });
-              element.addEventListener("error", handleError, { once: true });
-            });
-          }
-          await element.play();
-        }
-      } else {
+      videoUrl = resolved;
+      const element = videoElement;
+      if (!element) {
+        return;
+      }
+
+      element.src = resolved;
+      element.load();
+      if (element.readyState < HTMLMediaElement.HAVE_METADATA) {
+        await new Promise<void>((resolve, reject) => {
+          const handleMetadata = () => {
+            cleanup();
+            resolve();
+          };
+          const handleError = () => {
+            cleanup();
+            reject(new Error("Video metadata could not be loaded"));
+          };
+          const cleanup = () => {
+            element.removeEventListener("loadedmetadata", handleMetadata);
+            element.removeEventListener("error", handleError);
+          };
+
+          element.addEventListener("loadedmetadata", handleMetadata, { once: true });
+          element.addEventListener("error", handleError, { once: true });
+        });
+      }
+    } catch (error) {
+      // Only a failure to load the media itself is a broken video.
+      if (error instanceof Error && error.message.includes("metadata")) {
         videoError = true;
       }
-    } catch {
-      videoError = true;
     } finally {
       videoLoading = false;
     }
+  }
+
+  function handleVideoElementError() {
+    videoError = true;
+    videoLoading = false;
   }
 
   async function loadFile() {
@@ -106,12 +124,13 @@
 
 {#if message.messageType === "m.image"}
   <figure class="space-y-2">
-    {#if message.imageUrl}
+    {#if message.imageUrl && !imageError}
       <img
         src={message.imageUrl}
         alt={message.body || "Image"}
         loading="lazy"
         class="max-h-[28rem] w-full rounded preset-outlined-surface-300-700 object-contain bg-surface-100-900"
+        onerror={() => (imageError = true)}
         oncontextmenu={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -144,8 +163,12 @@
         playsinline
         preload="none"
         onclick={handleVideoPlay}
+        onerror={handleVideoElementError}
         class="max-h-[28rem] w-full rounded preset-outlined-surface-300-700 bg-surface-100-900"
       ></video>
+    {/if}
+    {#if videoLoading}
+      <div class="mt-1 text-xs text-surface-700-300">Loading video…</div>
     {/if}
     {#if message.body}
       <figcaption class="text-base whitespace-pre-wrap break-words text-surface-700-300">

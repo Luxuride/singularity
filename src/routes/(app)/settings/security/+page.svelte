@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { listen } from "@tauri-apps/api/event";
 
   import { matrixClearCacheExceptAuth, matrixRecoverWithKey, matrixRecoveryStatus } from "$lib/auth/api";
   import {
@@ -14,12 +15,14 @@
     matrixTriggerRoomUpdate,
   } from "$lib/chats/api";
   import { shellSelectedRoomId } from "$lib/chats/shell";
+  import { EVENT_VERIFICATION_STATE_CHANGED } from "$lib/events";
   import type { MatrixRecoveryState } from "$lib/auth/types";
   import type {
     MatrixDeviceInfo,
     MatrixOwnVerificationStatus,
     MatrixVerificationFlowResponse,
   } from "$lib/chats/types";
+  import type { MatrixVerificationStateChangedEvent } from "$lib/generated/types";
   import OwnDeviceInfo from "$lib/components/verification/OwnDeviceInfo.svelte";
   import DeviceList from "$lib/components/verification/DeviceList.svelte";
   import VerificationFlow from "$lib/components/verification/VerificationFlow.svelte";
@@ -43,9 +46,38 @@
   let clearingCache = $state(false);
   let cacheMessage = $state("");
 
-  onMount(async () => {
-    await loadSecurity();
+  onMount(() => {
+    let unlisten: (() => void) | undefined;
+
+    void (async () => {
+      await loadSecurity();
+      unlisten = await listen<MatrixVerificationStateChangedEvent>(
+        EVENT_VERIFICATION_STATE_CHANGED,
+        (event) => {
+          if (event.payload.verified === ownVerification?.deviceVerified) {
+            return;
+          }
+
+          void refreshOwnVerification();
+        },
+      );
+    })();
+
+    return () => unlisten?.();
   });
+
+  async function refreshOwnVerification() {
+    try {
+      const status = await matrixOwnVerificationStatus();
+      ownVerification = status;
+
+      if (selectedSenderUserId === status.userId) {
+        selectedSenderDevices = (await matrixGetUserDevices(status.userId)).devices;
+      }
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : "Failed to load verification status";
+    }
+  }
 
   async function loadSecurity() {
     loading = true;
@@ -113,6 +145,10 @@
   }
 
   async function requestVerification(device: MatrixDeviceInfo) {
+    if (verificationActionPending) {
+      return;
+    }
+
     requestingVerification = device.deviceId;
     verificationError = "";
 
@@ -127,6 +163,12 @@
     }
   }
 
+  /// Local dismissal only: the flow is owned by the backend and the confirm
+  /// step drops it once the flow reports itself finished.
+  function dismissVerificationFlow() {
+    activeVerificationFlow = null;
+    verificationError = "";
+  }
   async function refreshVerificationFlow() {
     if (!activeVerificationFlow) {
       return;
@@ -220,15 +262,15 @@
     verificationError = "";
 
     try {
-      activeVerificationFlow = await matrixConfirmSasVerification(
+      const flow = await matrixConfirmSasVerification(
         activeVerificationFlow.userId,
         activeVerificationFlow.flowId,
       );
+      activeVerificationFlow = flow.isDone || flow.isCancelled ? null : flow;
 
-      if (selectedSenderUserId) {
-        const result = await matrixGetUserDevices(selectedSenderUserId);
-        selectedSenderDevices = result.devices;
-      }
+      // The badge reads from the device list, not from the flow, so it stays on
+      // "Unverified" until the device is refetched.
+      await refreshOwnVerification();
     } catch (error) {
       verificationError =
         error instanceof Error ? error.message : "Failed to confirm SAS verification";
@@ -292,12 +334,14 @@
       onStartSas={startSasVerification}
       onAcceptSas={acceptSasVerification}
       onConfirmSas={confirmSasVerification}
+      onDismiss={dismissVerificationFlow}
     />
 
     <DeviceList
       devices={selectedSenderDevices}
       loading={false}
       requestingDeviceId={requestingVerification}
+      actionPending={verificationActionPending}
       onVerify={requestVerification}
     />
   {/if}
