@@ -901,14 +901,24 @@ fn verification_status_from_db(status: &str) -> Result<MatrixMessageVerification
 mod tests {
     use super::*;
 
+    /// A unique scratch directory for one test.
+    ///
+    /// The uniqueness must not depend on the clock alone: several tests run
+    /// concurrently, and `SystemTime::now()` can return the same nanosecond
+    /// for two of them, which makes them share a directory and corrupt each
+    /// other. The process id separates test binaries, the nanosecond timestamp
+    /// separates runs, and the atomic counter makes any remaining collision
+    /// impossible.
     fn temp_db_path() -> std::path::PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "singularity-db-test-{}-{}",
+            "singularity-db-test-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("app.db")
