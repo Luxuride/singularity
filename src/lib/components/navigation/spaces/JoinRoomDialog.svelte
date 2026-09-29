@@ -15,6 +15,13 @@
   let loading = $state(false);
   let roomInput = $state("");
 
+  /// A pasted `matrix:` or `matrix.to` link is a full URI, not an alias, and
+  /// prefixing it with '#' produces a target no homeserver recognises. Room ids
+  /// and bare aliases are the only forms that need the sigil.
+  function isJoinTarget(trimmed: string): boolean {
+    return !/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed);
+  }
+
   $effect(() => {
     if (open && dialogElement) {
       if (!dialogElement.open) {
@@ -39,7 +46,11 @@
     if (!roomInput.trim() || loading) return;
 
     let targetIdOrAlias = roomInput.trim();
-    if (!targetIdOrAlias.startsWith("#") && !targetIdOrAlias.startsWith("!")) {
+    if (
+      isJoinTarget(targetIdOrAlias) &&
+      !targetIdOrAlias.startsWith("#") &&
+      !targetIdOrAlias.startsWith("!")
+    ) {
       targetIdOrAlias = "#" + targetIdOrAlias;
     }
 
