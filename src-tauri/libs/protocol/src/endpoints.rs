@@ -31,8 +31,8 @@ pub fn normalize_homeserver_url(raw: &str) -> Result<String, String> {
 
     if normalized.scheme() == "http" {
         // Plain http sends the password grant, the access token and every
-        // message unencrypted. It is only sane behind a trusted local proxy, so
-        // it is accepted but never silent.
+        // message in the clear. Legitimate behind a trusted local proxy, so the
+        // URL is accepted, but never without saying so.
         log::warn!(
             "Homeserver {normalized_origin} is plain http: credentials and message content will cross the network unencrypted",
         );

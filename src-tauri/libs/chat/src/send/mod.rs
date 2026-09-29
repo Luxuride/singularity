@@ -4,7 +4,7 @@ pub mod media;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use matrix_sdk::ruma::events::relation::InReplyTo;
@@ -26,6 +26,20 @@ use media::{
 #[derive(Default)]
 pub struct MediaTranscodeCancellationState {
     jobs: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    next_job_id: AtomicU64,
+}
+
+/// Handle for one in-flight send. A send clears only its own entry.
+#[derive(Clone, Debug)]
+pub struct MediaTranscodeJob {
+    key: String,
+    flag: Arc<AtomicBool>,
+}
+
+impl MediaTranscodeJob {
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        self.flag.clone()
+    }
 }
 
 impl MediaTranscodeCancellationState {
@@ -33,33 +47,45 @@ impl MediaTranscodeCancellationState {
         format!("{room_id_raw}|{file_path_raw}")
     }
 
-    pub fn register_job(&self, room_id_raw: &str, file_path_raw: &str) -> Arc<AtomicBool> {
-        let key = Self::job_key(room_id_raw, file_path_raw);
+    /// Registers a job under a key unique to this call, so concurrent sends of
+    /// the same file to the same room each get their own flag and entry.
+    pub fn register_job(&self, room_id_raw: &str, file_path_raw: &str) -> MediaTranscodeJob {
+        let key = format!(
+            "{}#{}",
+            Self::job_key(room_id_raw, file_path_raw),
+            self.next_job_id.fetch_add(1, Ordering::Relaxed),
+        );
         let flag = Arc::new(AtomicBool::new(false));
+
         if let Ok(mut jobs) = self.jobs.lock() {
-            jobs.insert(key, flag.clone());
+            jobs.insert(key.clone(), flag.clone());
         }
-        flag
+
+        MediaTranscodeJob { key, flag }
     }
 
-    fn clear_job(&self, room_id_raw: &str, file_path_raw: &str) {
-        let key = Self::job_key(room_id_raw, file_path_raw);
+    fn clear_job(&self, job: &MediaTranscodeJob) {
         if let Ok(mut jobs) = self.jobs.lock() {
-            jobs.remove(key.as_str());
+            jobs.remove(job.key.as_str());
         }
     }
 
+    /// Cancels every in-flight send of this file in this room. The UI's cancel
+    /// button addresses a send by its file, not by an id it never received.
     pub fn cancel_job(&self, room_id_raw: &str, file_path_raw: &str) -> bool {
-        let key = Self::job_key(room_id_raw, file_path_raw);
+        let key_prefix = Self::job_key(room_id_raw, file_path_raw);
+        let mut cancelled = false;
 
         if let Ok(jobs) = self.jobs.lock() {
-            if let Some(flag) = jobs.get(key.as_str()) {
-                flag.store(true, Ordering::Relaxed);
-                return true;
+            for (key, flag) in jobs.iter() {
+                if key.starts_with(&key_prefix) {
+                    flag.store(true, Ordering::Relaxed);
+                    cancelled = true;
+                }
             }
         }
 
-        false
+        cancelled
     }
 }
 
@@ -134,17 +160,17 @@ pub async fn send_media_file_from_client(
     file_path_raw: &str,
     compress_media: bool,
 ) -> Result<MediaSendResult, String> {
-    let cancellation_flag = cancellation_state.register_job(room_id_raw, file_path_raw);
+    let job = cancellation_state.register_job(room_id_raw, file_path_raw);
     let result = send_media_file_impl(
         client,
         event_sink,
         room_id_raw,
         file_path_raw,
         compress_media,
-        cancellation_flag,
+        &job,
     )
     .await;
-    cancellation_state.clear_job(room_id_raw, file_path_raw);
+    cancellation_state.clear_job(&job);
     result
 }
 
@@ -154,8 +180,9 @@ async fn send_media_file_impl(
     room_id_raw: &str,
     file_path_raw: &str,
     compress_media: bool,
-    cancellation_flag: Arc<AtomicBool>,
+    job: &MediaTranscodeJob,
 ) -> Result<MediaSendResult, String> {
+    let cancellation_flag = job.flag();
     let file_path = Path::new(file_path_raw);
     if !file_path.exists() || !file_path.is_file() {
         return Err(format!("File does not exist: {file_path_raw}"));
@@ -177,6 +204,10 @@ async fn send_media_file_impl(
         .map_err(|error| format!("Failed to read file: {error}"))?;
 
     let media_kind = detect_media_kind(file_path, &bytes);
+    if cancellation_flag.load(Ordering::Relaxed) {
+        return Err(String::from("Media send cancelled by user"));
+    }
+
     let upload = match media_kind {
         MediaKind::Image => {
             prepare_image_upload(
@@ -243,11 +274,19 @@ async fn send_media_file_impl(
         }
     });
 
-    let upload_response = upload_request
-        .await
-        .map_err(|error| format!("Failed to upload media: {error}"))?;
-
+    let upload_response = upload_request.await;
     let _ = upload_progress_task.await;
+
+    // A cancel that lands during the upload still stops the send: the media is
+    // already on the server here, so returning success would post an attachment
+    // the user asked not to send.
+    if cancellation_flag.load(Ordering::Relaxed) {
+        let _ = upload_response;
+        return Err(String::from("Media send cancelled by user"));
+    }
+
+    let upload_response =
+        upload_response.map_err(|error| format!("Failed to upload media: {error}"))?;
 
     report_transcode_progress(
         event_sink,
@@ -300,4 +339,52 @@ async fn send_media_file_impl(
         room_id: room_id.to_string(),
         event_id: response.response.event_id.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn concurrent_sends_of_one_file_get_independent_flags() {
+        let state = MediaTranscodeCancellationState::default();
+
+        let first = state.register_job("!room:example.org", "/tmp/clip.mp4");
+        let second = state.register_job("!room:example.org", "/tmp/clip.mp4");
+
+        assert!(state.cancel_job("!room:example.org", "/tmp/clip.mp4"));
+
+        assert!(first.flag().load(Ordering::Relaxed));
+        assert!(second.flag().load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn clearing_one_send_leaves_the_other_cancellable() {
+        let state = MediaTranscodeCancellationState::default();
+
+        let first = state.register_job("!room:example.org", "/tmp/clip.mp4");
+        let second = state.register_job("!room:example.org", "/tmp/clip.mp4");
+        state.clear_job(&first);
+
+        assert!(state.cancel_job("!room:example.org", "/tmp/clip.mp4"));
+        assert!(!first.flag().load(Ordering::Relaxed));
+        assert!(second.flag().load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn cancelling_an_unknown_file_reports_nothing_to_cancel() {
+        let state = MediaTranscodeCancellationState::default();
+        state.register_job("!room:example.org", "/tmp/clip.mp4");
+
+        assert!(!state.cancel_job("!room:example.org", "/tmp/other.mp4"));
+    }
+
+    #[test]
+    fn a_cleared_job_is_no_longer_cancellable() {
+        let state = MediaTranscodeCancellationState::default();
+        let job = state.register_job("!room:example.org", "/tmp/clip.mp4");
+        state.clear_job(&job);
+
+        assert!(!state.cancel_job("!room:example.org", "/tmp/clip.mp4"));
+    }
 }

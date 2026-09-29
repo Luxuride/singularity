@@ -35,10 +35,8 @@
   /// hit once the user presses play.
   ///
   /// A rejected `play()` is not a broken video: autoplay policy, a pause that
-  /// raced the call, or the browser refusing to start without a fresh gesture
-  /// all land there. Latching `videoError` on it replaced the player with a
-  /// dead "Video unavailable" box the user could never retry, so the player
-  /// stays and the user presses play again.
+  /// raced the call, or a browser refusing to start without a fresh gesture all
+  /// land there, and none of them are worth replacing the player over.
   async function handleVideoPlay() {
     if (videoUrl || videoLoading || videoError || !message.eventId) {
       return;
@@ -83,7 +81,6 @@
         });
       }
     } catch (error) {
-      // Only a failure to load the media itself is a broken video.
       if (error instanceof Error && error.message.includes("metadata")) {
         videoError = true;
       }

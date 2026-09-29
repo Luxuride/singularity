@@ -117,9 +117,7 @@ pub fn parse_timeline_message(
     if event_type == event_types::ROOM_MESSAGE {
         let content = event.get("content");
         let in_reply_to_event_id = extract_in_reply_to_event_id(content);
-        // A m.room.message with no msgtype is malformed. Falling back to the
-        // event type invented an "m.room.message" msgtype that no client sends,
-        // so the message rendered as "Unsupported message type: m.room.message".
+        // An event type is not a msgtype. A message without one keeps its body.
         let msgtype = event
             .get("content")
             .and_then(|content| content.get("msgtype"))
@@ -210,9 +208,8 @@ fn parse_custom_emojis_from_formatted_body(formatted_body: &str) -> Vec<ParsedCu
             continue;
         };
 
-        // Every <img> in a formatted body is not an emoticon: a sender can embed
-        // an image inline without Matrix's emoticon attribute, and treating it
-        // as one would put a foreign shortcode in the timeline's emoji list.
+        // A sender may embed an image inline without Matrix's emoticon
+        // attribute; only a marked <img> is a custom emoji.
         if extract_html_attribute(tag, "data-mx-emoticon").is_none()
             && extract_html_attribute(tag, "data_mx_emoticon").is_none()
         {
@@ -405,8 +402,8 @@ mod tests {
         )
         .expect("message should parse");
 
-        // A bare <img> is an inline image, not a custom emoji. Harvesting it let
-        // any sender put arbitrary shortcodes into the timeline emoji list.
+        // A bare <img> is an inline image, so a foreign sender cannot inject a
+        // shortcode into the timeline's emoji list.
         assert!(parsed.custom_emojis.is_empty());
     }
 
@@ -454,8 +451,7 @@ mod tests {
         )
         .expect("message should parse");
 
-        // The event type is not a msgtype, so the body is shown as sent rather
-        // than replaced by "Unsupported message type: m.room.message".
+        // The event type is not a msgtype, so the body is shown as sent.
         assert!(parsed.message_type.is_none());
         assert_eq!(parsed.body, "no msgtype here");
     }
