@@ -4,6 +4,7 @@
 //! depends on `tauri`.
 
 pub mod db;
+pub mod migration;
 pub mod secret;
 
 pub use db::AppDb;
