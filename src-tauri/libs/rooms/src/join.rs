@@ -48,7 +48,16 @@ fn parse_join_link_input(input: &str) -> (String, Vec<String>) {
         return (String::new(), Vec::new());
     }
 
-    if let Ok(parsed) = Url::parse(trimmed) {
+    // Url::parse accepts almost anything, and it reads "room:matrix.org" as the
+    // scheme "room" with the path "matrix.org", silently truncating the alias.
+    // A bare alias is a valid URL on its own, so the tell is whether there is a
+    // path or a fragment: an alias and a room id are colon-separated with no
+    // slash in the localpart, while a link form has at least one.
+    let parsed = Url::parse(trimmed)
+        .ok()
+        .filter(|parsed| parsed.path().contains('/') || parsed.fragment().is_some());
+
+    if let Some(parsed) = parsed {
         let mut via_server_names = parse_via_query(parsed.query());
 
         let mut target = String::new();
@@ -75,6 +84,13 @@ fn parse_join_link_input(input: &str) -> (String, Vec<String>) {
 
     let (raw_target, query) = split_target_and_query(trimmed);
     let target = decode_once(raw_target);
+    // Everything reaching here is a bare alias, a room id, or an unsupported
+    // scheme. The colon is what makes it an alias.
+    let target = if target.contains(':') && !target.starts_with('#') && !target.starts_with('!') {
+        format!("#{target}")
+    } else {
+        target
+    };
     let via_server_names = dedupe_preserve_order(parse_via_query(query));
     (target, via_server_names)
 }
@@ -192,6 +208,24 @@ mod tests {
 
         assert_eq!(target, "#room:matrix.org");
         assert_eq!(via, vec!["matrix.org"]);
+    }
+
+    #[test]
+    fn a_bare_alias_is_not_mistaken_for_a_url_scheme() {
+        // "room" parses as a URL scheme, which truncated the alias to
+        // "matrix.org".
+        let (target, via) = parse_join_link_input("room:matrix.org?via=matrix.org");
+
+        assert_eq!(target, "#room:matrix.org");
+        assert_eq!(via, vec!["matrix.org"]);
+    }
+
+    #[test]
+    fn a_room_id_is_left_alone() {
+        let (target, via) = parse_join_link_input("!abc:matrix.org");
+
+        assert_eq!(target, "!abc:matrix.org");
+        assert!(via.is_empty());
     }
 
     #[test]
