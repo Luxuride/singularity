@@ -104,6 +104,13 @@ pub async fn matrix_stream_chat_messages(
     let terminal_room_id = request.room_id.clone();
     let terminal_stream_id = request.stream_id.clone();
     let terminal_load_kind = request.load_kind;
+    // A stream that fails with an empty buffer never advanced its cursor, so
+    // the terminal event must carry the cursor it was given rather than null:
+    // the frontend overwrites `nextFrom` unconditionally, and nulling it here
+    // would disable "load older" for the rest of the session after a single
+    // transient failure. On success the stream emits its own terminal event
+    // with the real cursor, which clears `nextFrom` when the room is exhausted.
+    let terminal_next_from = request.from.clone();
 
     tauri::async_runtime::spawn(async move {
         let context = chat::receive::StreamRoomMessagesContext {
@@ -155,7 +162,7 @@ pub async fn matrix_stream_chat_messages(
                 load_kind: terminal_load_kind,
                 sequence: 0,
                 message: None,
-                next_from: None,
+                next_from: terminal_next_from,
                 done: true,
             }) {
                 Ok(payload) => {

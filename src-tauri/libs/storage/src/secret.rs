@@ -237,9 +237,7 @@ fn write_file_secret(path: &Path, secret: &str) -> Result<(), String> {
 fn remove_file_secret(path: &Path) {
     if let Err(error) = std::fs::remove_file(path) {
         if error.kind() != std::io::ErrorKind::NotFound {
-            log::warn!(
-                "Failed to remove redundant fallback secret at {path:?}: {error}"
-            );
+            log::warn!("Failed to remove redundant fallback secret at {path:?}: {error}");
         }
     }
 }
@@ -400,7 +398,10 @@ mod tests {
         let recovered = get_or_create_secret(&FailingStore, &dir, "svc", "acct", 32)
             .await
             .unwrap();
-        assert_eq!(recovered, secret, "an outage must not change the database key");
+        assert_eq!(
+            recovered, secret,
+            "an outage must not change the database key"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -436,7 +437,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(secret, "file-secret");
-        assert_eq!(store.get("svc", "acct").await.unwrap().as_deref(), Some("file-secret"));
+        assert_eq!(
+            store.get("svc", "acct").await.unwrap().as_deref(),
+            Some("file-secret")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -504,7 +508,10 @@ mod tests {
         write_file_secret(&path, "file-secret").unwrap();
 
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "fallback secret file must not be group/other readable");
+        assert_eq!(
+            mode, 0o600,
+            "fallback secret file must not be group/other readable"
+        );
 
         // The reuse path must re-assert the mode, not just the create path.
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
@@ -536,7 +543,10 @@ mod tests {
             .map(|entry| entry.file_name().to_string_lossy().to_string())
             .filter(|name| name != "acct.secret")
             .collect();
-        assert!(leftovers.is_empty(), "temp files left behind: {leftovers:?}");
+        assert!(
+            leftovers.is_empty(),
+            "temp files left behind: {leftovers:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

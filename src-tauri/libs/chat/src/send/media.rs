@@ -865,7 +865,10 @@ mod tests {
 
     #[test]
     fn unknown_extension_is_a_file_not_a_video() {
-        assert_eq!(detect_media_kind(Path::new("notes.txt"), b"hello"), MediaKind::File);
+        assert_eq!(
+            detect_media_kind(Path::new("notes.txt"), b"hello"),
+            MediaKind::File
+        );
     }
 
     /// Regression: every document used to be uploaded as
@@ -879,7 +882,10 @@ mod tests {
             ("CHANGELOG.md", "text/plain"),
             ("data.json", "application/json"),
             ("archive.zip", "application/zip"),
-            ("deck.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+            (
+                "deck.pptx",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ),
             ("song.mp3", "audio/mpeg"),
         ] {
             assert_eq!(

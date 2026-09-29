@@ -223,9 +223,7 @@ fn push_text_segments(segments: &mut Vec<HtmlSegment>, value: &str) {
         }
 
         if idx > start {
-            segments.push(HtmlSegment::Text(escape_html_text(
-                &value[start..idx],
-            )));
+            segments.push(HtmlSegment::Text(escape_html_text(&value[start..idx])));
         }
 
         segments.push(HtmlSegment::LineBreak);
@@ -331,8 +329,9 @@ mod tests {
 
     #[test]
     fn a_single_newline_becomes_exactly_one_line_break() {
-        let html = build_formatted_body_from_custom_emoji("one\ntwo :wave:", &[picker_emoji("wave")])
-            .expect("expected formatted body");
+        let html =
+            build_formatted_body_from_custom_emoji("one\ntwo :wave:", &[picker_emoji("wave")])
+                .expect("expected formatted body");
 
         assert_eq!(html.matches("<br>").count(), 1, "{html}");
     }
@@ -353,9 +352,6 @@ mod tests {
 
     #[test]
     fn escapes_quotes_in_attribute_values() {
-        assert_eq!(
-            escape_html_attribute("a\"b'c"),
-            "a&quot;b&#x27;c"
-        );
+        assert_eq!(escape_html_attribute("a\"b'c"), "a&quot;b&#x27;c");
     }
 }

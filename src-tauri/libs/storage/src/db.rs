@@ -7,8 +7,8 @@ use matrix_sdk::authentication::matrix::MatrixSession as SdkMatrixSession;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use types::chat::{
-    MatrixChatMessage, MatrixGetChatMessagesResponse, MatrixMessageDecryptionStatus,
-    MatrixMessageVerificationStatus,
+    MatrixChatMessage, MatrixCustomEmoji, MatrixGetChatMessagesResponse,
+    MatrixMessageDecryptionStatus, MatrixMessageVerificationStatus, MatrixReactionSummary,
 };
 use types::rooms::{MatrixChatSummary, MatrixRoomKind};
 
@@ -96,8 +96,12 @@ impl AppDb {
                     sender TEXT NOT NULL,
                     timestamp INTEGER,
                     body TEXT NOT NULL,
+                    formatted_body TEXT,
                     message_type TEXT,
                     image_url TEXT,
+                    thumbnail_url TEXT,
+                    reactions TEXT,
+                    custom_emojis TEXT,
                     encrypted INTEGER NOT NULL,
                     decryption_status TEXT NOT NULL,
                     verification_status TEXT NOT NULL,
@@ -242,6 +246,9 @@ impl AppDb {
         let mut has_image_url = false;
         let mut has_in_reply_to_event_id = false;
         let mut has_formatted_body = false;
+        let mut has_thumbnail_url = false;
+        let mut has_reactions = false;
+        let mut has_custom_emojis = false;
 
         while let Some(row) = rows
             .next()
@@ -265,6 +272,18 @@ impl AppDb {
 
             if column_name == "formatted_body" {
                 has_formatted_body = true;
+            }
+
+            if column_name == "thumbnail_url" {
+                has_thumbnail_url = true;
+            }
+
+            if column_name == "reactions" {
+                has_reactions = true;
+            }
+
+            if column_name == "custom_emojis" {
+                has_custom_emojis = true;
             }
         }
 
@@ -303,6 +322,38 @@ impl AppDb {
                 )
                 .map_err(|error| {
                     format!("Failed to add message cache formatted_body column: {error}")
+                })?;
+        }
+
+        // Both are JSON-encoded; the reactions column holds a
+        // `Vec<MatrixReactionSummary>`.
+        if !has_thumbnail_url {
+            connection
+                .execute(
+                    "ALTER TABLE message_cache ADD COLUMN thumbnail_url TEXT",
+                    [],
+                )
+                .map_err(|error| {
+                    format!("Failed to add message cache thumbnail_url column: {error}")
+                })?;
+        }
+
+        if !has_reactions {
+            connection
+                .execute("ALTER TABLE message_cache ADD COLUMN reactions TEXT", [])
+                .map_err(|error| {
+                    format!("Failed to add message cache reactions column: {error}")
+                })?;
+        }
+
+        if !has_custom_emojis {
+            connection
+                .execute(
+                    "ALTER TABLE message_cache ADD COLUMN custom_emojis TEXT",
+                    [],
+                )
+                .map_err(|error| {
+                    format!("Failed to add message cache custom_emojis column: {error}")
                 })?;
         }
 
@@ -688,12 +739,15 @@ impl AppDb {
                         formatted_body,
                         message_type,
                         image_url,
+                        thumbnail_url,
+                        reactions,
+                        custom_emojis,
                         encrypted,
                         decryption_status,
                         verification_status,
                         updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, unixepoch())
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, unixepoch())
                     ",
                 )
                 .map_err(|error| format!("Failed to prepare message cache insert: {error}"))?;
@@ -711,6 +765,13 @@ impl AppDb {
                         message.formatted_body.as_deref(),
                         message.message_type.as_deref(),
                         message.image_url.as_deref(),
+                        message.thumbnail_url.as_deref(),
+                        serde_json::to_string(&message.reactions).map_err(|error| {
+                            format!("Failed to encode cached reactions: {error}")
+                        })?,
+                        serde_json::to_string(&message.custom_emojis).map_err(|error| {
+                            format!("Failed to encode cached custom emojis: {error}")
+                        })?,
                         if message.encrypted { 1_i64 } else { 0_i64 },
                         decryption_status_to_db(message.decryption_status),
                         verification_status_to_db(message.verification_status),
@@ -746,7 +807,7 @@ impl AppDb {
         let mut statement = connection
             .prepare(
                 "
-                SELECT event_id, in_reply_to_event_id, sender, timestamp, body, formatted_body, message_type, image_url, encrypted, decryption_status, verification_status
+                SELECT event_id, in_reply_to_event_id, sender, timestamp, body, formatted_body, message_type, image_url, thumbnail_url, reactions, custom_emojis, encrypted, decryption_status, verification_status
                 FROM message_cache
                 WHERE room_id = ?1
                 ORDER BY sequence ASC
@@ -767,14 +828,25 @@ impl AppDb {
                 .get(3)
                 .map_err(|error| format!("Failed to decode cached timestamp: {error}"))?;
             let encrypted_flag: i64 = row
-                .get(8)
+                .get(11)
                 .map_err(|error| format!("Failed to decode cached encrypted flag: {error}"))?;
             let decryption_status_raw: String = row
-                .get(9)
+                .get(12)
                 .map_err(|error| format!("Failed to decode cached decryption status: {error}"))?;
             let verification_status_raw: String = row
-                .get(10)
+                .get(13)
                 .map_err(|error| format!("Failed to decode cached verification status: {error}"))?;
+
+            let reactions: Vec<MatrixReactionSummary> = serde_json::from_str(
+                &row.get::<_, String>(9)
+                    .map_err(|error| format!("Failed to decode cached reactions: {error}"))?,
+            )
+            .map_err(|error| format!("Failed to parse cached reactions: {error}"))?;
+            let custom_emojis: Vec<MatrixCustomEmoji> = serde_json::from_str(
+                &row.get::<_, String>(10)
+                    .map_err(|error| format!("Failed to decode cached custom emojis: {error}"))?,
+            )
+            .map_err(|error| format!("Failed to parse cached custom emojis: {error}"))?;
 
             messages.push(MatrixChatMessage {
                 event_id: row
@@ -799,9 +871,11 @@ impl AppDb {
                 image_url: row
                     .get::<_, Option<String>>(7)
                     .map_err(|error| format!("Failed to decode cached image url: {error}"))?,
-                thumbnail_url: None,
-                custom_emojis: Vec::new(),
-                reactions: Vec::new(),
+                thumbnail_url: row
+                    .get::<_, Option<String>>(8)
+                    .map_err(|error| format!("Failed to decode cached thumbnail url: {error}"))?,
+                custom_emojis,
+                reactions,
                 encrypted: encrypted_flag != 0,
                 decryption_status: decryption_status_from_db(&decryption_status_raw)?,
                 verification_status: verification_status_from_db(&verification_status_raw)?,
@@ -943,6 +1017,53 @@ mod tests {
             decryption_status: MatrixMessageDecryptionStatus::Plaintext,
             verification_status: MatrixMessageVerificationStatus::Unknown,
         }
+    }
+
+    #[tokio::test]
+    async fn round_trips_reactions_thumbnails_and_custom_emojis() {
+        let path = temp_db_path();
+        let app_db = AppDb::initialize(&path, "test-secret").unwrap();
+
+        let mut message = sample_message();
+        message.thumbnail_url = Some(String::from("asset://localhost/poster.png"));
+        message.custom_emojis = vec![MatrixCustomEmoji {
+            shortcode: String::from("wave"),
+            url: String::from("asset://localhost/wave.png"),
+        }];
+        message.reactions = vec![MatrixReactionSummary {
+            key: String::from("\u{1F44B}"),
+            count: 2,
+            senders: vec![
+                String::from("@alice:example.org"),
+                String::from("@bob:example.org"),
+            ],
+        }];
+
+        let response = MatrixGetChatMessagesResponse {
+            room_id: String::from("!room:example.org"),
+            next_from: Some(String::from("tok")),
+            messages: vec![message],
+        };
+        app_db.store_initial_room_messages(&response).unwrap();
+
+        let loaded = app_db
+            .load_initial_room_messages("!room:example.org")
+            .unwrap()
+            .expect("expected a cache hit");
+        let cached = &loaded.messages[0];
+
+        assert_eq!(
+            cached.thumbnail_url.as_deref(),
+            Some("asset://localhost/poster.png")
+        );
+        assert_eq!(cached.custom_emojis.len(), 1);
+        assert_eq!(cached.custom_emojis[0].shortcode, "wave");
+        assert_eq!(cached.reactions.len(), 1);
+        assert_eq!(cached.reactions[0].key, "\u{1F44B}");
+        assert_eq!(cached.reactions[0].count, 2);
+        assert_eq!(cached.reactions[0].senders.len(), 2);
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[tokio::test]

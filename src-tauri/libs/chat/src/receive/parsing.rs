@@ -13,16 +13,52 @@ use types::chat::{
     MatrixMessageVerificationStatus, MatrixReactionSummary,
 };
 
+/// Reactions seen so far, keyed by the event they annotate, then by reaction
+/// key, then by sender.
+///
+/// This has to outlive a single network page: backward pagination returns
+/// newest->oldest, so a reaction is always authored *after* its target and
+/// therefore arrives in an *earlier* page than the message it decorates.
+pub(super) type ReactionAccumulator = BTreeMap<String, BTreeMap<String, BTreeSet<String>>>;
+
+/// Attach the accumulated reactions to the messages of a freshly parsed page.
+///
+/// Entries whose target has not been seen yet are deliberately retained, since
+/// the target is usually still waiting in an older page.
+pub(super) fn apply_reactions(messages: &mut [MatrixChatMessage], reactions: &ReactionAccumulator) {
+    if reactions.is_empty() {
+        return;
+    }
+
+    for message in messages.iter_mut() {
+        let Some(event_id) = &message.event_id else {
+            continue;
+        };
+
+        let Some(reaction_map) = reactions.get(event_id) else {
+            continue;
+        };
+
+        message.reactions = reaction_map
+            .iter()
+            .map(|(key, senders)| MatrixReactionSummary {
+                key: key.clone(),
+                count: senders.len() as u32,
+                senders: senders.iter().cloned().collect(),
+            })
+            .collect();
+    }
+}
+
 pub(super) async fn parse_message_chunk<M: MediaResolver>(
     media_resolver: &M,
     client: &matrix_sdk::Client,
     chunk: Vec<TimelineEvent>,
+    reactions_by_target: &mut ReactionAccumulator,
 ) -> (Vec<MatrixChatMessage>, bool) {
     let mut messages = Vec::new();
     let mut had_utd = false;
     let mut resolved_emoji_urls: HashMap<String, Option<String>> = HashMap::new();
-    let mut reactions_by_target: BTreeMap<String, BTreeMap<String, BTreeSet<String>>> =
-        BTreeMap::new();
 
     for timeline in chunk {
         let encryption_info = timeline.encryption_info();
@@ -147,26 +183,7 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
         }
     }
 
-    if !reactions_by_target.is_empty() {
-        for message in &mut messages {
-            let Some(event_id) = &message.event_id else {
-                continue;
-            };
-
-            let Some(reaction_map) = reactions_by_target.get(event_id) else {
-                continue;
-            };
-
-            message.reactions = reaction_map
-                .iter()
-                .map(|(key, senders)| MatrixReactionSummary {
-                    key: key.clone(),
-                    count: senders.len() as u32,
-                    senders: senders.iter().cloned().collect(),
-                })
-                .collect();
-        }
-    }
+    apply_reactions(&mut messages, reactions_by_target);
 
     (messages, had_utd)
 }
