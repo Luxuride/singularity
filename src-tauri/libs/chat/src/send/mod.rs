@@ -19,6 +19,7 @@ use types::EventSink;
 
 use media::{
     detect_media_kind, emit_transcode_progress, prepare_image_upload, prepare_video_upload,
+    report_transcode_progress,
     transmission_progress_percent, MediaKind, PreparedUpload, VideoTranscodeMode,
 };
 
@@ -199,8 +200,8 @@ async fn send_media_file_impl(
             .await?
         }
         MediaKind::File => PreparedUpload {
+            content_type: media::guess_mime_from_extension(&original_file_name)?,
             bytes,
-            content_type: media::parse_mime("application/octet-stream")?,
             file_name: original_file_name.clone(),
             transcode_mode: VideoTranscodeMode::Software,
         },
@@ -213,14 +214,14 @@ async fn send_media_file_impl(
         transcode_mode,
     } = upload;
 
-    emit_transcode_progress(
+    report_transcode_progress(
         event_sink,
         room_id_raw,
         file_path,
         "uploading",
         0.0,
         transcode_mode,
-    )?;
+    );
 
     let upload_request = room.client().media().upload(&content_type, bytes, None);
     let mut send_progress = upload_request.subscribe_to_send_progress();
@@ -248,14 +249,14 @@ async fn send_media_file_impl(
 
     let _ = upload_progress_task.await;
 
-    emit_transcode_progress(
+    report_transcode_progress(
         event_sink,
         room_id_raw,
         file_path,
         "uploading",
         100.0,
         transcode_mode,
-    )?;
+    );
 
     let content = match media_kind {
         MediaKind::Image => {
