@@ -70,7 +70,10 @@
   const seenEventIds = new Set<string>();
 
   const AUTO_LOAD_TOP_THRESHOLD_PX = 96;
-  const MESSAGE_LOAD_TIMEOUT_MS = 15000;
+  // The room worker holds the per-homeserver sync lock for as long as the
+  // server keeps a long poll open, and a send queues behind it, so a slow
+  // homeserver can spend this long before the first page lands.
+  const MESSAGE_LOAD_TIMEOUT_MS = 30000;
 
   let pendingPinToBottomRoomId = "";
 

@@ -155,8 +155,17 @@ impl RoomUpdateWorker {
         let mut selected_room_id = None::<String>;
         let mut include_selected_messages = false;
         let mut retry_delay = None::<Duration>;
+        let mut pending_trigger = None::<RoomRefreshTrigger>;
 
         loop {
+            if let Some(trigger) = pending_trigger.take() {
+                apply_trigger(
+                    trigger,
+                    &mut selected_room_id,
+                    &mut include_selected_messages,
+                );
+            }
+
             while let Ok(trigger) = self.receiver.try_recv() {
                 apply_trigger(
                     trigger,
@@ -165,69 +174,130 @@ impl RoomUpdateWorker {
                 );
             }
 
-            match run_refresh_pass(
-                &self,
-                &mut previous_snapshot,
-                selected_room_id.clone(),
-                include_selected_messages,
-                initial_sync_timeout,
-                long_poll_sync_timeout,
-            )
-            .await
-            {
-                Ok(refresh_completed) => {
-                    include_selected_messages = false;
-                    retry_delay = None;
+            // A refresh pass ends in a long poll that holds the per-homeserver
+            // sync lock for as long as the server keeps the request open, and
+            // every send and reaction queues behind that lock. A new trigger
+            // means the answer has already changed, so the in-flight poll is
+            // cancelled rather than waited out: the next pass re-syncs with the
+            // shorter initial timeout and picks up the new state.
+            //
+            // Read before the pass borrows the snapshot.
+            let had_snapshot = !previous_snapshot.is_empty();
 
-                    if !refresh_completed
-                        && !drain_triggers_and_wait(
-                            &mut self.receiver,
-                            unauthenticated_delay,
-                            &mut selected_room_id,
-                            &mut include_selected_messages,
-                        )
-                        .await
-                    {
-                        break;
+            let interrupted = {
+                // The pass borrows the loop's locals rather than `self`, because a
+                // pinned future keeps its borrows alive for the whole `select` and
+                // would otherwise freeze the receiver too. The block ends before
+                // the snapshot is touched again, releasing that borrow.
+                let deps = RefreshDeps {
+                    app_db: &self.app_db,
+                    auth_state: &self.auth_state,
+                    event_sink: &self.event_sink,
+                    paths: &self.paths,
+                };
+                let receiver = &mut self.receiver;
+                let pass = run_refresh_pass(
+                    &deps,
+                    &mut previous_snapshot,
+                    selected_room_id.clone(),
+                    include_selected_messages,
+                    initial_sync_timeout,
+                    long_poll_sync_timeout,
+                );
+                tokio::pin!(pass);
+
+                tokio::select! {
+                    result = &mut pass => match result {
+                        Ok(refresh_completed) => {
+                            include_selected_messages = false;
+                            retry_delay = None;
+
+                            if !refresh_completed
+                                && !drain_triggers_and_wait(
+                                    receiver,
+                                    unauthenticated_delay,
+                                    &mut selected_room_id,
+                                    &mut include_selected_messages,
+                                )
+                                .await
+                            {
+                                break;
+                            }
+
+                            false
+                        }
+                        Err(error) => {
+                            include_selected_messages = false;
+                            if had_snapshot {
+                                error!("Room update pass failed: {error}");
+                            } else if is_transient_sync_timeout_error(&error) {
+                                info!("Initial room sync timed out; retrying: {error}");
+                            } else {
+                                warn!("Initial room sync pass failed: {error}");
+                            }
+
+                            let max_retry_delay = if had_snapshot {
+                                retry_max_delay
+                            } else {
+                                startup_retry_max_delay
+                            };
+
+                            let next_delay = retry_delay
+                                .unwrap_or(retry_initial_delay)
+                                .min(max_retry_delay);
+
+                            retry_delay = Some(next_delay.saturating_mul(2).min(max_retry_delay));
+
+                            if !drain_triggers_and_wait(
+                                receiver,
+                                next_delay,
+                                &mut selected_room_id,
+                                &mut include_selected_messages,
+                            )
+                            .await
+                            {
+                                break;
+                            }
+
+                            false
+                        }
+                    },
+                    trigger = receiver.recv() => {
+                        match trigger {
+                            Some(trigger) => pending_trigger = Some(trigger),
+                            None => break,
+                        }
+
+                        true
                     }
                 }
-                Err(error) => {
-                    include_selected_messages = false;
-                    let has_snapshot = !previous_snapshot.is_empty();
-                    if has_snapshot {
-                        error!("Room update pass failed: {error}");
-                    } else if is_transient_sync_timeout_error(&error) {
-                        info!("Initial room sync timed out; retrying: {error}");
-                    } else {
-                        warn!("Initial room sync pass failed: {error}");
-                    }
+            };
 
-                    let max_retry_delay = if has_snapshot {
-                        retry_max_delay
-                    } else {
-                        startup_retry_max_delay
-                    };
+            // An interrupted pass leaves the snapshot half-applied, and a
+            // pass that emitted room-added events before being cancelled would
+            // re-emit them next time. Rebuilding from the stored cache keeps the
+            // diff against the next complete snapshot meaningful.
+            if interrupted {
+                include_selected_messages = false;
+                previous_snapshot = RoomSnapshot::new();
 
-                    let next_delay = retry_delay
-                        .unwrap_or(retry_initial_delay)
-                        .min(max_retry_delay);
-
-                    retry_delay = Some(next_delay.saturating_mul(2).min(max_retry_delay));
-
-                    if !drain_triggers_and_wait(
-                        &mut self.receiver,
-                        next_delay,
-                        &mut selected_room_id,
-                        &mut include_selected_messages,
-                    )
-                    .await
-                    {
-                        break;
+                if let Ok(client) = self.auth_state.client() {
+                    for chat in collect_and_store_chats(&self.app_db, &client).await {
+                        previous_snapshot.insert(chat.room_id.clone(), chat);
                     }
                 }
             }
         }
     }
+}
+
+/// The shared state a refresh pass reads. Split out of [`RoomUpdateWorker`] so
+/// the pass's future borrows nothing the loop needs to mutate.
+struct RefreshDeps<'a> {
+    app_db: &'a Arc<AppDb>,
+    auth_state: &'a Arc<AuthState>,
+    event_sink: &'a Arc<dyn EventSink>,
+    paths: &'a Paths,
 }
 
 /// Create the trigger channel and the worker. The binder manages the returned
@@ -251,7 +321,7 @@ pub fn start_room_update_worker(
 }
 
 async fn run_refresh_pass(
-    worker: &RoomUpdateWorker,
+    worker: &RefreshDeps<'_>,
     previous_snapshot: &mut RoomSnapshot,
     selected_room_id: Option<String>,
     include_selected_messages: bool,

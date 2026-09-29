@@ -60,7 +60,7 @@ pub async fn matrix_get_chat_messages(
     {
         Ok(response) => response,
         Err(error) if chat::helpers::is_room_unavailable_error(&error) => {
-            protocol::sync::sync_once_default(&client)
+            protocol::sync::sync_once_brief(&client)
                 .await
                 .map_err(|sync_error| {
                     format!(
@@ -128,7 +128,7 @@ pub async fn matrix_stream_chat_messages(
 
         if let Err(error) = stream_result {
             if chat::helpers::is_room_unavailable_error(&error) {
-                if let Err(sync_error) = protocol::sync::sync_once_default(&client_for_task).await {
+                if let Err(sync_error) = protocol::sync::sync_once_brief(&client_for_task).await {
                     log::warn!(
                         "Background matrix stream sync failed after room-unavailable error: {sync_error}"
                     );
@@ -250,7 +250,7 @@ pub async fn matrix_send_media_file(
     log::info!("matrix_send_media_file requested");
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
 
-    protocol::sync::sync_once_default(&client)
+    protocol::sync::sync_once_brief(&client)
         .await
         .map_err(|error| format!("Failed to sync Matrix before send: {error}"))?;
 
@@ -299,7 +299,7 @@ pub async fn matrix_toggle_reaction(
     log::info!("matrix_toggle_reaction requested");
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
 
-    protocol::sync::sync_once_default(&client)
+    protocol::sync::sync_once_brief(&client)
         .await
         .map_err(|error| format!("Failed to sync Matrix before reaction toggle: {error}"))?;
 

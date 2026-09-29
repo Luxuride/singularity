@@ -4,6 +4,11 @@ use matrix_sdk::config::SyncSettings;
 use matrix_sdk::Client;
 use tokio::sync::Mutex;
 
+/// Long enough to be a real sync against a healthy homeserver, short enough
+/// that a user waiting on a send does not watch a spinner for the room
+/// worker's full long poll.
+const BRIEF_SYNC_TIMEOUT_SECONDS: u64 = 2;
+
 /// matrix-sdk serializes `sync_once` internally, so a second caller waits out the
 /// first one's full long poll before its own request is even sent. Serializing
 /// the sends too bounds a burst of commands (send a message, send a file, toggle
@@ -42,4 +47,19 @@ pub async fn sync_once_serialized(client: &Client, settings: SyncSettings) -> Re
 /// Run a single serialized sync with default settings.
 pub async fn sync_once_default(client: &Client) -> Result<(), String> {
     sync_once_serialized(client, SyncSettings::default()).await
+}
+
+/// Run a sync that must not outlive a user-visible action.
+///
+/// `sync_once_default` inherits the long-poll timeout, so a caller that only
+/// needs the SDK's store brought up to date can spend the rest of a 25s poll
+/// behind the room worker. A short timeout makes the wait bounded instead: a
+/// poll that returns nothing new within it is a successful no-op for these
+/// callers, and the room worker delivers the rest on its next pass.
+pub async fn sync_once_brief(client: &Client) -> Result<(), String> {
+    sync_once_serialized(
+        client,
+        SyncSettings::default().timeout(std::time::Duration::from_secs(BRIEF_SYNC_TIMEOUT_SECONDS)),
+    )
+    .await
 }
