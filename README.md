@@ -18,7 +18,7 @@ The main point of singularity is to make performant matrix client. Most of the c
 Required tools:
 
 - Node.js 22+
-- pnpm
+- npm
 - Rust toolchain (stable)
 - cargo-tauri
 
@@ -29,19 +29,19 @@ On Linux, you also need Tauri/WebKitGTK native dependencies.
 1. Install JS dependencies:
 
 ```bash
-pnpm install
+npm install
 ```
 
 2. Run in desktop dev mode:
 
 ```bash
-pnpm tauri dev
+npm tauri dev
 ```
 
 3. Build production artifacts:
 
 ```bash
-pnpm tauri build
+npm tauri build
 ```
 
 ## Development Commands
@@ -49,13 +49,13 @@ pnpm tauri build
 Frontend checks:
 
 ```bash
-pnpm check
+npm check
 ```
 
 Frontend build:
 
 ```bash
-pnpm build
+npm build
 ```
 
 Rust tests (from src-tauri):
