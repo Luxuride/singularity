@@ -36,7 +36,7 @@ pub struct VideoTranscodePlan {
     pub codec: VideoCodec,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MediaKind {
     Image,
     Video,
@@ -51,6 +51,17 @@ pub struct PreparedUpload {
     pub transcode_mode: VideoTranscodeMode,
 }
 
+/// Extensions treated as video when the sniffed bytes are not an image.
+///
+/// This list is the single source of truth: it is shared by the kind detection
+/// above and the mime guess below, which previously enumerated video extensions
+/// independently and disagreed — `detect_media_kind` routed `.mkv` and `.avi`
+/// to `MediaKind::Video`, but `guess_video_mime` had no arm for either and its
+/// catch-all labelled them `video/webm`. The homeserver stores that content type
+/// on the mxc object and stamps it into the event, so a Matroska file reached the
+/// recipient's player with a WebM header and failed to render.
+const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "mov", "webm", "avi"];
+
 pub fn detect_media_kind(path: &Path, bytes: &[u8]) -> MediaKind {
     if image::guess_format(bytes).is_ok() {
         return MediaKind::Image;
@@ -62,7 +73,7 @@ pub fn detect_media_kind(path: &Path, bytes: &[u8]) -> MediaKind {
         .map(|ext| ext.to_ascii_lowercase())
         .as_deref()
     {
-        Some("mp4") | Some("mkv") | Some("mov") | Some("webm") | Some("avi") => MediaKind::Video,
+        Some(extension) if VIDEO_EXTENSIONS.contains(&extension) => MediaKind::Video,
         _ => MediaKind::File,
     }
 }
@@ -95,11 +106,52 @@ pub fn guess_video_mime(path: &Path) -> Result<Mime, String> {
         .map(|ext| ext.to_ascii_lowercase())
         .as_deref()
     {
-        Some("webm") => parse_mime("video/webm"),
         Some("mp4") => parse_mime("video/mp4"),
         Some("mov") => parse_mime("video/quicktime"),
+        Some("mkv") => parse_mime("video/x-matroska"),
+        Some("avi") => parse_mime("video/x-msvideo"),
+        // `webm` and anything unrecognised. An unknown container is only ever
+        // reached here after [`detect_media_kind`] classified it as video, and
+        // webm is the container this app's transcode produces.
         _ => parse_mime("video/webm"),
     }
+}
+
+/// Content type for a plain file attachment, from its extension.
+///
+/// The `MediaKind::File` arm used to send every document as
+/// `application/octet-stream` even though the real extension was in hand, so a
+/// `report.pdf` reached receivers that render from `info.mimetype` as an
+/// unopenable blob. `application/octet-stream` stays the fallback for a name
+/// with no usable extension.
+pub fn guess_mime_from_extension(file_name: &str) -> Result<Mime, String> {
+    let extension = Path::new(file_name)
+        .extension()
+        .and_then(OsStr::to_str)
+        .map(|ext| ext.to_ascii_lowercase());
+
+    let mime = match extension.as_deref() {
+        Some("pdf") => "application/pdf",
+        Some("txt") | Some("md") | Some("log") => "text/plain",
+        Some("json") => "application/json",
+        Some("zip") => "application/zip",
+        Some("gz") => "application/gzip",
+        Some("epub") => "application/epub+zip",
+        Some("doc") => "application/msword",
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        Some("xls") => "application/vnd.ms-excel",
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Some("ppt") => "application/vnd.ms-powerpoint",
+        Some("pptx") => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        Some("mp3") => "audio/mpeg",
+        Some("ogg") => "audio/ogg",
+        Some("opus") => "audio/opus",
+        Some("wav") => "audio/wav",
+        Some("flac") => "audio/flac",
+        _ => "application/octet-stream",
+    };
+
+    parse_mime(mime)
 }
 
 pub fn file_name_with_extension(path: &Path, extension: &str) -> String {
@@ -382,6 +434,17 @@ pub fn build_image_transcode_pipeline(
     pipeline
 }
 
+/// Wall-clock ceiling for an animated GIF to WebP transcode.
+///
+/// A transcode that outlives this is wedged, not slow: the hardware plans are
+/// chosen by `gst-inspect-1.0` finding an element, without proving the device
+/// actually works, so a busy or wedged GPU is a live path.
+const GIF_TRANSCODE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Wall-clock ceiling for a video transcode. See [`GIF_TRANSCODE_TIMEOUT`].
+const VIDEO_TRANSCODE_TIMEOUT: Duration = Duration::from_secs(1_800);
+
+#[allow(clippy::too_many_arguments)]
 pub async fn run_gstreamer_pipeline_with_progress(
     tokens: &[String],
     description: &str,
@@ -390,11 +453,14 @@ pub async fn run_gstreamer_pipeline_with_progress(
     file_path: &Path,
     mode: VideoTranscodeMode,
     cancellation_flag: Arc<AtomicBool>,
+    timeout: Duration,
 ) -> Result<(), String> {
     if cancellation_flag.load(Ordering::Relaxed) {
         let _ = emit_transcode_progress(event_sink, room_id_raw, file_path, "cancelled", 0.0, mode);
         return Err(String::from("Transcode cancelled by user"));
     }
+
+    let deadline = tokio::time::Instant::now() + timeout;
 
     let mut command = TokioCommand::new("gst-launch-1.0");
     command
@@ -452,20 +518,34 @@ pub async fn run_gstreamer_pipeline_with_progress(
         }
     });
 
+    // The poll loop below has to bound how long a wedged GStreamer can run, and
+    // every exit has to go through the same cleanup. A child that outlives its
+    // own send keeps burning the GPU and holds its output file open, so neither
+    // the deadline nor a `try_wait` failure may skip the kill/await.
     let status = loop {
         if cancellation_flag.load(Ordering::Relaxed) {
             let _ = child.kill().await;
             let _ = child.wait().await;
-            break None;
+            break PipelineOutcome::Cancelled;
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            break PipelineOutcome::TimedOut;
         }
 
         match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
+            Ok(Some(status)) => break PipelineOutcome::Finished(status),
             Ok(None) => {
                 tokio::time::sleep(Duration::from_millis(125)).await;
             }
             Err(error) => {
-                return Err(format!(
+                // Killing a process that is already gone is not an error here:
+                // the point is that no task and no process is left running.
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                break PipelineOutcome::Failed(format!(
                     "Failed to wait for GStreamer process for {description}: {error}"
                 ));
             }
@@ -477,23 +557,34 @@ pub async fn run_gstreamer_pipeline_with_progress(
     drop(line_tx);
     let _ = progress_task.await;
 
-    if status.is_none() {
-        let _ = emit_transcode_progress(
-            event_sink,
-            room_id_raw,
-            &file_path_buf,
-            "cancelled",
-            0.0,
-            mode,
-        );
-        return Err(String::from("Transcode cancelled by user"));
+    match status {
+        PipelineOutcome::Cancelled => {
+            let _ = emit_transcode_progress(
+                event_sink,
+                room_id_raw,
+                &file_path_buf,
+                "cancelled",
+                0.0,
+                mode,
+            );
+            Err(String::from("Transcode cancelled by user"))
+        }
+        PipelineOutcome::TimedOut => Err(format!(
+            "Timed out after {}s waiting for GStreamer to convert {description}",
+            timeout.as_secs()
+        )),
+        PipelineOutcome::Failed(error) => Err(error),
+        PipelineOutcome::Finished(status) if status.success() => Ok(()),
+        PipelineOutcome::Finished(_) => Err(format!("GStreamer failed to convert {description}")),
     }
+}
 
-    if !status.is_some_and(|value| value.success()) {
-        return Err(format!("GStreamer failed to convert {description}"));
-    }
-
-    Ok(())
+/// How a [`run_gstreamer_pipeline_with_progress`] poll loop ended.
+enum PipelineOutcome {
+    Finished(std::process::ExitStatus),
+    Cancelled,
+    TimedOut,
+    Failed(String),
 }
 
 pub fn parse_progressreport_line(line: &str) -> Option<f64> {
@@ -509,6 +600,29 @@ pub fn transmission_progress_percent(progress: TransmissionProgress) -> f64 {
     }
 
     (progress.current as f64 / progress.total as f64 * 100.0).clamp(0.0, 100.0)
+}
+
+/// Report transcode progress without letting the report itself fail the send.
+///
+/// Progress is a UI notification, so a serialisation or event-bus failure must
+/// never decide the outcome of a media send. The data path used to propagate
+/// this with `?`, which turned a finished transcode into an error whenever a
+/// listener window closed, while the per-line progress loop in the same
+/// functions ignored the identical failure with `let _ =`. Both paths now log
+/// and continue.
+pub fn report_transcode_progress(
+    event_sink: &Arc<dyn EventSink>,
+    room_id_raw: &str,
+    file_path: &Path,
+    stage: &str,
+    progress: f64,
+    mode: VideoTranscodeMode,
+) {
+    if let Err(error) =
+        emit_transcode_progress(event_sink, room_id_raw, file_path, stage, progress, mode)
+    {
+        log::warn!("Failed to report transcode progress ({stage}): {error}");
+    }
 }
 
 pub fn emit_transcode_progress(
@@ -589,7 +703,7 @@ async fn transcode_gif_to_webp(
     let output_path = temp_output_path(path, "webp");
     let mode = VideoTranscodeMode::Software;
 
-    emit_transcode_progress(event_sink, room_id_raw, path, "transcoding", 0.0, mode)?;
+    report_transcode_progress(event_sink, room_id_raw, path, "transcoding", 0.0, mode);
 
     let pipeline = build_image_transcode_pipeline(&input_path, &output_path, true, mode);
 
@@ -601,6 +715,7 @@ async fn transcode_gif_to_webp(
         path,
         mode,
         cancellation_flag,
+        GIF_TRANSCODE_TIMEOUT,
     )
     .await
     {
@@ -617,7 +732,7 @@ async fn transcode_gif_to_webp(
     };
     remove_temp_output(&output_path);
 
-    emit_transcode_progress(event_sink, room_id_raw, path, "finalizing", 100.0, mode)?;
+    report_transcode_progress(event_sink, room_id_raw, path, "finalizing", 100.0, mode);
 
     Ok(PreparedUpload {
         bytes,
@@ -634,11 +749,15 @@ pub async fn prepare_video_upload(
     compress_media: bool,
     cancellation_flag: Arc<AtomicBool>,
 ) -> Result<PreparedUpload, String> {
-    let bytes = tokio::fs::read(path)
-        .await
-        .map_err(|error| format!("Failed to read video file: {error}"))?;
-
+    // Read the source only on the pass-through branch. The transcode branch
+    // lets GStreamer read the file itself and returns the transcoded output, so
+    // materialising the whole source here would add a full extra copy of the
+    // file to peak memory for nothing.
     if !compress_media {
+        let bytes = tokio::fs::read(path)
+            .await
+            .map_err(|error| format!("Failed to read video file: {error}"))?;
+
         return Ok(PreparedUpload {
             bytes,
             content_type: guess_video_mime(path)?,
@@ -657,7 +776,7 @@ pub async fn prepare_video_upload(
 
     let output_path = temp_output_path(path, extension);
 
-    emit_transcode_progress(event_sink, room_id_raw, path, "transcoding", 0.0, plan.mode)?;
+    report_transcode_progress(event_sink, room_id_raw, path, "transcoding", 0.0, plan.mode);
 
     let pipeline = build_video_transcode_pipeline(&input_path, &output_path, plan);
 
@@ -669,6 +788,7 @@ pub async fn prepare_video_upload(
         path,
         plan.mode,
         cancellation_flag,
+        VIDEO_TRANSCODE_TIMEOUT,
     )
     .await
     {
@@ -685,14 +805,14 @@ pub async fn prepare_video_upload(
     };
     remove_temp_output(&output_path);
 
-    emit_transcode_progress(
+    report_transcode_progress(
         event_sink,
         room_id_raw,
         path,
         "finalizing",
         100.0,
         plan.mode,
-    )?;
+    );
 
     Ok(PreparedUpload {
         bytes,
@@ -700,4 +820,84 @@ pub async fn prepare_video_upload(
         file_name: file_name_with_extension(path, extension),
         transcode_mode: plan.mode,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: `guess_video_mime` and `detect_media_kind` used to enumerate
+    /// video extensions independently and disagreed, so a Matroska or AVI file
+    /// was uploaded to the homeserver as `video/webm`. The recipient's player
+    /// then received a WebM header for non-WebM bytes and refused to render it.
+    #[test]
+    fn every_video_extension_gets_its_own_mime() {
+        let cases = [
+            ("clip.mp4", "video/mp4"),
+            ("clip.mov", "video/quicktime"),
+            ("clip.mkv", "video/x-matroska"),
+            ("clip.avi", "video/x-msvideo"),
+            ("clip.webm", "video/webm"),
+        ];
+
+        for (file_name, expected) in cases {
+            let path = Path::new(file_name);
+            // A file whose bytes are not an image reaches the extension rule.
+            let kind = detect_media_kind(path, b"not-an-image");
+            assert_eq!(kind, MediaKind::Video, "{file_name} should be video");
+            assert_eq!(
+                guess_video_mime(path).unwrap().essence_str(),
+                expected,
+                "{file_name}"
+            );
+        }
+    }
+
+    #[test]
+    fn image_bytes_win_over_a_video_extension() {
+        // The extension list must not override the sniffed content.
+        let png_header = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        assert_eq!(
+            detect_media_kind(Path::new("clip.mp4"), &png_header),
+            MediaKind::Image
+        );
+    }
+
+    #[test]
+    fn unknown_extension_is_a_file_not_a_video() {
+        assert_eq!(detect_media_kind(Path::new("notes.txt"), b"hello"), MediaKind::File);
+    }
+
+    /// Regression: every document used to be uploaded as
+    /// `application/octet-stream`, so a receiver that renders from
+    /// `info.mimetype` showed an unopenable blob.
+    #[test]
+    fn file_attachments_keep_their_real_content_type() {
+        for (file_name, expected) in [
+            ("report.pdf", "application/pdf"),
+            ("notes.txt", "text/plain"),
+            ("CHANGELOG.md", "text/plain"),
+            ("data.json", "application/json"),
+            ("archive.zip", "application/zip"),
+            ("deck.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+            ("song.mp3", "audio/mpeg"),
+        ] {
+            assert_eq!(
+                guess_mime_from_extension(file_name).unwrap().essence_str(),
+                expected,
+                "{file_name}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_name_without_an_extension_falls_back_to_octet_stream() {
+        for file_name in ["README", "", "archive.tar."] {
+            assert_eq!(
+                guess_mime_from_extension(file_name).unwrap().essence_str(),
+                "application/octet-stream",
+                "{file_name}"
+            );
+        }
+    }
 }
