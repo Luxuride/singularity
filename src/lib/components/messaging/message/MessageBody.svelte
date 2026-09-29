@@ -20,6 +20,15 @@
   let videoError = $state(false);
   let videoLoading = $state(false);
   let videoWaitingForData = $state(false);
+  let videoHasFrame = $state(false);
+
+  /// The poster is a still of the first frame. Leaving it on the element once
+  /// the video has decoded its own first frame lets the browser keep painting
+  /// the still over a video that is already playing, so it is dropped at that
+  /// point rather than left to the element.
+  const videoPoster = $derived(
+    videoHasFrame || !message.thumbnailUrl ? undefined : message.thumbnailUrl,
+  );
 
   let imageError = $state(false);
 
@@ -129,6 +138,10 @@
     videoWaitingForData = false;
   }
 
+  function handleVideoLoadedData() {
+    videoHasFrame = true;
+  }
+
   async function loadFile() {
     if (fileSaved || fileLoading || !message.eventId) {
       return;
@@ -192,7 +205,7 @@
         <video
           bind:this={videoElement}
           src={videoUrl ?? undefined}
-          poster={message.thumbnailUrl ?? undefined}
+          poster={videoPoster}
           controls
           playsinline
           preload="metadata"
@@ -202,6 +215,7 @@
           onplaying={handleVideoPlaying}
           oncanplay={handleVideoPlaying}
           onpause={handleVideoPlaying}
+          onloadeddata={handleVideoLoadedData}
           class="max-h-[28rem] w-full rounded preset-outlined-surface-300-700 bg-surface-100-900"
         ></video>
         {#if videoLoading || videoWaitingForData}
