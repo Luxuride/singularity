@@ -59,8 +59,6 @@
         return;
       }
 
-      element.src = resolved;
-      element.load();
       if (element.readyState < HTMLMediaElement.HAVE_METADATA) {
         await new Promise<void>((resolve, reject) => {
           const handleMetadata = () => {
@@ -155,6 +153,7 @@
       <!-- svelte-ignore a11y_media_has_caption -->
       <video
         bind:this={videoElement}
+        src={videoUrl ?? undefined}
         poster={message.thumbnailUrl ?? undefined}
         controls
         playsinline

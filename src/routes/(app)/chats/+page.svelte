@@ -227,7 +227,11 @@
     }
 
     const updated = [...messages];
-    updated[optimisticIndex] = message;
+    // The `localId` has to survive the swap. The timeline keys each row by it
+    // while the message is still optimistic, so dropping it here changes the
+    // key and makes Svelte destroy the row and build a new one -- which for a
+    // video is a fresh <video> with no source, mid-playback.
+    updated[optimisticIndex] = { ...message, localId: messages[optimisticIndex].localId };
     messages = updated;
     return true;
   }
