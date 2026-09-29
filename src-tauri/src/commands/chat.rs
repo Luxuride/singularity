@@ -40,7 +40,9 @@ pub async fn matrix_get_chat_messages(
         request.room_id.as_str(),
         from.as_deref(),
         limit,
-    )? {
+    )
+    .await?
+    {
         let _ = room_update_trigger_state.enqueue_refresh(Some(request.room_id.clone()), true);
 
         if !chat::helpers::has_stale_cached_media_urls(&cached.messages) {
@@ -78,7 +80,7 @@ pub async fn matrix_get_chat_messages(
     };
 
     if cacheable_initial_request {
-        chat::persistence::store_initial_room_messages(&app_db, &response)?;
+        chat::persistence::store_initial_room_messages(&app_db, &response).await?;
     }
 
     Ok(response)
@@ -261,11 +263,14 @@ pub async fn matrix_send_media_file(
         request.file_path.as_str(),
         request.compress_media,
     )
-    .await?;
+    .await;
 
-    let _ = room_update_trigger_state.enqueue_refresh(Some(room_id), false);
+    // A failed media send still refreshes, exactly as a failed text send does:
+    // the room may have received an echo, or the local view may have shown
+    // something the server never accepted.
+    let _ = room_update_trigger_state.enqueue_refresh(Some(room_id), response.is_err());
 
-    Ok(response)
+    response
 }
 
 #[tauri::command]
