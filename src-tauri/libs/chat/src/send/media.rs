@@ -139,6 +139,20 @@ pub fn temp_output_path(path: &Path, extension: &str) -> PathBuf {
     output
 }
 
+/// Deletes a transcode temp file created by [`temp_output_path`].
+///
+/// A transcode writes a full-size copy of the upload to disk, so leaving it
+/// behind leaks a copy per compressed upload until the next app launch (the
+/// only other cleanup is `clear_media_cache` at startup). Best-effort: the
+/// upload result must not depend on the cleanup succeeding.
+pub fn remove_temp_output(output_path: &Path) {
+    if let Err(error) = std::fs::remove_file(output_path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("Failed to remove transcode temp file {output_path:?}: {error}");
+        }
+    }
+}
+
 pub fn detect_video_transcode_plan() -> VideoTranscodePlan {
     if gst_element_available("vavp9enc") {
         return VideoTranscodePlan {
@@ -202,9 +216,11 @@ pub fn build_video_transcode_pipeline(
     output_path: &Path,
     plan: VideoTranscodePlan,
 ) -> Vec<String> {
-    let mux_element = match plan.codec {
-        VideoCodec::H264 => String::from("mp4mux"),
-        VideoCodec::Vp8 | VideoCodec::Vp9 => String::from("webmmux"),
+    // `faststart` is a property of mp4mux only; webmmux has no such property, so
+    // emitting it there makes gst_parse_launch reject the whole pipeline.
+    let (mux_element, supports_faststart) = match plan.codec {
+        VideoCodec::H264 => (String::from("mp4mux"), true),
+        VideoCodec::Vp8 | VideoCodec::Vp9 => (String::from("webmmux"), false),
     };
 
     let mut pipeline = vec![
@@ -216,7 +232,11 @@ pub fn build_video_transcode_pipeline(
         String::from("decodebin"),
         String::from("name=dec"),
         mux_element,
-        String::from("faststart=true"),
+    ];
+    if supports_faststart {
+        pipeline.push(String::from("faststart=true"));
+    }
+    pipeline.extend([
         String::from("name=mux"),
         String::from("!"),
         String::from("filesink"),
@@ -225,7 +245,7 @@ pub fn build_video_transcode_pipeline(
         String::from("!"),
         String::from("queue"),
         String::from("!"),
-    ];
+    ]);
 
     match plan.mode {
         VideoTranscodeMode::Vaapi => {
@@ -573,7 +593,7 @@ async fn transcode_gif_to_webp(
 
     let pipeline = build_image_transcode_pipeline(&input_path, &output_path, true, mode);
 
-    run_gstreamer_pipeline_with_progress(
+    if let Err(error) = run_gstreamer_pipeline_with_progress(
         &pipeline,
         "animated WebP GIF",
         event_sink,
@@ -582,10 +602,20 @@ async fn transcode_gif_to_webp(
         mode,
         cancellation_flag,
     )
-    .await?;
+    .await
+    {
+        remove_temp_output(&output_path);
+        return Err(error);
+    }
 
-    let bytes = std::fs::read(&output_path)
-        .map_err(|error| format!("Failed to read converted animated WebP: {error}"))?;
+    let bytes = match std::fs::read(&output_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            remove_temp_output(&output_path);
+            return Err(format!("Failed to read converted animated WebP: {error}"));
+        }
+    };
+    remove_temp_output(&output_path);
 
     emit_transcode_progress(event_sink, room_id_raw, path, "finalizing", 100.0, mode)?;
 
@@ -631,7 +661,7 @@ pub async fn prepare_video_upload(
 
     let pipeline = build_video_transcode_pipeline(&input_path, &output_path, plan);
 
-    run_gstreamer_pipeline_with_progress(
+    if let Err(error) = run_gstreamer_pipeline_with_progress(
         &pipeline,
         description,
         event_sink,
@@ -640,10 +670,20 @@ pub async fn prepare_video_upload(
         plan.mode,
         cancellation_flag,
     )
-    .await?;
+    .await
+    {
+        remove_temp_output(&output_path);
+        return Err(error);
+    }
 
-    let bytes = std::fs::read(&output_path)
-        .map_err(|error| format!("Failed to read converted video: {error}"))?;
+    let bytes = match std::fs::read(&output_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            remove_temp_output(&output_path);
+            return Err(format!("Failed to read converted video: {error}"));
+        }
+    };
+    remove_temp_output(&output_path);
 
     emit_transcode_progress(
         event_sink,
