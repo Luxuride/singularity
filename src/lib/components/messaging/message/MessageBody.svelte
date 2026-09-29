@@ -19,6 +19,7 @@
   let videoUrl = $state<string | null>(null);
   let videoError = $state(false);
   let videoLoading = $state(false);
+  let videoWaitingForData = $state(false);
 
   let imageError = $state(false);
 
@@ -34,9 +35,9 @@
   /// element is always rendered (with the thumbnail as poster); the API is only
   /// hit once the user presses play.
   ///
-  /// A rejected `play()` is not a broken video: autoplay policy, a pause that
-  /// raced the call, or a browser refusing to start without a fresh gesture all
-  /// land there, and none of them are worth replacing the player over.
+  /// Playback is started explicitly once there is something to play. The first
+  /// click starts from an element with no `src`, so the browser has nothing to
+  /// run and the click is spent on resolving the URL instead.
   async function handleVideoPlay() {
     if (videoUrl || videoLoading || videoError || !message.eventId) {
       return;
@@ -54,14 +55,36 @@
       }
 
       videoUrl = resolved;
-      const element = videoElement;
-      if (!element) {
-        return;
-      }
+    } catch {
+      videoError = true;
+    } finally {
+      videoLoading = false;
+    }
 
-      if (element.readyState < HTMLMediaElement.HAVE_METADATA) {
+    await startPlaybackWhenReady();
+  }
+
+  /// Play once the element has metadata. Resolves when playback has started or
+  /// has failed on its own terms, so a caller never waits on a stalled video.
+  async function startPlaybackWhenReady() {
+    const element = videoElement;
+    if (!element || videoError) {
+      return;
+    }
+
+    if (element.readyState < HTMLMediaElement.HAVE_METADATA) {
+      try {
         await new Promise<void>((resolve, reject) => {
+          const cleanup = () => {
+            element.removeEventListener("loadedmetadata", handleMetadata);
+            element.removeEventListener("canplay", handleCanPlay);
+            element.removeEventListener("error", handleError);
+          };
           const handleMetadata = () => {
+            cleanup();
+            resolve();
+          };
+          const handleCanPlay = () => {
             cleanup();
             resolve();
           };
@@ -69,27 +92,41 @@
             cleanup();
             reject(new Error("Video metadata could not be loaded"));
           };
-          const cleanup = () => {
-            element.removeEventListener("loadedmetadata", handleMetadata);
-            element.removeEventListener("error", handleError);
-          };
 
           element.addEventListener("loadedmetadata", handleMetadata, { once: true });
+          element.addEventListener("canplay", handleCanPlay, { once: true });
           element.addEventListener("error", handleError, { once: true });
         });
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("metadata")) {
+          videoError = true;
+        }
+        return;
       }
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("metadata")) {
-        videoError = true;
-      }
-    } finally {
-      videoLoading = false;
+    }
+
+    try {
+      await element.play();
+    } catch {
+      // A rejected `play()` is not a broken video: autoplay policy, or a pause
+      // that raced the call. The element is left on its first frame with the
+      // controls live, so a second press starts it.
     }
   }
 
   function handleVideoElementError() {
     videoError = true;
     videoLoading = false;
+  }
+
+  /// The element has a source and is filling its buffer. Distinct from
+  /// `videoLoading`, which covers resolving and caching the file.
+  function handleVideoWaiting() {
+    videoWaitingForData = true;
+  }
+
+  function handleVideoPlaying() {
+    videoWaitingForData = false;
   }
 
   async function loadFile() {
@@ -150,21 +187,36 @@
         Video unavailable
       </div>
     {:else}
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video
-        bind:this={videoElement}
-        src={videoUrl ?? undefined}
-        poster={message.thumbnailUrl ?? undefined}
-        controls
-        playsinline
-        preload="none"
-        onclick={handleVideoPlay}
-        onerror={handleVideoElementError}
-        class="max-h-[28rem] w-full rounded preset-outlined-surface-300-700 bg-surface-100-900"
-      ></video>
-    {/if}
-    {#if videoLoading}
-      <div class="mt-1 text-xs text-surface-700-300">Loading video…</div>
+      <div class="relative">
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          bind:this={videoElement}
+          src={videoUrl ?? undefined}
+          poster={message.thumbnailUrl ?? undefined}
+          controls
+          playsinline
+          preload="metadata"
+          onclick={handleVideoPlay}
+          onerror={handleVideoElementError}
+          onwaiting={handleVideoWaiting}
+          onplaying={handleVideoPlaying}
+          oncanplay={handleVideoPlaying}
+          onpause={handleVideoPlaying}
+          class="max-h-[28rem] w-full rounded preset-outlined-surface-300-700 bg-surface-100-900"
+        ></video>
+        {#if videoLoading || videoWaitingForData}
+          <div
+            class="pointer-events-none absolute inset-0 flex items-center justify-center"
+            aria-live="polite"
+          >
+            <span
+              class="size-10 animate-spin rounded-full border-4 border-surface-700-300 border-t-transparent"
+              role="status"
+              aria-label="Loading video"
+            ></span>
+          </div>
+        {/if}
+      </div>
     {/if}
     {#if message.body}
       <figcaption class="text-base whitespace-pre-wrap break-words text-surface-700-300">
