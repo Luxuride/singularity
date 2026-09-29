@@ -7,18 +7,23 @@ use types::rooms::MatrixChatSummary;
 
 use crate::workers::{collect_chat_summaries, RoomSnapshot};
 
-pub fn load_cached_chats(app_db: &Arc<AppDb>) -> Result<Option<Vec<MatrixChatSummary>>, String> {
-    app_db.load_cached_chats()
+pub async fn load_cached_chats(
+    app_db: &Arc<AppDb>,
+) -> Result<Option<Vec<MatrixChatSummary>>, String> {
+    app_db.load_cached_chats().await
 }
 
-pub fn load_cached_chat_image_sources(
+pub async fn load_cached_chat_image_sources(
     app_db: &Arc<AppDb>,
 ) -> Result<HashMap<String, String>, String> {
-    app_db.load_cached_chat_image_sources()
+    app_db.load_cached_chat_image_sources().await
 }
 
-pub fn store_cached_chats(app_db: &Arc<AppDb>, chats: &[MatrixChatSummary]) -> Result<(), String> {
-    app_db.store_chats(chats)
+pub async fn store_cached_chats(
+    app_db: &Arc<AppDb>,
+    chats: &[MatrixChatSummary],
+) -> Result<(), String> {
+    app_db.store_chats(chats).await
 }
 
 pub async fn collect_and_store_chats(
@@ -26,6 +31,7 @@ pub async fn collect_and_store_chats(
     client: &matrix_sdk::Client,
 ) -> Vec<MatrixChatSummary> {
     let cached_images_by_room = load_cached_chats(app_db)
+        .await
         .ok()
         .flatten()
         .unwrap_or_default()
@@ -33,7 +39,9 @@ pub async fn collect_and_store_chats(
         .filter_map(|chat| chat.image_url.map(|image_url| (chat.room_id, image_url)))
         .collect::<HashMap<_, _>>();
 
-    let cached_image_sources_by_room = load_cached_chat_image_sources(app_db).unwrap_or_default();
+    let cached_image_sources_by_room = load_cached_chat_image_sources(app_db)
+        .await
+        .unwrap_or_default();
 
     let mut chats = collect_chat_summaries(client).await;
     for chat in &mut chats {
@@ -49,7 +57,7 @@ pub async fn collect_and_store_chats(
         }
     }
 
-    let _ = store_cached_chats(app_db, &chats);
+    let _ = store_cached_chats(app_db, &chats).await;
     chats
 }
 

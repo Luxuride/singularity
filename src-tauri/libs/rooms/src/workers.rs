@@ -347,7 +347,7 @@ async fn run_refresh_pass(
                         messages: response.messages.into_iter().rev().collect(),
                     };
 
-                    if let Err(error) = store_initial_room_messages(app_db, &response) {
+                    if let Err(error) = store_initial_room_messages(app_db, &response).await {
                         warn!("Failed to persist selected-room message cache: {error}");
                     }
 

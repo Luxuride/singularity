@@ -13,12 +13,10 @@ serde_json = { workspace = true }
 log = { workspace = true }
 rand = { workspace = true }
 base64 = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
 
 [target.'cfg(windows)'.dependencies]
 rusqlite = { workspace = true, features = ["bundled-sqlcipher-vendored-openssl"] }
 
 [target.'cfg(not(windows))'.dependencies]
 rusqlite = { workspace = true, features = ["bundled-sqlcipher"] }
-
-[dev-dependencies]
-tokio = { workspace = true }

@@ -10,9 +10,7 @@ use super::category::{
     nested_category_from_entry, nested_category_from_pack, referenced_category, root_category,
 };
 use super::constants::{ROOM_EMOJI_EVENT_TYPES, USER_EMOJI_EVENT_TYPES};
-use super::pack_parsing::{
-    image_usage, pack_media_url, unique_picker_name, usage_has_kind,
-};
+use super::pack_parsing::{image_usage, pack_media_url, unique_picker_name, usage_has_kind};
 
 /// Loads custom emoji from room/user emoji packs, resolving media URLs through
 /// the default media resolver.
@@ -66,7 +64,7 @@ impl EmojiLoader {
         }
 
         for event_type in USER_EMOJI_EVENT_TYPES {
-                let raw_content = client
+            let raw_content = client
                 .account()
                 .account_data_raw(GlobalAccountDataEventType::from(event_type))
                 .await
@@ -112,14 +110,8 @@ impl EmojiLoader {
         let root_category = root_category(content, fallback_category);
 
         if let Some(images) = content.get("images").and_then(Value::as_object) {
-            self.merge_pack_images(
-                client,
-                content,
-                images,
-                root_category.clone(),
-                accumulator,
-            )
-            .await;
+            self.merge_pack_images(client, content, images, root_category.clone(), accumulator)
+                .await;
         }
 
         let Some(packs) = content.get("packs").and_then(Value::as_object) else {
@@ -144,14 +136,8 @@ impl EmojiLoader {
             let nested_category =
                 nested_category_from_pack(pack_content, pack_id, root_category.clone());
 
-            self.merge_pack_images(
-                client,
-                pack_content,
-                images,
-                nested_category,
-                accumulator,
-            )
-            .await;
+            self.merge_pack_images(client, pack_content, images, nested_category, accumulator)
+                .await;
         }
 
         let Some(content_object) = content.as_object() else {
@@ -170,14 +156,8 @@ impl EmojiLoader {
             let nested_category =
                 nested_category_from_entry(entry_value, entry_key, root_category.clone());
 
-            self.merge_pack_images(
-                client,
-                entry_value,
-                images,
-                nested_category,
-                accumulator,
-            )
-            .await;
+            self.merge_pack_images(client, entry_value, images, nested_category, accumulator)
+                .await;
         }
     }
 
@@ -254,14 +234,8 @@ impl EmojiLoader {
         let root_category = root_category(content, fallback_category);
 
         if let Some(images) = content.get("images").and_then(Value::as_object) {
-            self.merge_pack_images(
-                client,
-                content,
-                images,
-                root_category.clone(),
-                accumulator,
-            )
-            .await;
+            self.merge_pack_images(client, content, images, root_category.clone(), accumulator)
+                .await;
         }
 
         if let Some(packs) = content.get("packs").and_then(Value::as_object) {
@@ -273,14 +247,8 @@ impl EmojiLoader {
                 let nested_category =
                     nested_category_from_pack(pack_content, pack_id, root_category.clone());
 
-                self.merge_pack_images(
-                    client,
-                    pack_content,
-                    images,
-                    nested_category,
-                    accumulator,
-                )
-                .await;
+                self.merge_pack_images(client, pack_content, images, nested_category, accumulator)
+                    .await;
             }
         }
 
@@ -297,14 +265,8 @@ impl EmojiLoader {
                 let nested_category =
                     nested_category_from_entry(entry_value, entry_key, root_category.clone());
 
-                self.merge_pack_images(
-                    client,
-                    entry_value,
-                    images,
-                    nested_category,
-                    accumulator,
-                )
-                .await;
+                self.merge_pack_images(client, entry_value, images, nested_category, accumulator)
+                    .await;
             }
         }
     }
