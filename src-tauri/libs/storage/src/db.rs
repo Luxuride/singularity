@@ -67,6 +67,7 @@ impl AppDb {
                     joined INTEGER NOT NULL DEFAULT 1,
                     is_direct INTEGER NOT NULL DEFAULT 0,
                     children_room_ids TEXT NOT NULL DEFAULT '[]',
+                    position INTEGER NOT NULL DEFAULT 0,
                     updated_at INTEGER NOT NULL
                 );
 
@@ -162,6 +163,7 @@ impl AppDb {
         let mut has_is_direct = false;
         let mut has_children_room_ids = false;
         let mut has_image_url = false;
+        let mut has_position = false;
         let mut has_legacy_parent_columns = false;
 
         while let Some(row) = rows
@@ -195,6 +197,10 @@ impl AppDb {
             if column_name == "image_url" {
                 has_image_url = true;
             }
+
+            if column_name == "position" {
+                has_position = true;
+            }
         }
 
         let schema_incompatible = has_legacy_parent_columns
@@ -202,7 +208,8 @@ impl AppDb {
             || !has_joined
             || !has_is_direct
             || !has_image_url
-            || !has_children_room_ids;
+            || !has_children_room_ids
+            || !has_position;
 
         if schema_incompatible {
             log::warn!("Recreating chats_cache for breaking children_room_ids schema change");
@@ -221,6 +228,7 @@ impl AppDb {
                         joined INTEGER NOT NULL DEFAULT 1,
                         is_direct INTEGER NOT NULL DEFAULT 0,
                         children_room_ids TEXT NOT NULL DEFAULT '[]',
+                        position INTEGER NOT NULL DEFAULT 0,
                         updated_at INTEGER NOT NULL
                     );
                     ",
@@ -228,6 +236,13 @@ impl AppDb {
                 .map_err(|error| {
                     format!("Failed to recreate chats cache for new schema: {error}")
                 })?;
+        } else if !has_position {
+            connection
+                .execute(
+                    "ALTER TABLE chats_cache ADD COLUMN position INTEGER NOT NULL DEFAULT 0",
+                    [],
+                )
+                .map_err(|error| format!("Failed to add chats cache position column: {error}"))?;
         }
 
         Ok(())
@@ -447,14 +462,15 @@ impl AppDb {
                         joined,
                         is_direct,
                         children_room_ids,
+                        position,
                         updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, unixepoch())
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, unixepoch())
                     ",
                 )
                 .map_err(|error| format!("Failed to prepare chats cache insert: {error}"))?;
 
-            for chat in chats {
+            for (position, chat) in chats.iter().enumerate() {
                 let room_kind = match chat.kind {
                     MatrixRoomKind::Space => "space",
                     MatrixRoomKind::Room => "room",
@@ -474,6 +490,7 @@ impl AppDb {
                         if chat.joined { 1_i64 } else { 0_i64 },
                         if chat.is_direct { 1_i64 } else { 0_i64 },
                         encoded_children_room_ids,
+                        position as i64,
                     ])
                     .map_err(|error| format!("Failed to insert chats cache row: {error}"))?;
             }
@@ -625,7 +642,7 @@ impl AppDb {
                 "
                 SELECT room_id, display_name, image_url, encrypted, joined_members, room_kind, joined, is_direct, children_room_ids
                 FROM chats_cache
-                ORDER BY updated_at DESC, room_id ASC
+                ORDER BY position ASC, room_id ASC
                 ",
             )
             .map_err(|error| format!("Failed to prepare chats cache query: {error}"))?;
@@ -926,6 +943,11 @@ fn clear_cache_tables(connection: &Connection) -> Result<(), String> {
     connection
         .execute("DELETE FROM message_cache", [])
         .map_err(|error| format!("Failed to clear message cache: {error}"))?;
+    // Room ids are not shared between accounts, so a row left over from a
+    // previous login is dead weight at best and a wrong avatar at worst.
+    connection
+        .execute("DELETE FROM chat_image_source_cache", [])
+        .map_err(|error| format!("Failed to clear chat image source cache: {error}"))?;
     Ok(())
 }
 
@@ -1124,6 +1146,64 @@ mod tests {
             .load_initial_room_messages("!room:example.org")
             .unwrap();
         assert!(loaded.is_none());
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    fn sample_chat(room_id: &str) -> MatrixChatSummary {
+        MatrixChatSummary {
+            room_id: String::from(room_id),
+            display_name: String::from(room_id),
+            image_url: None,
+            encrypted: false,
+            joined_members: 2,
+            kind: MatrixRoomKind::Room,
+            joined: true,
+            is_direct: false,
+            children_room_ids: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn cached_chats_keep_the_stored_order() {
+        let path = temp_db_path();
+        let app_db = AppDb::initialize(&path, "test-secret").unwrap();
+
+        let rooms = [
+            "!zulu:example.org",
+            "!alpha:example.org",
+            "!mike:example.org",
+        ];
+        let chats = rooms.iter().map(|id| sample_chat(id)).collect::<Vec<_>>();
+        app_db.store_chats(&chats).unwrap();
+
+        let loaded = app_db
+            .load_cached_chats()
+            .unwrap()
+            .expect("expected a cache hit");
+        let loaded_ids = loaded
+            .iter()
+            .map(|chat| chat.room_id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(loaded_ids, rooms);
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn image_source_cache_does_not_survive_a_cache_clear() {
+        let path = temp_db_path();
+        let app_db = AppDb::initialize(&path, "test-secret").unwrap();
+
+        app_db
+            .set_chat_image_source("!room:example.org", Some("mxc://example.org/avatar"))
+            .unwrap();
+        assert_eq!(app_db.load_cached_chat_image_sources().unwrap().len(), 1);
+
+        app_db.clear_non_auth_cache().unwrap();
+
+        assert!(app_db.load_cached_chat_image_sources().unwrap().is_empty());
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
