@@ -5,10 +5,11 @@
   interface Props {
     device: MatrixDeviceInfo;
     isRequesting: boolean;
+    actionPending?: boolean;
     onVerify?: (device: MatrixDeviceInfo) => void;
   }
 
-  let { device, isRequesting, onVerify }: Props = $props();
+  let { device, isRequesting, actionPending = false, onVerify }: Props = $props();
 
   const handleVerify = () => {
     onVerify?.(device);
@@ -34,7 +35,7 @@
     <button
       type="button"
       class="btn preset-tonal text-xs w-full mt-1"
-      disabled={isRequesting}
+      disabled={isRequesting || actionPending}
       onclick={handleVerify}
     >
       {isRequesting ? "Requesting..." : "Request Verification"}

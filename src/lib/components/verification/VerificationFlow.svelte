@@ -11,6 +11,7 @@
     onStartSas?: () => void;
     onAcceptSas?: () => void;
     onConfirmSas?: () => void;
+    onDismiss?: () => void;
   }
 
   let {
@@ -22,6 +23,7 @@
     onStartSas,
     onAcceptSas,
     onConfirmSas,
+    onDismiss,
   }: Props = $props();
 </script>
 
@@ -70,6 +72,12 @@
     {/if}
 
     <div class="flex flex-wrap gap-2">
+      {#if flow.isDone || flow.isCancelled}
+        <p class="w-full text-xs text-surface-700-300">
+          {flow.isCancelled ? "Verification was cancelled." : "Verification completed."}
+        </p>
+      {/if}
+
       {#if flow.canAcceptRequest}
         <button
           type="button"
@@ -111,6 +119,17 @@
           disabled={pending}
         >
           Confirm Match
+        </button>
+      {/if}
+
+      {#if flow.isDone || flow.isCancelled}
+        <button
+          type="button"
+          class="btn preset-tonal text-xs"
+          onclick={onDismiss}
+          disabled={pending}
+        >
+          Dismiss
         </button>
       {/if}
     </div>
