@@ -10,3 +10,4 @@ url = { workspace = true }
 tokio = { workspace = true }
 serde_json = { workspace = true }
 ammonia = { workspace = true }
+log = { workspace = true }

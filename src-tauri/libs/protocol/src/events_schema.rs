@@ -34,6 +34,16 @@ pub struct ParsedReactionEvent {
     pub key: String,
 }
 
+const KNOWN_MESSAGE_TYPES: &[&str] = &[
+    event_types::message_types::TEXT,
+    event_types::message_types::NOTICE,
+    event_types::message_types::EMOTE,
+    event_types::message_types::IMAGE,
+    event_types::message_types::VIDEO,
+    event_types::message_types::AUDIO,
+    event_types::message_types::FILE,
+];
+
 pub fn parse_reaction_event(event: &Value) -> Option<ParsedReactionEvent> {
     let event_type = event
         .get("type")
@@ -107,17 +117,15 @@ pub fn parse_timeline_message(
     if event_type == event_types::ROOM_MESSAGE {
         let content = event.get("content");
         let in_reply_to_event_id = extract_in_reply_to_event_id(content);
+        // A m.room.message with no msgtype is malformed. Falling back to the
+        // event type invented an "m.room.message" msgtype that no client sends,
+        // so the message rendered as "Unsupported message type: m.room.message".
         let msgtype = event
             .get("content")
             .and_then(|content| content.get("msgtype"))
             .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
-            .unwrap_or(event_type);
-        let message_type = if msgtype.is_empty() {
-            None
-        } else {
-            Some(msgtype.to_owned())
-        };
+            .filter(|value| !value.is_empty());
+        let message_type = msgtype.map(ToOwned::to_owned);
         let body = content
             .and_then(|content| content.get("body"))
             .and_then(Value::as_str)
@@ -135,17 +143,10 @@ pub fn parse_timeline_message(
             .map(parse_custom_emojis_from_formatted_body)
             .unwrap_or_default();
 
-        let body = if msgtype == event_types::message_types::TEXT
-            || msgtype == event_types::message_types::NOTICE
-            || msgtype == event_types::message_types::EMOTE
-            || msgtype == event_types::message_types::IMAGE
-            || msgtype == event_types::message_types::VIDEO
-            || msgtype == event_types::message_types::AUDIO
-            || msgtype == event_types::message_types::FILE
-        {
-            body
-        } else {
-            format!("Unsupported message type: {msgtype}")
+        let body = match msgtype {
+            Some(msgtype) if KNOWN_MESSAGE_TYPES.contains(&msgtype) => body,
+            Some(msgtype) => format!("Unsupported message type: {msgtype}"),
+            None => body,
         };
 
         return Some(ParsedTimelineMessage {
@@ -208,6 +209,15 @@ fn parse_custom_emojis_from_formatted_body(formatted_body: &str) -> Vec<ParsedCu
         let Some(raw_src) = extract_html_attribute(tag, "src") else {
             continue;
         };
+
+        // Every <img> in a formatted body is not an emoticon: a sender can embed
+        // an image inline without Matrix's emoticon attribute, and treating it
+        // as one would put a foreign shortcode in the timeline's emoji list.
+        if extract_html_attribute(tag, "data-mx-emoticon").is_none()
+            && extract_html_attribute(tag, "data_mx_emoticon").is_none()
+        {
+            continue;
+        }
 
         let shortcode = extract_html_attribute(tag, "alt")
             .or_else(|| extract_html_attribute(tag, "title"))
@@ -395,9 +405,9 @@ mod tests {
         )
         .expect("message should parse");
 
-        assert_eq!(parsed.custom_emojis.len(), 1);
-        assert_eq!(parsed.custom_emojis[0].shortcode, ":wave:");
-        assert_eq!(parsed.custom_emojis[0].url, "mxc://media.example.org/wave");
+        // A bare <img> is an inline image, not a custom emoji. Harvesting it let
+        // any sender put arbitrary shortcodes into the timeline emoji list.
+        assert!(parsed.custom_emojis.is_empty());
     }
 
     #[test]
@@ -408,7 +418,7 @@ mod tests {
             "content": {
                 "msgtype": "m.text",
                 "body": "image",
-                "formatted_body": "<p><img src=\"mxc://media.example.org/inline-image\"></p>"
+                "formatted_body": "<p><img data-mx-emoticon src=\"mxc://media.example.org/inline-image\"></p>"
             }
         });
 
@@ -425,6 +435,29 @@ mod tests {
             parsed.custom_emojis[0].url,
             "mxc://media.example.org/inline-image"
         );
+    }
+
+    #[test]
+    fn a_message_without_msgtype_is_not_reported_as_a_message_type() {
+        let event = json!({
+            "type": "m.room.message",
+            "sender": "@alice:example.org",
+            "content": {
+                "body": "no msgtype here"
+            }
+        });
+
+        let parsed = parse_timeline_message(
+            &event,
+            MatrixMessageDecryptionStatus::Plaintext,
+            MatrixMessageVerificationStatus::Unknown,
+        )
+        .expect("message should parse");
+
+        // The event type is not a msgtype, so the body is shown as sent rather
+        // than replaced by "Unsupported message type: m.room.message".
+        assert!(parsed.message_type.is_none());
+        assert_eq!(parsed.body, "no msgtype here");
     }
 
     #[test]
