@@ -218,17 +218,21 @@ impl<'a> NavigationIndex<'a> {
         }
 
         let mut descendants = Vec::<MatrixChatSummary>::new();
-        let mut stack: Vec<(&str, HashSet<&str>)> = self
+        // One visited set for the whole walk rather than one per path: the
+        // space graph can be cyclic (A -> B -> A), and a per-path cycle check
+        // only stops the loop back to the same parent, so a room reachable by
+        // two different paths was listed twice.
+        let mut visited = HashSet::new();
+        let mut stack: Vec<&str> = self
             .children_by_parent
             .get(root_space_id)
             .cloned()
             .unwrap_or_default()
             .into_iter()
-            .map(|child_id| (child_id, HashSet::new()))
             .collect();
 
-        while let Some((room_id, ancestry)) = stack.pop() {
-            if ancestry.contains(room_id) {
+        while let Some(room_id) = stack.pop() {
+            if !visited.insert(room_id) {
                 continue;
             }
 
@@ -238,13 +242,8 @@ impl<'a> NavigationIndex<'a> {
 
             descendants.push(candidate.clone());
 
-            let mut next_ancestry = ancestry;
-            next_ancestry.insert(room_id);
-
             if let Some(children) = self.children_by_parent.get(room_id) {
-                for child_id in children {
-                    stack.push((child_id, next_ancestry.clone()));
-                }
+                stack.extend(children.iter().copied());
             }
         }
 
@@ -283,6 +282,9 @@ fn order_matrix_root_spaces(
         }
     }
 
+    // Spaces the user has never positioned keep their alphabetical order, but
+    // they come first: a space added to the account is new, and pinning it
+    // above every space the user deliberately placed makes the sidebar jump.
     let mut new_rooms = room_by_id.into_values().collect::<Vec<_>>();
     sort_rooms_by_display_name(&mut new_rooms);
     new_rooms.extend(ordered_rooms);
@@ -421,5 +423,64 @@ mod tests {
         let ids = orderable_root_space_ids(&chats);
         assert!(ids.contains("!space:example.org"));
         assert!(!ids.contains(VIRTUAL_DMS_ROOT_ID));
+    }
+
+    #[test]
+    fn a_diamond_in_the_space_graph_lists_each_room_once() {
+        // A -> B -> C and A -> C: C is reachable twice. The per-path cycle
+        // check does not stop that, so C used to be listed twice.
+        let chats = vec![
+            chat(
+                "!a:example.org",
+                MatrixRoomKind::Space,
+                false,
+                &["!b:example.org", "!c:example.org"],
+            ),
+            chat(
+                "!b:example.org",
+                MatrixRoomKind::Space,
+                false,
+                &["!c:example.org"],
+            ),
+            chat("!c:example.org", MatrixRoomKind::Room, false, &[]),
+        ];
+
+        let index = NavigationIndex::new(&chats);
+        let descendants = index
+            .build_root_scoped_rooms("!a:example.org")
+            .into_iter()
+            .map(|room| room.room_id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(descendants.len(), 2, "{descendants:?}");
+        assert!(descendants.contains(&String::from("!b:example.org")));
+        assert!(descendants.contains(&String::from("!c:example.org")));
+    }
+
+    #[test]
+    fn a_cycle_in_the_space_graph_terminates() {
+        let chats = vec![
+            chat(
+                "!a:example.org",
+                MatrixRoomKind::Space,
+                false,
+                &["!b:example.org"],
+            ),
+            chat(
+                "!b:example.org",
+                MatrixRoomKind::Space,
+                false,
+                &["!a:example.org"],
+            ),
+        ];
+
+        let index = NavigationIndex::new(&chats);
+        let descendants = index
+            .build_root_scoped_rooms("!a:example.org")
+            .into_iter()
+            .map(|room| room.room_id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(descendants.len(), 2, "{descendants:?}");
     }
 }
