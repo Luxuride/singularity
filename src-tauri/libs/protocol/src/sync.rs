@@ -12,8 +12,9 @@ use tokio::sync::Mutex;
 /// The lock is per homeserver, so two accounts in one process do not queue
 /// behind each other's sync.
 fn sync_lock_for(client: &Client) -> &'static Mutex<()> {
-    static LOCKS: OnceLock<std::sync::Mutex<std::collections::HashMap<String, &'static Mutex<()>>>> =
-        OnceLock::new();
+    static LOCKS: OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, &'static Mutex<()>>>,
+    > = OnceLock::new();
 
     let locks = LOCKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
