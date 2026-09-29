@@ -72,8 +72,8 @@ async function getEmojiDatabase(customEmoji: PickerCustomEmoji[]) {
   }));
 
   if (!emojiDatabasePromise) {
-    // A rejected chunk load must not be cached: a transient network failure
-    // would otherwise leave shortcode normalization dead for the session.
+    // A rejected chunk load must not be cached, or a transient network failure
+    // leaves shortcode normalization dead for the session.
     emojiDatabasePromise = import("emoji-picker-element")
       .then(({ Database }) => {
         return new Database({ customEmoji: dbCustomEmoji }) as {

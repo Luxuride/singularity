@@ -33,8 +33,8 @@
     const nextSpaces = spaces.filter((space) => !isVirtualRoomId(space.roomId));
     const nextById = new Map(nextSpaces.map((space) => [space.roomId, space]));
 
-    // A realtime navigation refresh lands mid-drag and would otherwise snap the
-    // list back under the pointer, so the local order wins until the drag ends.
+    // A navigation refresh mid-drag would otherwise snap the list back under
+    // the pointer, so the local order wins until the drag ends.
     if (isDragging) {
       draggableItems = draggableItems
         .map((item) => {
@@ -112,9 +112,8 @@
     return item.id;
   }
 
-  /// Reorders run one at a time and in the order the user made them: two
-  /// overlapping saves that resolve out of order leave the sidebar showing the
-  /// older of the two orders while the stored one is the newer.
+  /// Reorders run one at a time and in the order the user made them, so the
+  /// stored order is never the older of two overlapping saves.
   function persistRootSpaceOrder(nextIds: string[], previousIds: string[]): Promise<void> {
     persistQueue = persistQueue
       .then(() => onReorderRootSpaces?.(nextIds))
@@ -129,9 +128,8 @@
     return persistQueue;
   }
 
-  /// Restores the pre-drag order, keeping any space that only the local list
-  /// knew about. Dropping those would silently remove a space from the sidebar
-  /// until the next full refresh.
+  /// Restores the pre-drag order, keeping any space the local list knows about
+  /// but the stored order does not.
   function rollbackRootSpaceOrder(previousIds: string[]): void {
     const byId = new Map(
       draggableItems
