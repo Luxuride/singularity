@@ -161,8 +161,8 @@ pub async fn complete_oauth(
         },
     )?;
 
-    start_session_persistence_watcher(app_db.clone(), client.clone());
-    auth_state.fire_client_ready(&client);
+    let cancelled = auth_state.fire_client_ready(&client);
+    start_session_persistence_watcher(app_db.clone(), client.clone(), cancelled);
 
     Ok(MatrixAuthenticatedSessionResponse {
         authenticated: true,
@@ -249,8 +249,13 @@ pub async fn password_login(
         },
     )?;
 
-    start_session_persistence_watcher(app_db.clone(), client.clone());
-    auth_state.fire_client_ready(&client);
+    // A successful password login ends any SSO attempt: a `loginToken` callback
+    // that arrives later must not be able to swap a different client in as the
+    // live one while its own watchers run on unreferenced state.
+    let _ = auth_state.take_pending_client()?;
+
+    let cancelled = auth_state.fire_client_ready(&client);
+    start_session_persistence_watcher(app_db.clone(), client.clone(), cancelled);
 
     Ok(MatrixAuthenticatedSessionResponse {
         authenticated: true,

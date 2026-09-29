@@ -1,14 +1,34 @@
 use matrix_sdk::store::RoomLoadSettings;
 use matrix_sdk::Client;
-use std::sync::Mutex;
-
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use tokio::sync::watch;
 use types::Paths;
 
 use crate::persistence;
 use crate::workers::start_session_persistence_watcher;
 
+/// Handle a background task uses to learn that its client is no longer the
+/// live one. Sending `true` on the sender is what ends the task.
+pub type ClientCancelled = watch::Receiver<bool>;
+
 /// Hook fired whenever a Matrix client becomes ready (restored or logged in).
-type ClientReadyHook = Box<dyn Fn(Client) + Send>;
+///
+/// The hook also receives a [`ClientCancelled`] receiver so the task it starts
+/// ends when the session is cleared. Without it, a task holding a `Client`
+/// clone keeps the SDK's own broadcast sender alive forever — see
+/// `clear_runtime_session`.
+type ClientReadyHook = Arc<dyn Fn(Client, ClientCancelled) + Send + Sync>;
+
+/// RAII guard for the restore single-flight flag: any exit path, including a
+/// build error, releases it.
+struct RestoreGuard<'a>(&'a AtomicBool);
+
+impl Drop for RestoreGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
 
 /// Shared Matrix client holder. Tauri-free: `restore_client_from_disk_if_needed`
 /// takes `&Paths` + `&Arc<AppDb>` instead of an `AppHandle`.
@@ -21,6 +41,7 @@ type ClientReadyHook = Box<dyn Fn(Client) + Send>;
 pub struct AuthState {
     inner: Mutex<AuthRuntimeState>,
     on_client_ready: Mutex<Option<ClientReadyHook>>,
+    restore_in_progress: AtomicBool,
 }
 
 #[derive(Default)]
@@ -29,6 +50,9 @@ struct AuthRuntimeState {
     client: Option<Client>,
     session: Option<MatrixSession>,
     deep_link_registered: bool,
+    /// Fires the per-client background tasks. Dropped on session clear, which
+    /// is what tells them to stop.
+    client_cancelled: Option<watch::Sender<bool>>,
 }
 
 #[derive(Clone)]
@@ -59,14 +83,36 @@ impl AuthState {
     /// Fire the `on_client_ready` hook. Called by the login/restore flows once a
     /// Matrix client is ready so the binder can start the verification-state
     /// watcher.
-    pub fn fire_client_ready(&self, client: &Client) {
-        let guard = match self.on_client_ready.lock() {
-            Ok(guard) => guard,
-            Err(_) => return,
+    ///
+    /// Returns a receiver for the same cancellation signal the hook receives,
+    /// so a caller starting its own per-client task can share one signal rather
+    /// than inventing a second, independent way for the session to be declared
+    /// dead.
+    pub fn fire_client_ready(&self, client: &Client) -> ClientCancelled {
+        // A fresh sender per ready event, so a new client never inherits the
+        // previous one's cancellation.
+        let (sender, receiver) = watch::channel(false);
+        let mut state = match self.inner.lock() {
+            Ok(state) => state,
+            Err(_) => return receiver_never_fires(),
         };
-        if let Some(hook) = guard.as_ref() {
-            hook(client.clone());
+        state.client_cancelled = Some(sender);
+        drop(state);
+
+        // Cloned, not taken: the hook is called outside the lock so a hook that
+        // touches auth state cannot deadlock against it.
+        let hook = {
+            let guard = match self.on_client_ready.lock() {
+                Ok(guard) => guard,
+                Err(_) => return receiver,
+            };
+            guard.as_ref().map(Arc::clone)
+        };
+        if let Some(hook) = hook {
+            hook(client.clone(), receiver.clone());
         }
+
+        receiver
     }
 
     /// Record whether the `singularity://` deep-link scheme is registered with
@@ -108,6 +154,14 @@ impl AuthState {
         state.pending_client = None;
         state.session = None;
         state.client = None;
+        // Signal before dropping the sender, so a watcher is already awake by
+        // the time the last external `Client` clone goes away. The watchers
+        // hold `Client` clones of their own, which means the SDK's broadcast
+        // sender never closes on its own and the tasks would otherwise run for
+        // the life of the process.
+        if let Some(cancelled) = state.client_cancelled.take() {
+            let _ = cancelled.send(true);
+        }
 
         Ok(())
     }
@@ -141,6 +195,34 @@ impl AuthState {
                 return Ok(());
             }
         }
+
+        // The check above cannot be held across the build and `restore_session`,
+        // both of which await, and `session_status` / `recovery_status` /
+        // `recover_with_key` are independent commands that can be in flight at
+        // once on first launch. Two callers both saw `client == None`, both
+        // built a `Client` against the same sqlite path, and the second
+        // silently overwrote the first — which by then was referenced only by
+        // its own watcher task. One caller builds; the rest wait and observe
+        // its result.
+        loop {
+            if self.lock_inner()?.client.is_some() {
+                return Ok(());
+            }
+
+            if self
+                .restore_in_progress
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                break;
+            }
+
+            // Another caller is building. Wait for it rather than starting a
+            // second one, and re-check afterwards: the flag is released even if
+            // that build failed, in which case this caller takes over.
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        let _guard = RestoreGuard(&self.restore_in_progress);
 
         let persisted = persistence::load_persisted_session(app_db)?;
         let Some(persisted) = persisted else {
@@ -177,8 +259,8 @@ impl AuthState {
             });
         }
 
-        start_session_persistence_watcher(app_db.clone(), client.clone());
-        self.fire_client_ready(&client);
+        let cancelled = self.fire_client_ready(&client);
+        start_session_persistence_watcher(app_db.clone(), client.clone(), cancelled);
 
         Ok(())
     }
@@ -192,6 +274,16 @@ impl AuthState {
             .await?;
         self.client()
     }
+}
+
+/// A receiver that never fires, for the poisoned-lock case where no signal can
+/// be stored. The sender is leaked deliberately: a dropped sender would make
+/// `wait_for` return `Err` and stop every task immediately, which is the wrong
+/// failure direction for a lock that is merely poisoned.
+fn receiver_never_fires() -> ClientCancelled {
+    let (sender, receiver) = watch::channel(false);
+    Box::leak(Box::new(sender));
+    receiver
 }
 
 pub async fn wait_for_e2ee_initialization(client: &Client) {

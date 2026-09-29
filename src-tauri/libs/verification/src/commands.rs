@@ -400,14 +400,39 @@ pub async fn confirm_sas_verification(
     Ok(get_flow_response(&client, &user_id, flow_id).await)
 }
 
+/// Resolve once the session is cleared. A dropped sender is read as "stop":
+/// stopping on a signal that is gone is the safe direction, and the alternative
+/// is a task pinned for the life of the process.
+async fn wait_for_cancel(cancelled: &mut auth::ClientCancelled) {
+    let _ = cancelled.wait_for(|stop| *stop).await;
+}
+
 /// Watch the SDK's own-device verification state in the background and emit
 /// events to the frontend when it changes. Tauri-free: takes an
 /// `Arc<dyn EventSink>` instead of an `AppHandle`.
-pub fn start_verification_state_watcher(event_sink: Arc<dyn EventSink>, client: Client) {
+///
+/// `cancelled` ends the task when the session is cleared. Without it a leaked
+/// watcher keeps emitting into the same sink after logout: sign in as account
+/// B and the badge is driven by whichever of the two watchers fired last, so it
+/// can show the signed-out account's `verified` state.
+pub fn start_verification_state_watcher(
+    event_sink: Arc<dyn EventSink>,
+    client: Client,
+    cancelled: auth::ClientCancelled,
+) {
     let mut sub = client.encryption().verification_state();
+    let mut cancelled = cancelled;
 
     tokio::spawn(async move {
-        while let Some(state) = sub.next().await {
+        loop {
+            let state = tokio::select! {
+                () = wait_for_cancel(&mut cancelled) => break,
+                state = sub.next() => match state {
+                    Some(state) => state,
+                    None => break,
+                },
+            };
+
             let verified = state == VerificationState::Verified;
             let event = MatrixVerificationStateChangedEvent { verified };
             let payload = serde_json::to_value(&event).unwrap_or(serde_json::Value::Null);
