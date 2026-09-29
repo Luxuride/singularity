@@ -4716,6 +4716,7 @@ name = "protocol"
 version = "0.1.0"
 dependencies = [
  "ammonia",
+ "log",
  "matrix-sdk",
  "serde_json",
  "tokio",
