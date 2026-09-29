@@ -3,6 +3,8 @@ use serde_json::Value;
 use types::chat::{MatrixMessageDecryptionStatus, MatrixMessageVerificationStatus};
 use types::event_types;
 
+use crate::sanitize::sanitize_formatted_body;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedTimelineMessage {
     pub event_id: Option<String>,
@@ -121,10 +123,13 @@ pub fn parse_timeline_message(
             .and_then(Value::as_str)
             .unwrap_or("Unsupported message")
             .to_owned();
+        // Remote HTML is untrusted: the frontend renders this with `{@html}`, so
+        // it is sanitised here, at the trust boundary, before it reaches the
+        // database cache or any Svelte component.
         let formatted_body = content
             .and_then(|content| content.get("formatted_body"))
             .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
+            .and_then(sanitize_formatted_body);
         let custom_emojis = formatted_body
             .as_deref()
             .map(parse_custom_emojis_from_formatted_body)
