@@ -7,9 +7,7 @@ RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
 		build-essential \
 		curl \
-		desktop-file-utils \
 		file \
-		xdg-utils \
 		libayatana-appindicator3-dev \
 		libgstreamer1.0-dev \
 		libgstreamer-plugins-base1.0-dev \
