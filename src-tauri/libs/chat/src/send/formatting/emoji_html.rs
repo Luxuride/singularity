@@ -157,13 +157,58 @@ where
             HtmlSegment::Emoji { source_url, token } => {
                 html.push_str(&format!(
                     r#"<img data-mx-emoticon="" src="{}" alt="{}" title="{}" height="{}" width="{}">"#,
-                    source_url, token, token, emoji_height, emoji_height
+                    escape_html_attribute(source_url),
+                    escape_html_attribute(token),
+                    escape_html_attribute(token),
+                    emoji_height,
+                    emoji_height
                 ));
             }
         }
     }
     html.push_str("</p>");
     Some(html)
+}
+
+/// Escape a string for use as HTML text content.
+///
+/// The composer body is plain text that this function interpolates into markup,
+/// so every character that can start or end a tag or an entity has to be
+/// escaped. Without this, typing `hi <img src=x onerror=...> :wave:` into the
+/// composer would turn the user's own message into live markup in the
+/// `{@html}` sink that renders it.
+fn escape_html_text(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            other => escaped.push(other),
+        }
+    }
+    escaped
+}
+
+/// Escape a string for use inside a double-quoted HTML attribute value.
+///
+/// `"` is what terminates the attribute, so it must become an entity; without
+/// it a value such as `x" onerror="alert(1)` breaks out of the attribute and
+/// injects an event handler. `'` is escaped too so the output is also safe if a
+/// renderer prefers single quotes.
+fn escape_html_attribute(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#x27;"),
+            other => escaped.push(other),
+        }
+    }
+    escaped
 }
 
 fn push_text_segments(segments: &mut Vec<HtmlSegment>, value: &str) {
@@ -178,15 +223,17 @@ fn push_text_segments(segments: &mut Vec<HtmlSegment>, value: &str) {
         }
 
         if idx > start {
-            segments.push(HtmlSegment::Text(value[start..idx].to_owned()));
+            segments.push(HtmlSegment::Text(escape_html_text(&value[start..idx])));
         }
 
         segments.push(HtmlSegment::LineBreak);
-        start = idx;
+        // Advance *past* the newline. Leaving `start` on the newline makes the
+        // trailing slice below re-emit it, rendering every line break twice.
+        start = idx + ch.len_utf8();
     }
 
     if start < value.len() {
-        segments.push(HtmlSegment::Text(value[start..].to_owned()));
+        segments.push(HtmlSegment::Text(escape_html_text(&value[start..])));
     }
 }
 
@@ -194,6 +241,7 @@ fn push_text_segments(segments: &mut Vec<HtmlSegment>, value: &str) {
 mod tests {
     use super::{
         build_display_formatted_body_from_custom_emoji, build_formatted_body_from_custom_emoji,
+        escape_html_attribute, escape_html_text,
     };
     use types::chat::MatrixPickerCustomEmoji;
 
@@ -239,5 +287,71 @@ mod tests {
             .expect("expected display formatted body html");
 
         assert!(html.contains("src=\"asset://localhost/%2Fhome%2Flux%2F.cache%2Feu.luxuride.singularity%2Fmedia-cache%2Fimg-912143c7a4e8d624.bin\""));
+    }
+
+    #[test]
+    fn escapes_markup_typed_into_the_composer() {
+        // A formatted body is only produced when at least one emoji was
+        // substituted, so the escaped text has to sit alongside a shortcode.
+        let html = build_formatted_body_from_custom_emoji(
+            "hi <img src=x onerror=\"alert(1)\"> <b>bold</b> & :wave: more",
+            &[picker_emoji("wave")],
+        )
+        .expect("expected formatted body");
+
+        assert!(html.contains("&lt;b&gt;bold&lt;/b&gt;"));
+        assert!(html.contains("&amp;"));
+        assert!(!html.contains("<img src=x"));
+        assert!(!html.contains("<b>bold</b>"));
+    }
+
+    #[test]
+    fn escapes_a_source_url_that_tries_to_break_out_of_the_attribute() {
+        // The display builder interpolates the resolved `url`; the send builder
+        // interpolates `source_url`. Both go through the same escaper.
+        let emoji = MatrixPickerCustomEmoji {
+            name: String::from("Evil"),
+            shortcodes: vec![String::from("evil")],
+            url: String::from("matrix-media://localhost/x\" onerror=\"alert(1)"),
+            source_url: String::from("mxc://media.example.org/x\" onerror=\"alert(1)"),
+            category: None,
+        };
+
+        for html in [
+            build_display_formatted_body_from_custom_emoji(":evil:", std::slice::from_ref(&emoji)),
+            build_formatted_body_from_custom_emoji(":evil:", std::slice::from_ref(&emoji)),
+        ] {
+            let html = html.expect("expected formatted body");
+            assert!(html.contains("&quot;"), "{html}");
+            assert!(!html.contains("onerror=\"alert(1)\""), "{html}");
+        }
+    }
+
+    #[test]
+    fn a_single_newline_becomes_exactly_one_line_break() {
+        let html =
+            build_formatted_body_from_custom_emoji("one\ntwo :wave:", &[picker_emoji("wave")])
+                .expect("expected formatted body");
+
+        assert_eq!(html.matches("<br>").count(), 1, "{html}");
+    }
+
+    #[test]
+    fn a_trailing_newline_is_not_re_emitted_as_text() {
+        let html = build_formatted_body_from_custom_emoji("one :wave:\n", &[picker_emoji("wave")])
+            .expect("expected formatted body");
+
+        assert_eq!(html.matches("<br>").count(), 1, "{html}");
+    }
+
+    #[test]
+    fn escapes_ampersands_in_text_without_double_escaping() {
+        assert_eq!(escape_html_text("a & b"), "a &amp; b");
+        assert_eq!(escape_html_text("&lt;"), "&amp;lt;");
+    }
+
+    #[test]
+    fn escapes_quotes_in_attribute_values() {
+        assert_eq!(escape_html_attribute("a\"b'c"), "a&quot;b&#x27;c");
     }
 }

@@ -20,6 +20,7 @@
     onToggleReaction?: ToggleReactionHandler;
     onReplyToMessage?: ReplyToMessageHandler;
     onTimelineElementChange?: (element: HTMLElement | null) => void;
+    onProgrammaticScroll?: () => void;
   }
 
   let {
@@ -33,6 +34,7 @@
     onToggleReaction,
     onReplyToMessage,
     onTimelineElementChange,
+    onProgrammaticScroll,
   }: Props = $props();
 
   let timelineElement: HTMLElement | null = $state(null);
@@ -66,6 +68,7 @@
       return;
     }
 
+    onProgrammaticScroll?.();
     target.scrollIntoView({ behavior: "smooth", block: "center" });
 
     if (highlightedMessageElement && highlightedMessageElement !== target) {

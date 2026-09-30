@@ -10,9 +10,7 @@ use super::category::{
     nested_category_from_entry, nested_category_from_pack, referenced_category, root_category,
 };
 use super::constants::{ROOM_EMOJI_EVENT_TYPES, USER_EMOJI_EVENT_TYPES};
-use super::pack_parsing::{
-    fallback_usage_from_event_type, image_usage, pack_media_url, unique_picker_name, usage_has_kind,
-};
+use super::pack_parsing::{image_usage, pack_media_url, unique_picker_name, usage_has_kind};
 
 /// Loads custom emoji from room/user emoji packs, resolving media URLs through
 /// the default media resolver.
@@ -34,7 +32,6 @@ impl EmojiLoader {
 
         for room in client.joined_rooms() {
             for event_type in ROOM_EMOJI_EVENT_TYPES {
-                let fallback_usage = fallback_usage_from_event_type(event_type);
                 let state_events = room
                     .get_state_events(StateEventType::from(event_type))
                     .await
@@ -58,7 +55,6 @@ impl EmojiLoader {
                         client,
                         content,
                         Some(room.room_id().to_string()),
-                        fallback_usage,
                         true,
                         &mut accumulator,
                     )
@@ -68,7 +64,6 @@ impl EmojiLoader {
         }
 
         for event_type in USER_EMOJI_EVENT_TYPES {
-            let fallback_usage = fallback_usage_from_event_type(event_type);
             let raw_content = client
                 .account()
                 .account_data_raw(GlobalAccountDataEventType::from(event_type))
@@ -87,7 +82,6 @@ impl EmojiLoader {
                 client,
                 &content,
                 Some(String::from("Global")),
-                fallback_usage,
                 true,
                 &mut accumulator,
             )
@@ -110,22 +104,14 @@ impl EmojiLoader {
         client: &matrix_sdk::Client,
         content: &Value,
         fallback_category: Option<String>,
-        fallback_usage: Option<&'static str>,
         resolve_references: bool,
         accumulator: &mut EmojiPackAccumulator,
     ) {
         let root_category = root_category(content, fallback_category);
 
         if let Some(images) = content.get("images").and_then(Value::as_object) {
-            self.merge_pack_images(
-                client,
-                content,
-                images,
-                root_category.clone(),
-                fallback_usage,
-                accumulator,
-            )
-            .await;
+            self.merge_pack_images(client, content, images, root_category.clone(), accumulator)
+                .await;
         }
 
         let Some(packs) = content.get("packs").and_then(Value::as_object) else {
@@ -140,7 +126,6 @@ impl EmojiLoader {
                         pack_content,
                         pack_id,
                         root_category.clone(),
-                        fallback_usage,
                         accumulator,
                     )
                     .await;
@@ -151,15 +136,8 @@ impl EmojiLoader {
             let nested_category =
                 nested_category_from_pack(pack_content, pack_id, root_category.clone());
 
-            self.merge_pack_images(
-                client,
-                pack_content,
-                images,
-                nested_category,
-                fallback_usage,
-                accumulator,
-            )
-            .await;
+            self.merge_pack_images(client, pack_content, images, nested_category, accumulator)
+                .await;
         }
 
         let Some(content_object) = content.as_object() else {
@@ -178,15 +156,8 @@ impl EmojiLoader {
             let nested_category =
                 nested_category_from_entry(entry_value, entry_key, root_category.clone());
 
-            self.merge_pack_images(
-                client,
-                entry_value,
-                images,
-                nested_category,
-                fallback_usage,
-                accumulator,
-            )
-            .await;
+            self.merge_pack_images(client, entry_value, images, nested_category, accumulator)
+                .await;
         }
     }
 
@@ -196,7 +167,6 @@ impl EmojiLoader {
         pack_reference: &Value,
         pack_id: &str,
         root_category: Option<String>,
-        fallback_usage: Option<&'static str>,
         accumulator: &mut EmojiPackAccumulator,
     ) {
         let Some(room_id_raw) = pack_reference.get("room_id").and_then(Value::as_str) else {
@@ -247,7 +217,6 @@ impl EmojiLoader {
                     client,
                     content,
                     category.clone(),
-                    fallback_usage_from_event_type(event_type).or(fallback_usage),
                     accumulator,
                 )
                 .await;
@@ -260,21 +229,13 @@ impl EmojiLoader {
         client: &matrix_sdk::Client,
         content: &Value,
         fallback_category: Option<String>,
-        fallback_usage: Option<&'static str>,
         accumulator: &mut EmojiPackAccumulator,
     ) {
         let root_category = root_category(content, fallback_category);
 
         if let Some(images) = content.get("images").and_then(Value::as_object) {
-            self.merge_pack_images(
-                client,
-                content,
-                images,
-                root_category.clone(),
-                fallback_usage,
-                accumulator,
-            )
-            .await;
+            self.merge_pack_images(client, content, images, root_category.clone(), accumulator)
+                .await;
         }
 
         if let Some(packs) = content.get("packs").and_then(Value::as_object) {
@@ -286,15 +247,8 @@ impl EmojiLoader {
                 let nested_category =
                     nested_category_from_pack(pack_content, pack_id, root_category.clone());
 
-                self.merge_pack_images(
-                    client,
-                    pack_content,
-                    images,
-                    nested_category,
-                    fallback_usage,
-                    accumulator,
-                )
-                .await;
+                self.merge_pack_images(client, pack_content, images, nested_category, accumulator)
+                    .await;
             }
         }
 
@@ -311,15 +265,8 @@ impl EmojiLoader {
                 let nested_category =
                     nested_category_from_entry(entry_value, entry_key, root_category.clone());
 
-                self.merge_pack_images(
-                    client,
-                    entry_value,
-                    images,
-                    nested_category,
-                    fallback_usage,
-                    accumulator,
-                )
-                .await;
+                self.merge_pack_images(client, entry_value, images, nested_category, accumulator)
+                    .await;
             }
         }
     }
@@ -330,7 +277,6 @@ impl EmojiLoader {
         usage_source: &Value,
         images: &serde_json::Map<String, Value>,
         category: Option<String>,
-        fallback_usage: Option<&'static str>,
         accumulator: &mut EmojiPackAccumulator,
     ) {
         for (raw_shortcode, image) in images {
@@ -352,19 +298,11 @@ impl EmojiLoader {
             };
 
             let usage = image_usage(usage_source, image);
-            let mut is_emoticon =
-                usage_has_kind(&usage, "emoticon") || usage_has_kind(&usage, "emoji");
-
-            if usage.is_empty() {
-                match fallback_usage {
-                    Some("emoticon") => {
-                        is_emoticon = true;
-                    }
-                    _ => {
-                        is_emoticon = true;
-                    }
-                }
-            }
+            // A pack with no declared usage still gets its images offered as
+            // emoji, which is what the unlabelled branch below expresses.
+            let is_emoticon = usage.is_empty()
+                || usage_has_kind(&usage, "emoticon")
+                || usage_has_kind(&usage, "emoji");
 
             let display_name = image
                 .get("body")

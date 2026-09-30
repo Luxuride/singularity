@@ -32,10 +32,10 @@ pub fn prepare_matrix_sdk_store(paths: &Paths) -> Result<PathBuf, String> {
     Ok(store_path)
 }
 
-pub fn load_persisted_session(
+pub async fn load_persisted_session(
     app_db: &Arc<AppDb>,
 ) -> Result<Option<PersistedMatrixSession>, String> {
-    let loaded = app_db.load_persisted_session()?;
+    let loaded = app_db.load_persisted_session().await?;
     Ok(
         loaded.map(|(homeserver_url, matrix_session)| PersistedMatrixSession {
             homeserver_url,
@@ -44,14 +44,19 @@ pub fn load_persisted_session(
     )
 }
 
-pub fn persist_session(
+pub async fn persist_session(
     app_db: &Arc<AppDb>,
     session: &PersistedMatrixSession,
 ) -> Result<(), String> {
-    app_db.persist_session(&session.homeserver_url, &session.matrix_session)
+    app_db
+        .persist_session(&session.homeserver_url, &session.matrix_session)
+        .await
 }
 
-pub fn persist_session_from_client(app_db: &Arc<AppDb>, client: &Client) -> Result<(), String> {
+pub async fn persist_session_from_client(
+    app_db: &Arc<AppDb>,
+    client: &Client,
+) -> Result<(), String> {
     let session = client
         .matrix_auth()
         .session()
@@ -61,18 +66,19 @@ pub fn persist_session_from_client(app_db: &Arc<AppDb>, client: &Client) -> Resu
         app_db,
         &PersistedMatrixSession::new(client.homeserver().to_string(), session),
     )
+    .await
 }
 
-pub fn clear_persisted_session(app_db: &Arc<AppDb>) -> Result<(), String> {
-    app_db.clear_session()
+pub async fn clear_persisted_session(app_db: &Arc<AppDb>) -> Result<(), String> {
+    app_db.clear_session().await
 }
 
-pub fn clear_app_cache(app_db: &Arc<AppDb>) -> Result<(), String> {
-    app_db.clear_app_cache()
+pub async fn clear_app_cache(app_db: &Arc<AppDb>) -> Result<(), String> {
+    app_db.clear_app_cache().await
 }
 
-pub fn clear_app_cache_except_auth(app_db: &Arc<AppDb>) -> Result<(), String> {
-    app_db.clear_non_auth_cache()
+pub async fn clear_app_cache_except_auth(app_db: &Arc<AppDb>) -> Result<(), String> {
+    app_db.clear_non_auth_cache().await
 }
 
 pub fn clear_matrix_sdk_store(paths: &Paths) -> Result<(), String> {

@@ -40,7 +40,9 @@ pub async fn matrix_get_chat_messages(
         request.room_id.as_str(),
         from.as_deref(),
         limit,
-    )? {
+    )
+    .await?
+    {
         let _ = room_update_trigger_state.enqueue_refresh(Some(request.room_id.clone()), true);
 
         if !chat::helpers::has_stale_cached_media_urls(&cached.messages) {
@@ -58,7 +60,7 @@ pub async fn matrix_get_chat_messages(
     {
         Ok(response) => response,
         Err(error) if chat::helpers::is_room_unavailable_error(&error) => {
-            protocol::sync::sync_once_default(&client)
+            protocol::sync::sync_once_brief(&client)
                 .await
                 .map_err(|sync_error| {
                     format!(
@@ -78,7 +80,7 @@ pub async fn matrix_get_chat_messages(
     };
 
     if cacheable_initial_request {
-        chat::persistence::store_initial_room_messages(&app_db, &response)?;
+        chat::persistence::store_initial_room_messages(&app_db, &response).await?;
     }
 
     Ok(response)
@@ -104,6 +106,13 @@ pub async fn matrix_stream_chat_messages(
     let terminal_room_id = request.room_id.clone();
     let terminal_stream_id = request.stream_id.clone();
     let terminal_load_kind = request.load_kind;
+    // A stream that fails with an empty buffer never advanced its cursor, so
+    // the terminal event must carry the cursor it was given rather than null:
+    // the frontend overwrites `nextFrom` unconditionally, and nulling it here
+    // would disable "load older" for the rest of the session after a single
+    // transient failure. On success the stream emits its own terminal event
+    // with the real cursor, which clears `nextFrom` when the room is exhausted.
+    let terminal_next_from = request.from.clone();
 
     tauri::async_runtime::spawn(async move {
         let context = chat::receive::StreamRoomMessagesContext {
@@ -119,7 +128,7 @@ pub async fn matrix_stream_chat_messages(
 
         if let Err(error) = stream_result {
             if chat::helpers::is_room_unavailable_error(&error) {
-                if let Err(sync_error) = protocol::sync::sync_once_default(&client_for_task).await {
+                if let Err(sync_error) = protocol::sync::sync_once_brief(&client_for_task).await {
                     log::warn!(
                         "Background matrix stream sync failed after room-unavailable error: {sync_error}"
                     );
@@ -155,7 +164,7 @@ pub async fn matrix_stream_chat_messages(
                 load_kind: terminal_load_kind,
                 sequence: 0,
                 message: None,
-                next_from: None,
+                next_from: terminal_next_from,
                 done: true,
             }) {
                 Ok(payload) => {
@@ -241,7 +250,7 @@ pub async fn matrix_send_media_file(
     log::info!("matrix_send_media_file requested");
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
 
-    protocol::sync::sync_once_default(&client)
+    protocol::sync::sync_once_brief(&client)
         .await
         .map_err(|error| format!("Failed to sync Matrix before send: {error}"))?;
 
@@ -254,11 +263,14 @@ pub async fn matrix_send_media_file(
         request.file_path.as_str(),
         request.compress_media,
     )
-    .await?;
+    .await;
 
-    let _ = room_update_trigger_state.enqueue_refresh(Some(room_id), false);
+    // A failed media send still refreshes, exactly as a failed text send does:
+    // the room may have received an echo, or the local view may have shown
+    // something the server never accepted.
+    let _ = room_update_trigger_state.enqueue_refresh(Some(room_id), response.is_err());
 
-    Ok(response)
+    response
 }
 
 #[tauri::command]
@@ -287,7 +299,7 @@ pub async fn matrix_toggle_reaction(
     log::info!("matrix_toggle_reaction requested");
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
 
-    protocol::sync::sync_once_default(&client)
+    protocol::sync::sync_once_brief(&client)
         .await
         .map_err(|error| format!("Failed to sync Matrix before reaction toggle: {error}"))?;
 

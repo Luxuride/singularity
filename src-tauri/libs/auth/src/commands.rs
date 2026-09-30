@@ -128,8 +128,8 @@ pub async fn complete_oauth(
                 );
 
                 let _ = auth_state.clear_runtime_session();
-                let _ = clear_persisted_session(app_db);
-                let _ = clear_app_cache(app_db);
+                let _ = clear_persisted_session(app_db).await;
+                let _ = clear_app_cache(app_db).await;
                 let _ = clear_matrix_sdk_store(paths);
 
                 return Err(String::from("Sign-in failed. Please start sign-in again."));
@@ -150,7 +150,8 @@ pub async fn complete_oauth(
     persist_session(
         app_db,
         &PersistedMatrixSession::new(homeserver_url.clone(), persisted_matrix_session),
-    )?;
+    )
+    .await?;
 
     auth_state.set_authenticated(
         client.clone(),
@@ -161,8 +162,8 @@ pub async fn complete_oauth(
         },
     )?;
 
-    start_session_persistence_watcher(app_db.clone(), client.clone());
-    auth_state.fire_client_ready(&client);
+    let cancelled = auth_state.fire_client_ready(&client);
+    start_session_persistence_watcher(app_db.clone(), client.clone(), cancelled);
 
     Ok(MatrixAuthenticatedSessionResponse {
         authenticated: true,
@@ -217,8 +218,8 @@ pub async fn password_login(
                 );
 
                 let _ = auth_state.clear_runtime_session();
-                let _ = clear_persisted_session(app_db);
-                let _ = clear_app_cache(app_db);
+                let _ = clear_persisted_session(app_db).await;
+                let _ = clear_app_cache(app_db).await;
                 let _ = clear_matrix_sdk_store(paths);
 
                 return Err(String::from("Sign-in failed. Please try again."));
@@ -238,7 +239,8 @@ pub async fn password_login(
     persist_session(
         app_db,
         &PersistedMatrixSession::new(homeserver_url.clone(), persisted_matrix_session),
-    )?;
+    )
+    .await?;
 
     auth_state.set_authenticated(
         client.clone(),
@@ -249,8 +251,13 @@ pub async fn password_login(
         },
     )?;
 
-    start_session_persistence_watcher(app_db.clone(), client.clone());
-    auth_state.fire_client_ready(&client);
+    // A successful password login ends any SSO attempt: a `loginToken` callback
+    // that arrives later must not be able to swap a different client in as the
+    // live one while its own watchers run on unreferenced state.
+    let _ = auth_state.take_pending_client()?;
+
+    let cancelled = auth_state.fire_client_ready(&client);
+    start_session_persistence_watcher(app_db.clone(), client.clone(), cancelled);
 
     Ok(MatrixAuthenticatedSessionResponse {
         authenticated: true,
@@ -394,18 +401,18 @@ pub async fn logout(
         }
     }
 
-    clear_persisted_session(app_db)?;
-    clear_app_cache(app_db)?;
+    clear_persisted_session(app_db).await?;
+    clear_app_cache(app_db).await?;
     clear_matrix_sdk_store(paths)?;
 
     Ok(MatrixLogoutResponse { logged_out: true })
 }
 
 /// Clear the app cache while preserving the auth session.
-pub fn clear_cache_except_auth(
+pub async fn clear_cache_except_auth(
     app_db: &Arc<AppDb>,
 ) -> Result<MatrixClearCacheExceptAuthResponse, String> {
-    clear_app_cache_except_auth(app_db)?;
+    clear_app_cache_except_auth(app_db).await?;
 
     Ok(MatrixClearCacheExceptAuthResponse { cleared: true })
 }

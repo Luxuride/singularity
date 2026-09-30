@@ -26,19 +26,19 @@ pub async fn matrix_get_chats(
 }
 
 #[tauri::command]
-pub fn matrix_get_chat_navigation(
+pub async fn matrix_get_chat_navigation(
     request: Option<MatrixGetChatNavigationRequest>,
     app_db: State<'_, Arc<AppDb>>,
 ) -> Result<MatrixGetChatNavigationResponse, String> {
-    rooms::commands::get_chat_navigation(request, &app_db)
+    rooms::commands::get_chat_navigation(request, &app_db).await
 }
 
 #[tauri::command]
-pub fn matrix_set_root_space_order(
+pub async fn matrix_set_root_space_order(
     request: MatrixSetRootSpaceOrderRequest,
     app_db: State<'_, Arc<AppDb>>,
 ) -> Result<MatrixSetRootSpaceOrderResponse, String> {
-    rooms::commands::set_root_space_order(request, &app_db)
+    rooms::commands::set_root_space_order(request, &app_db).await
 }
 
 #[tauri::command]

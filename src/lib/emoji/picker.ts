@@ -12,7 +12,7 @@ export type EmojiShortcodeSuggestion = {
 };
 
 // If/when custom categories are added, this defines their display priority.
-export const CUSTOM_PICKER_CATEGORY_ORDER: string[] = [];
+const CUSTOM_PICKER_CATEGORY_ORDER: string[] = [];
 
 type EmojiClickDetail = {
   unicode?: string;
@@ -72,18 +72,25 @@ async function getEmojiDatabase(customEmoji: PickerCustomEmoji[]) {
   }));
 
   if (!emojiDatabasePromise) {
-    emojiDatabasePromise = import("emoji-picker-element").then(({ Database }) => {
-      return new Database({ customEmoji: dbCustomEmoji }) as {
-        getEmojiBySearchQuery: (query: string) => Promise<Array<{
-          unicode?: string;
-          shortcodes?: string[];
-          name?: string;
-          url?: string;
-        }>>;
-        getEmojiByShortcode: (shortcode: string) => Promise<{ unicode?: string } | null>;
-        customEmoji?: PickerDatabaseEmoji[];
-      };
-    });
+    // A rejected chunk load must not be cached, or a transient network failure
+    // leaves shortcode normalization dead for the session.
+    emojiDatabasePromise = import("emoji-picker-element")
+      .then(({ Database }) => {
+        return new Database({ customEmoji: dbCustomEmoji }) as {
+          getEmojiBySearchQuery: (query: string) => Promise<Array<{
+            unicode?: string;
+            shortcodes?: string[];
+            name?: string;
+            url?: string;
+          }>>;
+          getEmojiByShortcode: (shortcode: string) => Promise<{ unicode?: string } | null>;
+          customEmoji?: PickerDatabaseEmoji[];
+        };
+      })
+      .catch((error) => {
+        emojiDatabasePromise = null;
+        throw error;
+      });
   }
 
   const database = await emojiDatabasePromise;
@@ -110,7 +117,9 @@ export function applyCustomEmojiConfig(
     return;
   }
 
-  picker.customEmoji = customEmoji;
+  // emoji-picker-element sorts whatever array it is handed, in place, so the
+  // app-wide store must not be passed through directly.
+  picker.customEmoji = customEmoji.map((emoji) => ({ ...emoji }));
   picker.customCategorySorting = (a?: string, b?: string): number => {
     const indexOf = (category?: string): number => {
       if (!category) {
@@ -244,7 +253,7 @@ export async function normalizeReactionKey(
   return normalized.trim();
 }
 
-export function getActiveShortcodeRange(
+function getActiveShortcodeRange(
   input: string,
   cursorPosition: number,
 ): { start: number; end: number; query: string } | null {

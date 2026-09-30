@@ -1,4 +1,5 @@
-use std::{path::Path, sync::OnceLock};
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -33,8 +34,19 @@ pub async fn init_secret(
     Ok(())
 }
 
-/// Resolve the app database secret, preferring the OS keychain and falling back
-/// to a file in `secret_dir` when the keychain is unavailable.
+/// Path of the fallback secret file for `account_name` inside `secret_dir`.
+fn fallback_secret_path(secret_dir: &Path, account_name: &str) -> PathBuf {
+    secret_dir.join(format!("{account_name}.secret"))
+}
+
+/// Resolve the app database secret.
+///
+/// The keychain and the fallback file are two copies of one value, so they are
+/// reconciled rather than raced: whichever store already holds a secret is
+/// authoritative, the other is either re-seeded from it or removed. Minting a
+/// *new* secret is the last resort, because a fresh secret cannot open a
+/// database written under the previous one — that silently loses the user's
+/// message history.
 ///
 /// The resolved secret is also cached in the process-wide [`SECRET`] slot so
 /// that later callers (e.g. the encrypted database) can read it without
@@ -46,25 +58,82 @@ pub async fn get_or_create_secret<S: SecretStore>(
     account_name: &str,
     bytes_len: usize,
 ) -> Result<String, String> {
-    match store.get(service_name, account_name).await {
-        Ok(Some(secret)) if !secret.trim().is_empty() => {
-            SECRET.set(secret.clone()).ok();
-            return Ok(secret);
-        }
-        // Missing or empty keychain secret: fall through to generate a new one.
-        Ok(_) => {}
+    let path = fallback_secret_path(secret_dir, account_name);
+
+    let keychain_secret = match store.get(service_name, account_name).await {
+        Ok(Some(secret)) if !secret.trim().is_empty() => Some(secret),
+        // Missing or empty keychain secret: not authoritative.
+        Ok(_) => None,
         Err(error) => {
-            log::warn!("Keychain read failed, falling back to file secret storage: {error}");
-            return get_or_create_file_secret(secret_dir, account_name, bytes_len);
+            // A keychain read error is NOT proof that the keychain is empty: a
+            // locked keyring or a not-yet-ready Secret Service fails here while
+            // the entry still exists. Never mint a new secret in response.
+            log::warn!("Keychain read failed, consulting fallback file secret storage: {error}");
+            None
         }
+    };
+
+    if let Some(secret) = keychain_secret {
+        // The keychain is authoritative, so a fallback file is at best
+        // redundant and at worst corrupt. Neither is allowed to fail startup:
+        // propagating here would mean an unreadable scratch file could not open
+        // an app whose real key is safely in the keychain. Divergence is logged
+        // loudly because it means the file copy cannot open the database.
+        match read_file_secret(&path) {
+            Ok(Some(file_secret)) if file_secret != secret => {
+                log::error!(
+                    "Keychain and fallback file hold DIFFERENT database secrets; the keychain \
+                     copy wins and the file is removed. If this app profile has a database you \
+                     still need, restore the original keychain entry from a backup."
+                );
+                remove_file_secret(&path);
+            }
+            Ok(_) => remove_file_secret(&path),
+            Err(error) => {
+                log::warn!(
+                    "Ignoring unreadable fallback database secret while the keychain is healthy: \
+                     {error}"
+                );
+                // An empty file cannot open the database, so it is pure litter
+                // and the next first run would trip over it again. Anything
+                // non-empty is left alone: it may be a real key that is merely
+                // unreadable right now, and deleting an unreadable file we
+                // cannot inspect would be the one unrecoverable move here.
+                if std::fs::metadata(&path).is_ok_and(|meta| meta.len() == 0) {
+                    remove_file_secret(&path);
+                }
+            }
+        }
+        SECRET.set(secret.clone()).ok();
+        return Ok(secret);
     }
 
+    // The keychain is unusable or empty, so an existing file is the only
+    // remaining copy of the real secret. Re-seed the keychain with it so the
+    // two stores converge instead of diverging on every launch.
+    if let Some(secret) = read_file_secret(&path)? {
+        if let Err(error) = store.set(service_name, account_name, &secret).await {
+            log::warn!("Failed to re-seed keychain from fallback file secret: {error}");
+        }
+        SECRET.set(secret.clone()).ok();
+        return Ok(secret);
+    }
+
+    // Neither store holds a secret: this really is a first run.
     let encoded = generate_secret(bytes_len);
 
     if let Err(error) = store.set(service_name, account_name, &encoded).await {
-        log::warn!("Failed to store keychain secret, falling back to file storage: {error}");
-        return get_or_create_file_secret(secret_dir, account_name, bytes_len);
+        log::warn!("Failed to store keychain secret, relying on the file fallback: {error}");
     }
+
+    // Persisted even when the keychain write succeeded. This is a deliberate
+    // durability-over-tidiness tradeoff: a keychain read that fails later
+    // (locked keyring, Secret Service not yet up) leaves the file as the only
+    // copy, and a freshly minted secret cannot open a database written under
+    // the old one — so skipping it here trades a 0600 file for a future
+    // unreadable database. The file is owner-only, and it is only ever *read*
+    // when the keychain is unusable.
+    write_file_secret(&path, &encoded)?;
 
     SECRET.set(encoded.clone()).ok();
     Ok(encoded)
@@ -77,45 +146,105 @@ fn generate_secret(bytes_len: usize) -> String {
     base64::Engine::encode(&base64::engine::general_purpose::STANDARD, secret_bytes)
 }
 
-fn get_or_create_file_secret(
-    secret_dir: &Path,
-    account_name: &str,
-    bytes_len: usize,
-) -> Result<String, String> {
-    let file_name = format!("{account_name}.secret");
-    let path = secret_dir.join(file_name);
-
+/// Read the fallback secret file.
+///
+/// Returns `Ok(None)` only when the file genuinely does not exist. An existing
+/// file that is empty or non-UTF-8 is corruption, not a first run: overwriting
+/// it would replace the only surviving copy of a key the database depends on,
+/// so that is reported as an error instead.
+fn read_file_secret(path: &Path) -> Result<Option<String>, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|error| format!("Failed to create secret storage directory: {error}"))?;
     }
 
-    if let Ok(secret) = std::fs::read_to_string(&path) {
-        if !secret.trim().is_empty() {
-            SECRET.set(secret.clone()).ok();
-            return Ok(secret);
+    match std::fs::read_to_string(path) {
+        Ok(secret) => {
+            if secret.trim().is_empty() {
+                return Err(format!(
+                    "Fallback app database secret at {path:?} is empty. Refusing to overwrite it: \
+                     regenerating would make the encrypted database unreadable. Restore the file \
+                     from a backup, or delete it to start over with a new database."
+                ));
+            }
+            Ok(Some(secret))
         }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!(
+            "Failed to read fallback app database secret at {path:?}: {error}"
+        )),
     }
+}
 
-    let encoded = generate_secret(bytes_len);
+/// Write the fallback secret file with owner-only permissions.
+///
+/// Written to a sibling temp file and renamed, so a crash or a full disk can
+/// never leave a truncated secret file behind — the previous file survives
+/// intact until the rename replaces it atomically.
+fn write_file_secret(path: &Path, secret: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("Secret path {path:?} has no parent directory"))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("Failed to create secret storage directory: {error}"))?;
 
-    std::fs::write(&path, &encoded)
-        .map_err(|error| format!("Failed to persist fallback app database secret: {error}"))?;
+    let nonce = rand::random::<u64>();
+    let temp_path = parent.join(format!(".secret-{}-{nonce}.tmp", std::process::id()));
+
+    let write_result = (|| -> std::io::Result<()> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            // Set the mode at creation so the plaintext key is never briefly
+            // world-readable, and the rename below preserves it.
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temp_path)?;
+        std::io::Write::write_all(&mut file, secret.as_bytes())?;
+        file.sync_all()
+    })();
+
+    if let Err(error) = write_result {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(format!(
+            "Failed to persist fallback app database secret: {error}"
+        ));
+    }
 
     #[cfg(unix)]
     {
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-            .map_err(|error| format!("Failed to set fallback secret file permissions: {error}"))?;
+        // Re-assert on the reuse path too: a file created by an older build, or
+        // one whose mode was widened by a backup/restore tool, must not stay
+        // readable by other local users.
+        if let Err(error) =
+            std::fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o600))
+        {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(format!(
+                "Failed to set fallback secret file permissions: {error}"
+            ));
+        }
     }
 
-    SECRET.set(encoded.clone()).ok();
-    Ok(encoded)
+    std::fs::rename(&temp_path, path).map_err(|error| {
+        let _ = std::fs::remove_file(&temp_path);
+        format!("Failed to move fallback app database secret into place: {error}")
+    })
+}
+
+fn remove_file_secret(path: &Path) {
+    if let Err(error) = std::fs::remove_file(path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            log::warn!("Failed to remove redundant fallback secret at {path:?}: {error}");
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use std::sync::Mutex;
 
     /// In-memory `SecretStore` for exercising the get-or-create logic without a
@@ -162,13 +291,18 @@ mod tests {
     }
 
     fn temp_secret_dir() -> PathBuf {
+        // See the note on `temp_db_path` in db.rs: a clock-only name is not
+        // unique, and two tests sharing a directory clobber each other's
+        // secret file mid-run.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "singularity-secret-test-{}-{}",
+            "singularity-secret-test-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -217,6 +351,201 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&file).unwrap().trim(),
             secret.trim()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Regression: the keychain copy and the file copy are byte-identical, so
+    /// a later outage cannot hand the database a different key.
+    #[tokio::test]
+    async fn the_keychain_and_the_file_never_diverge() {
+        let store = MockStore::default();
+        let dir = temp_secret_dir();
+
+        let secret = get_or_create_secret(&store, &dir, "svc", "acct", 32)
+            .await
+            .unwrap();
+
+        assert!(!secret.trim().is_empty());
+        // The fallback file is intentionally written here too; see
+        // `the_file_fallback_survives_a_later_keychain_outage`. What must never
+        // happen is a *second, different* key being minted.
+        assert_eq!(
+            std::fs::read_to_string(dir.join("acct.secret")).unwrap(),
+            secret
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Regression: the keychain and the fallback file never diverge once a key
+    /// has been written.
+    #[tokio::test]
+    async fn the_file_fallback_survives_a_later_keychain_outage() {
+        let store = MockStore::default();
+        let dir = temp_secret_dir();
+
+        let secret = get_or_create_secret(&store, &dir, "svc", "acct", 32)
+            .await
+            .unwrap();
+
+        // The keychain is fine, so the file is redundant right now...
+        assert_eq!(
+            std::fs::read_to_string(dir.join("acct.secret")).unwrap(),
+            secret
+        );
+
+        // ...and decisive when the keychain stops answering.
+        let recovered = get_or_create_secret(&FailingStore, &dir, "svc", "acct", 32)
+            .await
+            .unwrap();
+        assert_eq!(
+            recovered, secret,
+            "an outage must not change the database key"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Regression: a transient keychain failure must not mint a *second* secret.
+    /// The file secret is the only surviving copy, so it has to win.
+    #[tokio::test]
+    async fn keychain_failure_reuses_existing_file_secret() {
+        let dir = temp_secret_dir();
+        let path = dir.join("acct.secret");
+        write_file_secret(&path, "file-secret").unwrap();
+
+        // Keychain unreachable, but the file already holds the real secret.
+        let secret = get_or_create_secret(&FailingStore, &dir, "svc", "acct", 32)
+            .await
+            .unwrap();
+
+        assert_eq!(secret, "file-secret");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "file-secret");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Regression: the same secret must survive a keychain outage either way
+    /// round, so the two stores converge instead of diverging per launch.
+    #[tokio::test]
+    async fn keychain_is_reseeded_from_file_after_an_outage() {
+        let dir = temp_secret_dir();
+        let path = dir.join("acct.secret");
+        write_file_secret(&path, "file-secret").unwrap();
+
+        let store = MockStore::default();
+        let secret = get_or_create_secret(&store, &dir, "svc", "acct", 32)
+            .await
+            .unwrap();
+
+        assert_eq!(secret, "file-secret");
+        assert_eq!(
+            store.get("svc", "acct").await.unwrap().as_deref(),
+            Some("file-secret")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Regression: a corrupt fallback file must never fail startup while the
+    /// keychain is healthy. The keychain is authoritative, so the app opens
+    /// with the key it actually needs.
+    #[tokio::test]
+    async fn a_healthy_keychain_ignores_a_corrupt_file_secret() {
+        let store = MockStore::default();
+        store.set("svc", "acct", "keychain-secret").await.unwrap();
+        let dir = temp_secret_dir();
+        let path = dir.join("acct.secret");
+        std::fs::write(&path, "").unwrap();
+
+        let secret = get_or_create_secret(&store, &dir, "svc", "acct", 32)
+            .await
+            .expect("a corrupt fallback file must not abort startup");
+
+        assert_eq!(secret, "keychain-secret");
+        assert!(!path.exists(), "the useless file should be removed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Regression: with a keychain secret present, a stale file from an earlier
+    /// outage must not shadow it.
+    #[tokio::test]
+    async fn keychain_secret_wins_over_a_divergent_file() {
+        let store = MockStore::default();
+        store.set("svc", "acct", "keychain-secret").await.unwrap();
+        let dir = temp_secret_dir();
+        let path = dir.join("acct.secret");
+        write_file_secret(&path, "divergent-file-secret").unwrap();
+
+        let secret = get_or_create_secret(&store, &dir, "svc", "acct", 32)
+            .await
+            .unwrap();
+
+        assert_eq!(secret, "keychain-secret");
+        assert!(!path.exists(), "divergent file secret should be removed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Regression: an empty or unreadable file must be reported, never
+    /// overwritten, because regenerating bricks the encrypted database.
+    #[tokio::test]
+    async fn refuses_to_overwrite_a_corrupt_secret_file() {
+        let dir = temp_secret_dir();
+        let path = dir.join("acct.secret");
+        std::fs::write(&path, "").unwrap();
+
+        let error = get_or_create_secret(&FailingStore, &dir, "svc", "acct", 32)
+            .await
+            .expect_err("an empty secret file must not be silently regenerated");
+
+        assert!(error.contains("empty"), "unexpected error: {error}");
+        assert!(path.exists(), "the corrupt file must be left in place");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn fallback_secret_file_is_owner_only() {
+        let dir = temp_secret_dir();
+        let path = dir.join("acct.secret");
+        write_file_secret(&path, "file-secret").unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "fallback secret file must not be group/other readable"
+        );
+
+        // The reuse path must re-assert the mode, not just the create path.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_file_secret(&path, "file-secret-2").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn read_file_secret_treats_missing_as_none() {
+        let dir = temp_secret_dir();
+        let path = dir.join("absent.secret");
+        assert!(read_file_secret(&path).unwrap().is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn write_file_secret_replaces_atomically_without_leaving_temp_files() {
+        let dir = temp_secret_dir();
+        let path = dir.join("acct.secret");
+        write_file_secret(&path, "first").unwrap();
+        write_file_secret(&path, "second").unwrap();
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
+        let leftovers: Vec<_> = std::fs::read_dir(Path::new(&dir))
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name != "acct.secret")
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp files left behind: {leftovers:?}"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

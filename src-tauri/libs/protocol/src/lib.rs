@@ -3,6 +3,7 @@
 
 pub mod endpoints;
 pub mod events_schema;
+pub mod sanitize;
 pub mod sync;
 pub mod validation;
 
