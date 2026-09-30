@@ -8,8 +8,32 @@
 		"context": ".."
 	},
 
+	// GUI passthrough so `npm run tauri dev` opens a window outside VS Code
+	// too. VS Code injects the display env and the wayland socket itself, so
+	// without these GTK aborts with "Failed to initialize GTK" from tao.
+	// XDG_RUNTIME_DIR=/tmp is what libwayland uses to resolve a relative
+	// WAYLAND_DISPLAY, so the socket is mounted at /tmp/wayland-0.
+	"runArgs": [
+		"--ipc=host"
+	],
+
 	// Use 'mounts' to make the cargo cache persistent in a Docker Volume.
 	"mounts": [
+		{
+			"source": "/run/user/1000/${localEnv:WAYLAND_DISPLAY}",
+			"target": "/tmp/wayland-0",
+			"type": "bind"
+		},
+		{
+			"source": "/tmp/.X11-unix",
+			"target": "/tmp/.X11-unix",
+			"type": "bind"
+		},
+		{
+			"source": "${localEnv:XAUTHORITY}",
+			"target": "/tmp/.devcontainer-xauth",
+			"type": "bind"
+		},
 		{
 			"source": "devcontainer-cargo-cache-${devcontainerId}",
 			"target": "/usr/local/cargo",
@@ -33,6 +57,14 @@
 			"type": "volume"
 		}
 	],
+	"containerEnv": {
+		"WAYLAND_DISPLAY": "wayland-0",
+		"XDG_RUNTIME_DIR": "/tmp",
+		"GDK_BACKEND": "wayland",
+		"DISPLAY": ":0",
+		"XAUTHORITY": "/tmp/.devcontainer-xauth"
+	},
+
 	"customizations": {
 		"vscode": {
 			"extensions": [
