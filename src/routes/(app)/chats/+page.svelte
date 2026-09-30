@@ -70,6 +70,8 @@
   const seenEventIds = new Set<string>();
 
   const AUTO_LOAD_TOP_THRESHOLD_PX = 96;
+  const NEAR_BOTTOM_PX = 48;
+  const PROGRAMMATIC_SCROLL_SETTLE_MS = 800;
   // The room worker holds the per-homeserver sync lock for as long as the
   // server keeps a long poll open, and a send queues behind it, so a slow
   // homeserver can spend this long before the first page lands.
@@ -79,6 +81,8 @@
 
   let previousSelectedRoomId = "";
   let lastScrollTop = 0;
+  let isScrolledToBottom = $state(true);
+  let programmaticScrollUntil = 0;
 
   onMount(() => {
     let unlisten = () => {};
@@ -131,16 +135,28 @@
     void loadMessages(selectedRoomId);
   });
 
+  function distanceToBottom(element: HTMLElement): number {
+    return Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop);
+  }
+
+  function beginProgrammaticScroll() {
+    programmaticScrollUntil = performance.now() + PROGRAMMATIC_SCROLL_SETTLE_MS;
+  }
+
   function handleTimelineScroll() {
     const selectedRoomId = $shellSelectedRoomId;
-
-    if (!selectedRoomId || !timelineElement) {
+    if (!timelineElement) {
       return;
     }
 
     const scrollTop = timelineElement.scrollTop;
     const scrollingUp = scrollTop < lastScrollTop;
     lastScrollTop = scrollTop;
+    isScrolledToBottom = distanceToBottom(timelineElement) <= NEAR_BOTTOM_PX;
+
+    if (!selectedRoomId || performance.now() < programmaticScrollUntil) {
+      return;
+    }
 
     // Only auto-load older messages while the user is actively scrolling up
     // toward the top. When older messages are prepended, CSS scroll anchoring
@@ -166,7 +182,14 @@
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
-  function queuePinTimelineToBottom(roomId: string) {
+  // `force` holds the viewport on the newest message regardless of where it
+  // currently is; without it, only a timeline already parked at the bottom
+  // stays there, so history stays put while it is being read.
+  function queuePinTimelineToBottom(roomId: string, options: { force?: boolean } = {}) {
+    if (!options.force && !isScrolledToBottom) {
+      return;
+    }
+
     if (pendingPinToBottomRoomId === roomId) {
       return;
     }
@@ -182,8 +205,10 @@
         return;
       }
 
+      beginProgrammaticScroll();
       const maxScrollTop = Math.max(0, timelineElement.scrollHeight - timelineElement.clientHeight);
       timelineElement.scrollTop = maxScrollTop;
+      isScrolledToBottom = true;
 
       pendingPinToBottomRoomId = "";
     })();
@@ -253,14 +278,11 @@
       activeLoadKind = null;
       streamMessageCount = 0;
 
-      // Pin to the bottom once the initial stream has fully rendered, so the
-      // viewport lands on the newest messages. Pinning per-message would leave
-      // the viewport stuck near the top (only the first message's height),
-      // which then makes the scroll handler think the user is at the top and
-      // auto-load the entire history.
-      if (payload.loadKind === "initial") {
-        queuePinTimelineToBottom(payload.roomId);
-      }
+  // A fresh room always lands on the newest message, wherever the previous
+  // room was scrolled to.
+  if (payload.loadKind === "initial") {
+    queuePinTimelineToBottom(payload.roomId, { force: true });
+  }
       return;
     }
 
@@ -546,7 +568,7 @@
     }
 
     messages = [...messages, optimistic];
-    queuePinTimelineToBottom($shellSelectedRoomId);
+    queuePinTimelineToBottom($shellSelectedRoomId, { force: true });
 
     sendingMedia = true;
     mediaErrorMessage = "";
@@ -667,7 +689,7 @@
       });
     } finally {
       sendingMessage = false;
-      queuePinTimelineToBottom(roomId);
+      queuePinTimelineToBottom(roomId, { force: true });
     }
   }
 
@@ -698,7 +720,7 @@
     }
 
     messages = [...messages, optimistic];
-    queuePinTimelineToBottom(roomId);
+    queuePinTimelineToBottom(roomId, { force: true });
 
     await sendOptimisticMessage(
       roomId,
@@ -890,6 +912,8 @@
 
   function resetRoomState() {
     lastScrollTop = 0;
+    isScrolledToBottom = true;
+    programmaticScrollUntil = 0;
     activeStreamId = "";
     activeLoadKind = null;
     streamMessageCount = 0;
@@ -1073,6 +1097,7 @@
       isSending={sendingMessage}
       onTimelineElementChange={(element) => timelineElement = element}
       onScroll={handleTimelineScroll}
+      onProgrammaticScroll={beginProgrammaticScroll}
       onLoadOlder={loadOlder}
       onRetryMessage={retryMessage}
       onToggleReaction={handleToggleReaction}
