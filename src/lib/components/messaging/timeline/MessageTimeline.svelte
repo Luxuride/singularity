@@ -28,6 +28,7 @@
     nextFrom: string | null;
     isSending: boolean;
     onTimelineElementChange?: (element: HTMLElement | null) => void;
+    onProgrammaticScroll?: () => void;
     onScroll?: (event: Event) => void;
     onLoadOlder?: () => void;
     onRetryMessage?: RetryMessageHandler;
@@ -50,6 +51,7 @@
     nextFrom,
     isSending,
     onTimelineElementChange,
+    onProgrammaticScroll,
     onScroll,
     onLoadOlder,
     onRetryMessage,
@@ -84,6 +86,7 @@
       {pickerCustomEmoji}
       {isSending}
       {onScroll}
+      {onProgrammaticScroll}
       {onRetryMessage}
       {onToggleReaction}
       {onReplyToMessage}

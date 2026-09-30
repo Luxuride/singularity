@@ -32,6 +32,8 @@ log = "0.4"
 rand = "0.8"
 base64 = "0.22"
 markup = "0.15"
+# Sanitiser for remote `formatted_body`, which the frontend renders with {@html}
+ammonia = "4"
 rusqlite = "0.37.0"
 open = "5"
 

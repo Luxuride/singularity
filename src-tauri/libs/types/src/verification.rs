@@ -132,7 +132,8 @@ pub struct MatrixVerificationFlowResponse {
     pub is_cancelled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decimals: Option<[u16; 3]>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    /// Always serialized, including as an empty array, so the generated
+    /// TypeScript type can mark it required.
     pub emojis: Vec<MatrixVerificationEmoji>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
@@ -143,4 +144,52 @@ pub struct MatrixVerificationFlowResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MatrixVerificationStateChangedEvent {
     pub verified: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn flow(emojis: Vec<MatrixVerificationEmoji>) -> MatrixVerificationFlowResponse {
+        MatrixVerificationFlowResponse {
+            flow_id: "flow".to_owned(),
+            user_id: "@alice:example.org".to_owned(),
+            request_state: MatrixVerificationRequestState::Ready,
+            sas_state: Some(MatrixSasVerificationState::Created),
+            can_accept_request: true,
+            can_start_sas: true,
+            can_accept_sas: false,
+            can_confirm_sas: false,
+            is_done: false,
+            is_cancelled: false,
+            decimals: Some([1, 2, 3]),
+            emojis,
+            message: None,
+        }
+    }
+
+    /// The generated TypeScript type declares `emojis` as required, so the
+    /// wire format has to carry the key even when the list is empty.
+    #[test]
+    fn a_flow_without_emojis_still_serializes_the_key() {
+        let json = serde_json::to_value(flow(Vec::new())).unwrap();
+
+        assert_eq!(json["emojis"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn absent_optional_fields_are_omitted() {
+        let mut response = flow(vec![MatrixVerificationEmoji {
+            symbol: "\u{1f44b}".to_owned(),
+            description: "wave".to_owned(),
+        }]);
+        response.decimals = None;
+        response.message = None;
+
+        let json = serde_json::to_value(&response).unwrap();
+
+        assert!(json.get("decimals").is_none());
+        assert!(json.get("message").is_none());
+        assert_eq!(json["emojis"][0]["description"], "wave");
+    }
 }

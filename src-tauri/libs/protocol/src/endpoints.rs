@@ -27,6 +27,16 @@ pub fn normalize_homeserver_url(raw: &str) -> Result<String, String> {
     normalized.set_path("");
     normalized.set_query(None);
     normalized.set_fragment(None);
+    let normalized_origin = normalized.origin().ascii_serialization();
+
+    if normalized.scheme() == "http" {
+        // Plain http sends the password grant, the access token and every
+        // message in the clear. Legitimate behind a trusted local proxy, so the
+        // URL is accepted, but never without saying so.
+        log::warn!(
+            "Homeserver {normalized_origin} is plain http: credentials and message content will cross the network unencrypted",
+        );
+    }
 
     Ok(normalized.to_string().trim_end_matches('/').to_owned())
 }

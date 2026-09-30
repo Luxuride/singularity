@@ -82,8 +82,8 @@ pub async fn matrix_logout(
 }
 
 #[tauri::command]
-pub fn matrix_clear_cache_except_auth(
+pub async fn matrix_clear_cache_except_auth(
     app_db: State<'_, Arc<AppDb>>,
 ) -> Result<MatrixClearCacheExceptAuthResponse, String> {
-    auth::clear_cache_except_auth(&app_db)
+    auth::clear_cache_except_auth(&app_db).await
 }

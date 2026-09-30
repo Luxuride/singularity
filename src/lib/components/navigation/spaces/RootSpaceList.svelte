@@ -26,9 +26,30 @@
   let lastPersistedOrder = $state<string[]>([]);
   let lazyImageUrlsByRoomId = $state<Record<string, string | null>>({});
   let joinRoomDialogOpen = $state(false);
+  let isDragging = $state(false);
+  let persistQueue: Promise<void> = Promise.resolve();
 
   $effect(() => {
     const nextSpaces = spaces.filter((space) => !isVirtualRoomId(space.roomId));
+    const nextById = new Map(nextSpaces.map((space) => [space.roomId, space]));
+
+    // A navigation refresh mid-drag would otherwise snap the list back under
+    // the pointer, so the local order wins until the drag ends.
+    if (isDragging) {
+      draggableItems = draggableItems
+        .map((item) => {
+          const space = nextById.get(item.id);
+          return space ? { id: item.id, space } : item;
+        })
+        .filter((item) => nextById.has(item.id) || item[SHADOW_ITEM_MARKER_PROPERTY_NAME] !== undefined);
+      for (const space of nextSpaces) {
+        if (!draggableItems.some((item) => item.id === space.roomId)) {
+          draggableItems = [...draggableItems, { id: space.roomId, space }];
+        }
+      }
+      return;
+    }
+
     draggableItems = toDndItems(nextSpaces);
     lastPersistedOrder = nextSpaces.map((space) => space.roomId);
   });
@@ -91,27 +112,46 @@
     return item.id;
   }
 
-  async function persistRootSpaceOrder(nextIds: string[], previousIds: string[]): Promise<void> {
-    try {
-      await onReorderRootSpaces?.(nextIds);
-      lastPersistedOrder = nextIds;
-    } catch (error) {
-      console.error("Failed to reorder root spaces:", error);
-      
-      // Rollback to previous order
-      const byId = new Map(
-        draggableItems
-          .filter((item) => item.space !== null)
-          .map((item) => [item.id, item.space as MatrixChatSummary]),
-      );
-      draggableItems = previousIds
-        .map((roomId) => byId.get(roomId))
-        .filter((space): space is MatrixChatSummary => space != null)
-        .map((space) => ({ id: space.roomId, space }));
+  /// Reorders run one at a time and in the order the user made them, so the
+  /// stored order is never the older of two overlapping saves.
+  function persistRootSpaceOrder(nextIds: string[], previousIds: string[]): Promise<void> {
+    persistQueue = persistQueue
+      .then(() => onReorderRootSpaces?.(nextIds))
+      .then(() => {
+        lastPersistedOrder = nextIds;
+      })
+      .catch((error) => {
+        console.error("Failed to reorder root spaces:", error);
+        rollbackRootSpaceOrder(previousIds);
+      });
+
+    return persistQueue;
+  }
+
+  /// Restores the pre-drag order, keeping any space the local list knows about
+  /// but the stored order does not.
+  function rollbackRootSpaceOrder(previousIds: string[]): void {
+    const byId = new Map(
+      draggableItems
+        .filter((item) => item.space !== null)
+        .map((item) => [item.id, item.space as MatrixChatSummary]),
+    );
+    const restored = previousIds
+      .map((roomId) => byId.get(roomId))
+      .filter((space): space is MatrixChatSummary => space != null)
+      .map((space) => ({ id: space.roomId, space }));
+
+    for (const item of draggableItems) {
+      if (item.space !== null && !previousIds.includes(item.id)) {
+        restored.push({ id: item.id, space: item.space });
+      }
     }
+
+    draggableItems = restored;
   }
 
   function handleDndConsider(event: CustomEvent<DndEvent<RootSpaceDndItem>>): void {
+    isDragging = true;
     draggableItems = event.detail.items;
   }
 
@@ -120,6 +160,11 @@
 
     const nextIds = getPersistedOrder(event.detail.items);
     const previousIds = [...lastPersistedOrder];
+    isDragging = false;
+
+    if (nextIds.length === previousIds.length && nextIds.every((id, index) => id === previousIds[index])) {
+      return;
+    }
 
     void persistRootSpaceOrder(nextIds, previousIds);
   }

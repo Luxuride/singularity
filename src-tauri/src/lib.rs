@@ -94,8 +94,8 @@ pub fn run() {
             // watcher whenever a Matrix client becomes ready.
             {
                 let sink = event_sink.clone();
-                auth_state.set_on_client_ready(Box::new(move |client| {
-                    verification::start_verification_state_watcher(sink.clone(), client);
+                auth_state.set_on_client_ready(Arc::new(move |client, cancelled| {
+                    verification::start_verification_state_watcher(sink.clone(), client, cancelled);
                 }));
             }
 

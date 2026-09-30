@@ -1,21 +1,21 @@
 use std::collections::HashMap;
 use std::fs;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use matrix_sdk::authentication::matrix::MatrixSession as SdkMatrixSession;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use types::chat::{
-    MatrixChatMessage, MatrixGetChatMessagesResponse, MatrixMessageDecryptionStatus,
-    MatrixMessageVerificationStatus,
+    MatrixChatMessage, MatrixCustomEmoji, MatrixGetChatMessagesResponse,
+    MatrixMessageDecryptionStatus, MatrixMessageVerificationStatus, MatrixReactionSummary,
 };
 use types::rooms::{MatrixChatSummary, MatrixRoomKind};
 
 const SINGLETON_ROW_ID: i64 = 1;
 
 pub struct AppDb {
-    connection: Mutex<Connection>,
+    connection: Arc<Mutex<Connection>>,
 }
 
 impl AppDb {
@@ -44,75 +44,10 @@ impl AppDb {
             }
         };
 
-        connection
-            .execute_batch(
-                "
-                DROP TABLE IF EXISTS app_cache;
-                DROP TABLE IF EXISTS app_settings;
-
-                CREATE TABLE IF NOT EXISTS session_cache (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    homeserver_url TEXT NOT NULL,
-                    matrix_session BLOB NOT NULL,
-                    updated_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS chats_cache (
-                    room_id TEXT PRIMARY KEY,
-                    display_name TEXT NOT NULL,
-                    image_url TEXT,
-                    encrypted INTEGER NOT NULL,
-                    joined_members INTEGER NOT NULL,
-                    room_kind TEXT NOT NULL DEFAULT 'room',
-                    joined INTEGER NOT NULL DEFAULT 1,
-                    is_direct INTEGER NOT NULL DEFAULT 0,
-                    children_room_ids TEXT NOT NULL DEFAULT '[]',
-                    updated_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS root_space_order (
-                    room_id TEXT PRIMARY KEY,
-                    position INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS chat_image_source_cache (
-                    room_id TEXT PRIMARY KEY,
-                    source_url TEXT NOT NULL,
-                    updated_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS message_cache_state (
-                    room_id TEXT PRIMARY KEY,
-                    next_from TEXT,
-                    updated_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS message_cache (
-                    room_id TEXT NOT NULL,
-                    sequence INTEGER NOT NULL,
-                    event_id TEXT,
-                    in_reply_to_event_id TEXT,
-                    sender TEXT NOT NULL,
-                    timestamp INTEGER,
-                    body TEXT NOT NULL,
-                    message_type TEXT,
-                    image_url TEXT,
-                    encrypted INTEGER NOT NULL,
-                    decryption_status TEXT NOT NULL,
-                    verification_status TEXT NOT NULL,
-                    updated_at INTEGER NOT NULL,
-                    PRIMARY KEY (room_id, sequence)
-                );
-                ",
-            )
-            .map_err(|error| format!("Failed to initialize app database schema: {error}"))?;
-
-        Self::ensure_chats_cache_columns(&connection)?;
-        Self::ensure_message_cache_columns(&connection)?;
+        crate::migration::migrate(&connection)?;
 
         Ok(Self {
-            connection: Mutex::new(connection),
+            connection: Arc::new(Mutex::new(connection)),
         })
     }
 
@@ -144,697 +79,575 @@ impl AppDb {
         Ok(connection)
     }
 
-    fn ensure_chats_cache_columns(connection: &Connection) -> Result<(), String> {
-        let mut statement = connection
-            .prepare("PRAGMA table_info(chats_cache)")
-            .map_err(|error| format!("Failed to inspect chats cache schema: {error}"))?;
-
-        let mut rows = statement
-            .query([])
-            .map_err(|error| format!("Failed to query chats cache schema: {error}"))?;
-
-        let mut has_room_kind = false;
-        let mut has_joined = false;
-        let mut has_is_direct = false;
-        let mut has_children_room_ids = false;
-        let mut has_image_url = false;
-        let mut has_legacy_parent_columns = false;
-
-        while let Some(row) = rows
-            .next()
-            .map_err(|error| format!("Failed to read chats cache schema row: {error}"))?
-        {
-            let column_name: String = row
-                .get(1)
-                .map_err(|error| format!("Failed to decode chats cache column name: {error}"))?;
-
-            if column_name == "room_kind" {
-                has_room_kind = true;
-            }
-
-            if column_name == "joined" {
-                has_joined = true;
-            }
-
-            if column_name == "is_direct" {
-                has_is_direct = true;
-            }
-
-            if column_name == "children_room_ids" {
-                has_children_room_ids = true;
-            }
-
-            if column_name == "parent_room_id" || column_name == "parent_room_ids" {
-                has_legacy_parent_columns = true;
-            }
-
-            if column_name == "image_url" {
-                has_image_url = true;
-            }
-        }
-
-        let schema_incompatible = has_legacy_parent_columns
-            || !has_room_kind
-            || !has_joined
-            || !has_is_direct
-            || !has_image_url
-            || !has_children_room_ids;
-
-        if schema_incompatible {
-            log::warn!("Recreating chats_cache for breaking children_room_ids schema change");
-            connection
-                .execute_batch(
-                    "
-                    DROP TABLE IF EXISTS chats_cache;
-
-                    CREATE TABLE chats_cache (
-                        room_id TEXT PRIMARY KEY,
-                        display_name TEXT NOT NULL,
-                        image_url TEXT,
-                        encrypted INTEGER NOT NULL,
-                        joined_members INTEGER NOT NULL,
-                        room_kind TEXT NOT NULL DEFAULT 'room',
-                        joined INTEGER NOT NULL DEFAULT 1,
-                        is_direct INTEGER NOT NULL DEFAULT 0,
-                        children_room_ids TEXT NOT NULL DEFAULT '[]',
-                        updated_at INTEGER NOT NULL
-                    );
-                    ",
-                )
-                .map_err(|error| {
-                    format!("Failed to recreate chats cache for new schema: {error}")
-                })?;
-        }
-
-        Ok(())
-    }
-
-    fn ensure_message_cache_columns(connection: &Connection) -> Result<(), String> {
-        let mut statement = connection
-            .prepare("PRAGMA table_info(message_cache)")
-            .map_err(|error| format!("Failed to inspect message cache schema: {error}"))?;
-
-        let mut rows = statement
-            .query([])
-            .map_err(|error| format!("Failed to query message cache schema: {error}"))?;
-
-        let mut has_message_type = false;
-        let mut has_image_url = false;
-        let mut has_in_reply_to_event_id = false;
-        let mut has_formatted_body = false;
-
-        while let Some(row) = rows
-            .next()
-            .map_err(|error| format!("Failed to read message cache schema row: {error}"))?
-        {
-            let column_name: String = row
-                .get(1)
-                .map_err(|error| format!("Failed to decode message cache column name: {error}"))?;
-
-            if column_name == "message_type" {
-                has_message_type = true;
-            }
-
-            if column_name == "image_url" {
-                has_image_url = true;
-            }
-
-            if column_name == "in_reply_to_event_id" {
-                has_in_reply_to_event_id = true;
-            }
-
-            if column_name == "formatted_body" {
-                has_formatted_body = true;
-            }
-        }
-
-        if !has_message_type {
-            connection
-                .execute("ALTER TABLE message_cache ADD COLUMN message_type TEXT", [])
-                .map_err(|error| {
-                    format!("Failed to add message cache message_type column: {error}")
-                })?;
-        }
-
-        if !has_image_url {
-            connection
-                .execute("ALTER TABLE message_cache ADD COLUMN image_url TEXT", [])
-                .map_err(|error| {
-                    format!("Failed to add message cache image_url column: {error}")
-                })?;
-        }
-
-        if !has_in_reply_to_event_id {
-            connection
-                .execute(
-                    "ALTER TABLE message_cache ADD COLUMN in_reply_to_event_id TEXT",
-                    [],
-                )
-                .map_err(|error| {
-                    format!("Failed to add message cache in_reply_to_event_id column: {error}")
-                })?;
-        }
-
-        if !has_formatted_body {
-            connection
-                .execute(
-                    "ALTER TABLE message_cache ADD COLUMN formatted_body TEXT",
-                    [],
-                )
-                .map_err(|error| {
-                    format!("Failed to add message cache formatted_body column: {error}")
-                })?;
-        }
-
-        Ok(())
-    }
-
-    pub fn lock(&self) -> Result<MutexGuard<'_, Connection>, String> {
+    /// Test-only handle for asserting on the stored representation directly,
+    /// which `run_blocking` deliberately keeps out of the public surface.
+    #[cfg(test)]
+    fn lock_for_test(&self) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
         self.connection
             .lock()
             .map_err(|_| String::from("Failed to lock app database connection"))
     }
 
-    pub fn persist_session(
+    /// Runs one statement sequence against the connection on a blocking thread.
+    ///
+    /// rusqlite is synchronous, and a busy transaction here would otherwise park
+    /// an async worker for as long as `busy_timeout` allows, stalling every other
+    /// command behind it. The connection travels into the task rather than being
+    /// borrowed, because a `MutexGuard` is not `Send`.
+    async fn run_blocking<T, F>(&self, operation: F) -> Result<T, String>
+    where
+        F: FnOnce(&mut Connection) -> Result<T, String> + Send + 'static,
+        T: Send + 'static,
+    {
+        let connection = Arc::clone(&self.connection);
+        tokio::task::spawn_blocking(move || {
+            let mut connection = connection
+                .lock()
+                .map_err(|_| String::from("Failed to lock app database connection"))?;
+            operation(&mut connection)
+        })
+        .await
+        .map_err(|error| format!("App database task failed: {error}"))?
+    }
+
+    pub async fn persist_session(
         &self,
         homeserver_url: &str,
         matrix_session: &SdkMatrixSession,
     ) -> Result<(), String> {
+        let homeserver_url = homeserver_url.to_owned();
         let serialized_session = rmp_serde::to_vec(matrix_session)
             .map_err(|error| format!("Failed to encode Matrix session: {error}"))?;
 
-        let connection = self.lock()?;
-        connection
-            .execute(
-                "
-                INSERT INTO session_cache (id, homeserver_url, matrix_session, updated_at)
-                VALUES (?1, ?2, ?3, unixepoch())
-                ON CONFLICT(id) DO UPDATE SET
-                    homeserver_url = excluded.homeserver_url,
-                    matrix_session = excluded.matrix_session,
-                    updated_at = unixepoch()
-                ",
-                params![SINGLETON_ROW_ID, homeserver_url, serialized_session],
-            )
-            .map_err(|error| format!("Failed to persist session cache entry: {error}"))?;
-
-        Ok(())
-    }
-
-    pub fn load_persisted_session(&self) -> Result<Option<(String, SdkMatrixSession)>, String> {
-        let connection = self.lock()?;
-        let row = connection
-            .query_row(
-                "SELECT homeserver_url, matrix_session FROM session_cache WHERE id = ?1",
-                [SINGLETON_ROW_ID],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?)),
-            )
-            .optional()
-            .map_err(|error| format!("Failed to read session cache entry: {error}"))?;
-
-        let Some((homeserver_url, matrix_session_encoded)) = row else {
-            return Ok(None);
-        };
-
-        let matrix_session: SdkMatrixSession = rmp_serde::from_slice(&matrix_session_encoded)
-            .map_err(|error| format!("Failed to decode Matrix session: {error}"))?;
-
-        Ok(Some((homeserver_url, matrix_session)))
-    }
-
-    pub fn clear_session(&self) -> Result<(), String> {
-        let connection = self.lock()?;
-        connection
-            .execute(
-                "DELETE FROM session_cache WHERE id = ?1",
-                [SINGLETON_ROW_ID],
-            )
-            .map_err(|error| format!("Failed to delete session cache entry: {error}"))?;
-        Ok(())
-    }
-
-    pub fn store_chats(&self, chats: &[MatrixChatSummary]) -> Result<(), String> {
-        let mut connection = self.lock()?;
-        let tx = connection
-            .transaction()
-            .map_err(|error| format!("Failed to start chats cache transaction: {error}"))?;
-
-        tx.execute("DELETE FROM chats_cache", [])
-            .map_err(|error| format!("Failed to clear chats cache: {error}"))?;
-
-        {
-            let mut statement = tx
-                .prepare(
+        self.run_blocking(move |connection| {
+            connection
+                .execute(
                     "
-                    INSERT INTO chats_cache (
-                        room_id,
-                        display_name,
-                        image_url,
-                        encrypted,
-                        joined_members,
-                        room_kind,
-                        joined,
-                        is_direct,
-                        children_room_ids,
-                        updated_at
+                    INSERT INTO session_cache (id, homeserver_url, matrix_session, updated_at)
+                    VALUES (?1, ?2, ?3, unixepoch())
+                    ON CONFLICT(id) DO UPDATE SET
+                        homeserver_url = excluded.homeserver_url,
+                        matrix_session = excluded.matrix_session,
+                        updated_at = unixepoch()
+                    ",
+                    params![SINGLETON_ROW_ID, homeserver_url, serialized_session],
+                )
+                .map_err(|error| format!("Failed to persist session cache entry: {error}"))?;
+
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn load_persisted_session(
+        &self,
+    ) -> Result<Option<(String, SdkMatrixSession)>, String> {
+        self.run_blocking(move |connection| {
+            let row = connection
+                .query_row(
+                    "SELECT homeserver_url, matrix_session FROM session_cache WHERE id = ?1",
+                    [SINGLETON_ROW_ID],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?)),
+                )
+                .optional()
+                .map_err(|error| format!("Failed to read session cache entry: {error}"))?;
+
+            let Some((homeserver_url, matrix_session_encoded)) = row else {
+                return Ok(None);
+            };
+
+            let matrix_session: SdkMatrixSession =
+                rmp_serde::from_slice(&matrix_session_encoded)
+                    .map_err(|error| format!("Failed to decode Matrix session: {error}"))?;
+
+            Ok(Some((homeserver_url, matrix_session)))
+        })
+        .await
+    }
+
+    pub async fn clear_session(&self) -> Result<(), String> {
+        self.run_blocking(move |connection| {
+            connection
+                .execute(
+                    "DELETE FROM session_cache WHERE id = ?1",
+                    [SINGLETON_ROW_ID],
+                )
+                .map_err(|error| format!("Failed to delete session cache entry: {error}"))?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn store_chats(&self, chats: &[MatrixChatSummary]) -> Result<(), String> {
+        let chats = chats.to_vec();
+        self.run_blocking(move |connection| {
+            let tx = connection
+                .transaction()
+                .map_err(|error| format!("Failed to start chats cache transaction: {error}"))?;
+
+            tx.execute("DELETE FROM chats_cache", [])
+                .map_err(|error| format!("Failed to clear chats cache: {error}"))?;
+
+            {
+                let mut statement = tx
+                    .prepare(
+                        "
+                        INSERT INTO chats_cache (
+                            room_id,
+                            display_name,
+                            image_url,
+                            encrypted,
+                            joined_members,
+                            room_kind,
+                            joined,
+                            is_direct,
+                            children_room_ids,
+                            position,
+                            updated_at
+                        )
+                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, unixepoch())
+                        ",
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, unixepoch())
-                    ",
-                )
-                .map_err(|error| format!("Failed to prepare chats cache insert: {error}"))?;
+                    .map_err(|error| format!("Failed to prepare chats cache insert: {error}"))?;
 
-            for chat in chats {
-                let room_kind = match chat.kind {
-                    MatrixRoomKind::Space => "space",
-                    MatrixRoomKind::Room => "room",
-                };
+                for (position, chat) in chats.iter().enumerate() {
+                    let room_kind = match chat.kind {
+                        MatrixRoomKind::Space => "space",
+                        MatrixRoomKind::Room => "room",
+                    };
 
-                let encoded_children_room_ids = serde_json::to_string(&chat.children_room_ids)
-                    .map_err(|error| format!("Failed to encode child room ids: {error}"))?;
+                    let encoded_children_room_ids = serde_json::to_string(&chat.children_room_ids)
+                        .map_err(|error| format!("Failed to encode child room ids: {error}"))?;
 
-                statement
-                    .execute(params![
-                        chat.room_id,
-                        chat.display_name,
-                        chat.image_url,
-                        if chat.encrypted { 1_i64 } else { 0_i64 },
-                        chat.joined_members as i64,
-                        room_kind,
-                        if chat.joined { 1_i64 } else { 0_i64 },
-                        if chat.is_direct { 1_i64 } else { 0_i64 },
-                        encoded_children_room_ids,
-                    ])
-                    .map_err(|error| format!("Failed to insert chats cache row: {error}"))?;
+                    statement
+                        .execute(params![
+                            chat.room_id,
+                            chat.display_name,
+                            chat.image_url,
+                            if chat.encrypted { 1_i64 } else { 0_i64 },
+                            chat.joined_members as i64,
+                            room_kind,
+                            if chat.joined { 1_i64 } else { 0_i64 },
+                            if chat.is_direct { 1_i64 } else { 0_i64 },
+                            encoded_children_room_ids,
+                            position as i64,
+                        ])
+                        .map_err(|error| format!("Failed to insert chats cache row: {error}"))?;
+                }
             }
-        }
 
-        tx.commit()
-            .map_err(|error| format!("Failed to commit chats cache transaction: {error}"))?;
+            tx.commit()
+                .map_err(|error| format!("Failed to commit chats cache transaction: {error}"))?;
 
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
-    pub fn load_root_space_order(&self) -> Result<Vec<String>, String> {
-        let connection = self.lock()?;
-        let mut statement = connection
-            .prepare(
-                "
-                SELECT room_id
-                FROM root_space_order
-                ORDER BY position ASC, updated_at DESC, room_id ASC
-                ",
-            )
-            .map_err(|error| format!("Failed to prepare root space order query: {error}"))?;
-
-        let mut rows = statement
-            .query([])
-            .map_err(|error| format!("Failed to query root space order: {error}"))?;
-
-        let mut root_space_ids = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .map_err(|error| format!("Failed to read root space order row: {error}"))?
-        {
-            root_space_ids.push(
-                row.get::<_, String>(0).map_err(|error| {
-                    format!("Failed to decode root space order room id: {error}")
-                })?,
-            );
-        }
-
-        Ok(root_space_ids)
-    }
-
-    pub fn store_root_space_order(&self, root_space_ids: &[String]) -> Result<(), String> {
-        let mut connection = self.lock()?;
-        let tx = connection
-            .transaction()
-            .map_err(|error| format!("Failed to start root space order transaction: {error}"))?;
-
-        tx.execute("DELETE FROM root_space_order", [])
-            .map_err(|error| format!("Failed to clear root space order: {error}"))?;
-
-        {
-            let mut statement = tx
+    pub async fn load_root_space_order(&self) -> Result<Vec<String>, String> {
+        self.run_blocking(move |connection| {
+            let mut statement = connection
                 .prepare(
                     "
-                    INSERT INTO root_space_order (room_id, position, updated_at)
-                    VALUES (?1, ?2, unixepoch())
+                    SELECT room_id
+                    FROM root_space_order
+                    ORDER BY position ASC, updated_at DESC, room_id ASC
                     ",
                 )
-                .map_err(|error| format!("Failed to prepare root space order insert: {error}"))?;
+                .map_err(|error| format!("Failed to prepare root space order query: {error}"))?;
 
-            for (position, room_id) in root_space_ids.iter().enumerate() {
-                statement
-                    .execute(params![room_id, position as i64])
-                    .map_err(|error| format!("Failed to insert root space order row: {error}"))?;
+            let mut rows = statement
+                .query([])
+                .map_err(|error| format!("Failed to query root space order: {error}"))?;
+
+            let mut root_space_ids = Vec::new();
+            while let Some(row) = rows
+                .next()
+                .map_err(|error| format!("Failed to read root space order row: {error}"))?
+            {
+                root_space_ids.push(row.get::<_, String>(0).map_err(|error| {
+                    format!("Failed to decode root space order room id: {error}")
+                })?);
             }
-        }
 
-        tx.commit()
-            .map_err(|error| format!("Failed to commit root space order transaction: {error}"))?;
-
-        Ok(())
+            Ok(root_space_ids)
+        })
+        .await
     }
 
-    pub fn set_chat_image_source(
+    pub async fn store_root_space_order(&self, root_space_ids: &[String]) -> Result<(), String> {
+        let root_space_ids = root_space_ids.to_vec();
+        self.run_blocking(move |connection| {
+            let tx = connection.transaction().map_err(|error| {
+                format!("Failed to start root space order transaction: {error}")
+            })?;
+
+            tx.execute("DELETE FROM root_space_order", [])
+                .map_err(|error| format!("Failed to clear root space order: {error}"))?;
+
+            {
+                let mut statement = tx
+                    .prepare(
+                        "
+                        INSERT INTO root_space_order (room_id, position, updated_at)
+                        VALUES (?1, ?2, unixepoch())
+                        ",
+                    )
+                    .map_err(|error| {
+                        format!("Failed to prepare root space order insert: {error}")
+                    })?;
+
+                for (position, room_id) in root_space_ids.iter().enumerate() {
+                    statement
+                        .execute(params![room_id, position as i64])
+                        .map_err(|error| {
+                            format!("Failed to insert root space order row: {error}")
+                        })?;
+                }
+            }
+
+            tx.commit().map_err(|error| {
+                format!("Failed to commit root space order transaction: {error}")
+            })?;
+
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn set_chat_image_source(
         &self,
         room_id: &str,
         source_url: Option<&str>,
     ) -> Result<(), String> {
-        let connection = self.lock()?;
+        let room_id = room_id.to_owned();
+        let source_url = source_url.map(str::to_owned);
+        self.run_blocking(move |connection| {
+            if let Some(source_url) = source_url.as_deref() {
+                connection
+                    .execute(
+                        "
+                        INSERT INTO chat_image_source_cache (room_id, source_url, updated_at)
+                        VALUES (?1, ?2, unixepoch())
+                        ON CONFLICT(room_id) DO UPDATE SET
+                            source_url = excluded.source_url,
+                            updated_at = unixepoch()
+                        ",
+                        params![room_id, source_url],
+                    )
+                    .map_err(|error| {
+                        format!("Failed to upsert chat image source cache row: {error}")
+                    })?;
+            } else {
+                connection
+                    .execute(
+                        "DELETE FROM chat_image_source_cache WHERE room_id = ?1",
+                        [room_id],
+                    )
+                    .map_err(|error| {
+                        format!("Failed to delete chat image source cache row: {error}")
+                    })?;
+            }
 
-        if let Some(source_url) = source_url {
-            connection
-                .execute(
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn load_cached_chat_image_sources(&self) -> Result<HashMap<String, String>, String> {
+        self.run_blocking(move |connection| {
+            let mut statement = connection
+                .prepare(
                     "
-                    INSERT INTO chat_image_source_cache (room_id, source_url, updated_at)
-                    VALUES (?1, ?2, unixepoch())
-                    ON CONFLICT(room_id) DO UPDATE SET
-                        source_url = excluded.source_url,
-                        updated_at = unixepoch()
+                    SELECT room_id, source_url
+                    FROM chat_image_source_cache
+                    ORDER BY updated_at DESC, room_id ASC
                     ",
-                    params![room_id, source_url],
                 )
                 .map_err(|error| {
-                    format!("Failed to upsert chat image source cache row: {error}")
+                    format!("Failed to prepare chat image source cache query: {error}")
                 })?;
-        } else {
-            connection
-                .execute(
-                    "DELETE FROM chat_image_source_cache WHERE room_id = ?1",
-                    [room_id],
+
+            let mut rows = statement
+                .query([])
+                .map_err(|error| format!("Failed to query chat image source cache: {error}"))?;
+
+            let mut image_sources_by_room = HashMap::new();
+            while let Some(row) = rows
+                .next()
+                .map_err(|error| format!("Failed to read chat image source cache row: {error}"))?
+            {
+                let room_id = row.get::<_, String>(0).map_err(|error| {
+                    format!("Failed to decode chat image source cache room id: {error}")
+                })?;
+                let source_url = row.get::<_, String>(1).map_err(|error| {
+                    format!("Failed to decode chat image source cache source url: {error}")
+                })?;
+
+                image_sources_by_room.insert(room_id, source_url);
+            }
+
+            Ok(image_sources_by_room)
+        })
+        .await
+    }
+
+    pub async fn load_cached_chats(&self) -> Result<Option<Vec<MatrixChatSummary>>, String> {
+        self.run_blocking(move |connection| {
+            let mut statement = connection
+                .prepare(
+                    "
+                    SELECT room_id, display_name, image_url, encrypted, joined_members, room_kind, joined, is_direct, children_room_ids
+                    FROM chats_cache
+                    ORDER BY position ASC, room_id ASC
+                    ",
                 )
-                .map_err(|error| {
-                    format!("Failed to delete chat image source cache row: {error}")
-                })?;
-        }
+                .map_err(|error| format!("Failed to prepare chats cache query: {error}"))?;
 
-        Ok(())
+            let mut rows = statement
+                .query([])
+                .map_err(|error| format!("Failed to query chats cache: {error}"))?;
+
+            let mut chats = Vec::new();
+            while let Some(row) = rows
+                .next()
+                .map_err(|error| format!("Failed to read chats cache row: {error}"))?
+            {
+                let encrypted_flag: i64 = row
+                    .get(3)
+                    .map_err(|error| format!("Failed to decode chats cache encrypted flag: {error}"))?;
+                let joined_members_raw: i64 = row
+                    .get(4)
+                    .map_err(|error| format!("Failed to decode chats cache joined members: {error}"))?;
+                let room_kind_raw: String = row
+                    .get(5)
+                    .map_err(|error| format!("Failed to decode chats cache room kind: {error}"))?;
+                let joined_flag: i64 = row
+                    .get(6)
+                    .map_err(|error| format!("Failed to decode chats cache joined flag: {error}"))?;
+                let is_direct_flag: i64 = row
+                    .get(7)
+                    .map_err(|error| format!("Failed to decode chats cache is_direct flag: {error}"))?;
+
+                let kind = match room_kind_raw.as_str() {
+                    "space" => MatrixRoomKind::Space,
+                    _ => MatrixRoomKind::Room,
+                };
+
+                chats.push(MatrixChatSummary {
+                    room_id: row
+                        .get::<_, String>(0)
+                        .map_err(|error| format!("Failed to decode chats cache room id: {error}"))?,
+                    display_name: row.get::<_, String>(1).map_err(|error| {
+                        format!("Failed to decode chats cache display name: {error}")
+                    })?,
+                    image_url: row
+                        .get::<_, Option<String>>(2)
+                        .map_err(|error| format!("Failed to decode chats cache image url: {error}"))?,
+                    encrypted: encrypted_flag != 0,
+                    joined_members: joined_members_raw.max(0) as u64,
+                    kind,
+                    joined: joined_flag != 0,
+                    is_direct: is_direct_flag != 0,
+                    children_room_ids: {
+                        let raw_children_room_ids =
+                            row.get::<_, Option<String>>(8).map_err(|error| {
+                                format!("Failed to decode chats cache child room ids: {error}")
+                            })?;
+
+                        let child_room_ids = raw_children_room_ids
+                            .as_deref()
+                            .and_then(|encoded| serde_json::from_str::<Vec<String>>(encoded).ok())
+                            .unwrap_or_default();
+
+                        child_room_ids
+                    },
+                });
+            }
+
+            if chats.is_empty() {
+                return Ok(None);
+            }
+
+            Ok(Some(chats))
+        })
+        .await
     }
 
-    pub fn load_cached_chat_image_sources(&self) -> Result<HashMap<String, String>, String> {
-        let connection = self.lock()?;
-        let mut statement = connection
-            .prepare(
-                "
-                SELECT room_id, source_url
-                FROM chat_image_source_cache
-                ORDER BY updated_at DESC, room_id ASC
-                ",
-            )
-            .map_err(|error| format!("Failed to prepare chat image source cache query: {error}"))?;
-
-        let mut rows = statement
-            .query([])
-            .map_err(|error| format!("Failed to query chat image source cache: {error}"))?;
-
-        let mut image_sources_by_room = HashMap::new();
-        while let Some(row) = rows
-            .next()
-            .map_err(|error| format!("Failed to read chat image source cache row: {error}"))?
-        {
-            let room_id = row.get::<_, String>(0).map_err(|error| {
-                format!("Failed to decode chat image source cache room id: {error}")
-            })?;
-            let source_url = row.get::<_, String>(1).map_err(|error| {
-                format!("Failed to decode chat image source cache source url: {error}")
-            })?;
-
-            image_sources_by_room.insert(room_id, source_url);
-        }
-
-        Ok(image_sources_by_room)
-    }
-
-    pub fn load_cached_chats(&self) -> Result<Option<Vec<MatrixChatSummary>>, String> {
-        let connection = self.lock()?;
-        let mut statement = connection
-            .prepare(
-                "
-                SELECT room_id, display_name, image_url, encrypted, joined_members, room_kind, joined, is_direct, children_room_ids
-                FROM chats_cache
-                ORDER BY updated_at DESC, room_id ASC
-                ",
-            )
-            .map_err(|error| format!("Failed to prepare chats cache query: {error}"))?;
-
-        let mut rows = statement
-            .query([])
-            .map_err(|error| format!("Failed to query chats cache: {error}"))?;
-
-        let mut chats = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .map_err(|error| format!("Failed to read chats cache row: {error}"))?
-        {
-            let encrypted_flag: i64 = row
-                .get(3)
-                .map_err(|error| format!("Failed to decode chats cache encrypted flag: {error}"))?;
-            let joined_members_raw: i64 = row
-                .get(4)
-                .map_err(|error| format!("Failed to decode chats cache joined members: {error}"))?;
-            let room_kind_raw: String = row
-                .get(5)
-                .map_err(|error| format!("Failed to decode chats cache room kind: {error}"))?;
-            let joined_flag: i64 = row
-                .get(6)
-                .map_err(|error| format!("Failed to decode chats cache joined flag: {error}"))?;
-            let is_direct_flag: i64 = row
-                .get(7)
-                .map_err(|error| format!("Failed to decode chats cache is_direct flag: {error}"))?;
-
-            let kind = match room_kind_raw.as_str() {
-                "space" => MatrixRoomKind::Space,
-                _ => MatrixRoomKind::Room,
-            };
-
-            chats.push(MatrixChatSummary {
-                room_id: row
-                    .get::<_, String>(0)
-                    .map_err(|error| format!("Failed to decode chats cache room id: {error}"))?,
-                display_name: row.get::<_, String>(1).map_err(|error| {
-                    format!("Failed to decode chats cache display name: {error}")
-                })?,
-                image_url: row
-                    .get::<_, Option<String>>(2)
-                    .map_err(|error| format!("Failed to decode chats cache image url: {error}"))?,
-                encrypted: encrypted_flag != 0,
-                joined_members: joined_members_raw.max(0) as u64,
-                kind,
-                joined: joined_flag != 0,
-                is_direct: is_direct_flag != 0,
-                children_room_ids: {
-                    let raw_children_room_ids =
-                        row.get::<_, Option<String>>(8).map_err(|error| {
-                            format!("Failed to decode chats cache child room ids: {error}")
-                        })?;
-
-                    let child_room_ids = raw_children_room_ids
-                        .as_deref()
-                        .and_then(|encoded| serde_json::from_str::<Vec<String>>(encoded).ok())
-                        .unwrap_or_default();
-
-                    child_room_ids
-                },
-            });
-        }
-
-        if chats.is_empty() {
-            return Ok(None);
-        }
-
-        Ok(Some(chats))
-    }
-
-    pub fn store_initial_room_messages(
+    pub async fn store_initial_room_messages(
         &self,
         response: &MatrixGetChatMessagesResponse,
     ) -> Result<(), String> {
-        let room_id = response.room_id.as_str();
+        let response = response.clone();
+        self.run_blocking(move |connection| {
+            let room_id = response.room_id.as_str();
 
-        let mut connection = self.lock()?;
-        let tx = connection
-            .transaction()
-            .map_err(|error| format!("Failed to start message cache transaction: {error}"))?;
+            let tx = connection
+                .transaction()
+                .map_err(|error| format!("Failed to start message cache transaction: {error}"))?;
 
-        tx.execute(
-            "
-            INSERT INTO message_cache_state (room_id, next_from, updated_at)
-            VALUES (?1, ?2, unixepoch())
-            ON CONFLICT(room_id) DO UPDATE SET
-                next_from = excluded.next_from,
-                updated_at = unixepoch()
-            ",
-            params![room_id, response.next_from.as_deref()],
-        )
-        .map_err(|error| format!("Failed to upsert message cache state: {error}"))?;
+            tx.execute(
+                "
+                INSERT INTO message_cache_state (room_id, next_from, updated_at)
+                VALUES (?1, ?2, unixepoch())
+                ON CONFLICT(room_id) DO UPDATE SET
+                    next_from = excluded.next_from,
+                    updated_at = unixepoch()
+                ",
+                params![room_id, response.next_from.as_deref()],
+            )
+            .map_err(|error| format!("Failed to upsert message cache state: {error}"))?;
 
-        tx.execute("DELETE FROM message_cache WHERE room_id = ?1", [room_id])
-            .map_err(|error| format!("Failed to clear message cache rows: {error}"))?;
+            tx.execute("DELETE FROM message_cache WHERE room_id = ?1", [room_id])
+                .map_err(|error| format!("Failed to clear message cache rows: {error}"))?;
 
-        {
-            let mut statement = tx
-                .prepare(
-                    "
-                    INSERT INTO message_cache (
-                        room_id,
-                        sequence,
-                        event_id,
-                        in_reply_to_event_id,
-                        sender,
-                        timestamp,
-                        body,
-                        formatted_body,
-                        message_type,
-                        image_url,
-                        encrypted,
-                        decryption_status,
-                        verification_status,
-                        updated_at
+            {
+                let mut statement = tx
+                    .prepare(
+                        "
+                        INSERT INTO message_cache (
+                            room_id,
+                            sequence,
+                            event_id,
+                            in_reply_to_event_id,
+                            sender,
+                            timestamp,
+                            body,
+                            formatted_body,
+                            message_type,
+                            image_url,
+                            thumbnail_url,
+                            reactions,
+                            custom_emojis,
+                            encrypted,
+                            decryption_status,
+                            verification_status,
+                            updated_at
+                        )
+                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, unixepoch())
+                        ",
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, unixepoch())
-                    ",
-                )
-                .map_err(|error| format!("Failed to prepare message cache insert: {error}"))?;
+                    .map_err(|error| format!("Failed to prepare message cache insert: {error}"))?;
 
-            for (index, message) in response.messages.iter().enumerate() {
-                statement
-                    .execute(params![
-                        room_id,
-                        index as i64,
-                        message.event_id.as_deref(),
-                        message.in_reply_to_event_id.as_deref(),
-                        message.sender,
-                        message.timestamp.map(|value| value as i64),
-                        message.body,
-                        message.formatted_body.as_deref(),
-                        message.message_type.as_deref(),
-                        message.image_url.as_deref(),
-                        if message.encrypted { 1_i64 } else { 0_i64 },
-                        decryption_status_to_db(message.decryption_status),
-                        verification_status_to_db(message.verification_status),
-                    ])
-                    .map_err(|error| format!("Failed to insert message cache row: {error}"))?;
+                for (index, message) in response.messages.iter().enumerate() {
+                    statement
+                        .execute(params![
+                            room_id,
+                            index as i64,
+                            message.event_id.as_deref(),
+                            message.in_reply_to_event_id.as_deref(),
+                            message.sender,
+                            message.timestamp.map(|value| value as i64),
+                            message.body,
+                            message.formatted_body.as_deref(),
+                            message.message_type.as_deref(),
+                            message.image_url.as_deref(),
+                            message.thumbnail_url.as_deref(),
+                            serde_json::to_string(&message.reactions).map_err(|error| {
+                                format!("Failed to encode cached reactions: {error}")
+                            })?,
+                            serde_json::to_string(&message.custom_emojis).map_err(|error| {
+                                format!("Failed to encode cached custom emojis: {error}")
+                            })?,
+                            if message.encrypted { 1_i64 } else { 0_i64 },
+                            decryption_status_to_db(message.decryption_status),
+                            verification_status_to_db(message.verification_status),
+                        ])
+                        .map_err(|error| format!("Failed to insert message cache row: {error}"))?;
+                }
             }
-        }
 
-        tx.commit()
-            .map_err(|error| format!("Failed to commit message cache transaction: {error}"))?;
+            tx.commit()
+                .map_err(|error| format!("Failed to commit message cache transaction: {error}"))?;
 
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
-    pub fn load_initial_room_messages(
+    pub async fn load_initial_room_messages(
         &self,
         room_id: &str,
     ) -> Result<Option<MatrixGetChatMessagesResponse>, String> {
-        let connection = self.lock()?;
-        let next_from = connection
-            .query_row(
-                "SELECT next_from FROM message_cache_state WHERE room_id = ?1",
-                [room_id],
-                |row| row.get::<_, Option<String>>(0),
-            )
-            .optional()
-            .map_err(|error| format!("Failed to read message cache state: {error}"))?;
+        let room_id = room_id.to_owned();
+        self.run_blocking(move |connection| {
+            let next_from = connection
+                .query_row(
+                    "SELECT next_from FROM message_cache_state WHERE room_id = ?1",
+                    [&room_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()
+                .map_err(|error| format!("Failed to read message cache state: {error}"))?;
 
-        let Some(next_from) = next_from else {
-            return Ok(None);
-        };
+            let Some(next_from) = next_from else {
+                return Ok(None);
+            };
 
-        let mut statement = connection
-            .prepare(
-                "
-                SELECT event_id, in_reply_to_event_id, sender, timestamp, body, formatted_body, message_type, image_url, encrypted, decryption_status, verification_status
-                FROM message_cache
-                WHERE room_id = ?1
-                ORDER BY sequence ASC
-                ",
-            )
-            .map_err(|error| format!("Failed to prepare message cache query: {error}"))?;
+            let mut statement = connection
+                .prepare(
+                    "
+                    SELECT event_id, in_reply_to_event_id, sender, timestamp, body, formatted_body, message_type, image_url, thumbnail_url, reactions, custom_emojis, encrypted, decryption_status, verification_status
+                    FROM message_cache
+                    WHERE room_id = ?1
+                    ORDER BY sequence ASC
+                    ",
+                )
+                .map_err(|error| format!("Failed to prepare message cache query: {error}"))?;
 
-        let mut rows = statement
-            .query([room_id])
-            .map_err(|error| format!("Failed to query message cache rows: {error}"))?;
+            let mut rows = statement
+                .query([&room_id])
+                .map_err(|error| format!("Failed to query message cache rows: {error}"))?;
 
-        let mut messages = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .map_err(|error| format!("Failed to read message cache row: {error}"))?
-        {
-            let timestamp_raw: Option<i64> = row
-                .get(3)
-                .map_err(|error| format!("Failed to decode cached timestamp: {error}"))?;
-            let encrypted_flag: i64 = row
-                .get(8)
-                .map_err(|error| format!("Failed to decode cached encrypted flag: {error}"))?;
-            let decryption_status_raw: String = row
-                .get(9)
-                .map_err(|error| format!("Failed to decode cached decryption status: {error}"))?;
-            let verification_status_raw: String = row
-                .get(10)
-                .map_err(|error| format!("Failed to decode cached verification status: {error}"))?;
+            let mut messages = Vec::new();
+            while let Some(row) = rows
+                .next()
+                .map_err(|error| format!("Failed to read message cache row: {error}"))?
+            {
+                match decode_cached_message(row) {
+                    Ok(message) => messages.push(message),
+                    // One unreadable row must not cost the whole room: the cache
+                    // is an optimisation, and the caller falls back to a full
+                    // fetch. Dropping the row keeps the rest of the timeline.
+                    Err(error) => {
+                        log::warn!("Discarding unreadable cached message: {error}");
+                    }
+                }
+            }
 
-            messages.push(MatrixChatMessage {
-                event_id: row
-                    .get::<_, Option<String>>(0)
-                    .map_err(|error| format!("Failed to decode cached event id: {error}"))?,
-                in_reply_to_event_id: row.get::<_, Option<String>>(1).map_err(|error| {
-                    format!("Failed to decode cached in-reply-to event id: {error}")
-                })?,
-                sender: row
-                    .get::<_, String>(2)
-                    .map_err(|error| format!("Failed to decode cached sender: {error}"))?,
-                timestamp: timestamp_raw.map(|value| value.max(0) as u64),
-                body: row
-                    .get::<_, String>(4)
-                    .map_err(|error| format!("Failed to decode cached body: {error}"))?,
-                formatted_body: row
-                    .get::<_, Option<String>>(5)
-                    .map_err(|error| format!("Failed to decode cached formatted body: {error}"))?,
-                message_type: row
-                    .get::<_, Option<String>>(6)
-                    .map_err(|error| format!("Failed to decode cached message type: {error}"))?,
-                image_url: row
-                    .get::<_, Option<String>>(7)
-                    .map_err(|error| format!("Failed to decode cached image url: {error}"))?,
-                thumbnail_url: None,
-                custom_emojis: Vec::new(),
-                reactions: Vec::new(),
-                encrypted: encrypted_flag != 0,
-                decryption_status: decryption_status_from_db(&decryption_status_raw)?,
-                verification_status: verification_status_from_db(&verification_status_raw)?,
-            });
-        }
+            // An empty cached message list is indistinguishable from "no messages
+            // cached yet". Treat it as a cache miss so the caller re-fetches from
+            // the server instead of showing an empty timeline.
+            if messages.is_empty() {
+                return Ok(None);
+            }
 
-        // An empty cached message list is indistinguishable from "no messages
-        // cached yet". Treat it as a cache miss so the caller re-fetches from
-        // the server instead of showing an empty timeline.
-        if messages.is_empty() {
-            return Ok(None);
-        }
-
-        Ok(Some(MatrixGetChatMessagesResponse {
-            room_id: room_id.to_owned(),
-            next_from,
-            messages,
-        }))
+            Ok(Some(MatrixGetChatMessagesResponse {
+                room_id: room_id.to_owned(),
+                next_from,
+                messages,
+            }))
+        })
+        .await
     }
 
-    pub fn clear_app_cache(&self) -> Result<(), String> {
-        let connection = self.lock()?;
-        connection
-            .execute("DELETE FROM session_cache", [])
-            .map_err(|error| format!("Failed to clear session cache: {error}"))?;
-        clear_cache_tables(&connection)?;
-        Ok(())
+    pub async fn clear_app_cache(&self) -> Result<(), String> {
+        self.run_blocking(move |connection| {
+            connection
+                .execute("DELETE FROM session_cache", [])
+                .map_err(|error| format!("Failed to clear session cache: {error}"))?;
+            clear_cache_tables(connection)?;
+            Ok(())
+        })
+        .await
     }
 
-    pub fn clear_non_auth_cache(&self) -> Result<(), String> {
-        let connection = self.lock()?;
-        clear_cache_tables(&connection)?;
-        Ok(())
+    pub async fn clear_non_auth_cache(&self) -> Result<(), String> {
+        self.run_blocking(move |connection| {
+            clear_cache_tables(connection)?;
+            Ok(())
+        })
+        .await
     }
 }
 
@@ -852,6 +665,11 @@ fn clear_cache_tables(connection: &Connection) -> Result<(), String> {
     connection
         .execute("DELETE FROM message_cache", [])
         .map_err(|error| format!("Failed to clear message cache: {error}"))?;
+    // Room ids are not shared between accounts, so a row left over from a
+    // previous login is dead weight at best and a wrong avatar at worst.
+    connection
+        .execute("DELETE FROM chat_image_source_cache", [])
+        .map_err(|error| format!("Failed to clear chat image source cache: {error}"))?;
     Ok(())
 }
 
@@ -867,6 +685,72 @@ fn decryption_status_to_db(status: MatrixMessageDecryptionStatus) -> &'static st
         MatrixMessageDecryptionStatus::Decrypted => "decrypted",
         MatrixMessageDecryptionStatus::UnableToDecrypt => "unable_to_decrypt",
     }
+}
+
+/// Decodes one `message_cache` row. Every text column is optional except
+/// `sender` and `body`: a row written before a column was added reads back as
+/// NULL, and absent JSON is an empty list rather than a null literal.
+fn decode_cached_message(row: &rusqlite::Row<'_>) -> Result<MatrixChatMessage, String> {
+    let timestamp_raw: Option<i64> = row
+        .get(3)
+        .map_err(|error| format!("Failed to decode cached timestamp: {error}"))?;
+    let encrypted_flag: i64 = row
+        .get(11)
+        .map_err(|error| format!("Failed to decode cached encrypted flag: {error}"))?;
+    let decryption_status_raw: String = row
+        .get(12)
+        .map_err(|error| format!("Failed to decode cached decryption status: {error}"))?;
+    let verification_status_raw: String = row
+        .get(13)
+        .map_err(|error| format!("Failed to decode cached verification status: {error}"))?;
+
+    let reactions: Vec<MatrixReactionSummary> = serde_json::from_str(
+        row.get::<_, Option<String>>(9)
+            .map_err(|error| format!("Failed to decode cached reactions: {error}"))?
+            .as_deref()
+            .unwrap_or("[]"),
+    )
+    .map_err(|error| format!("Failed to parse cached reactions: {error}"))?;
+    let custom_emojis: Vec<MatrixCustomEmoji> = serde_json::from_str(
+        row.get::<_, Option<String>>(10)
+            .map_err(|error| format!("Failed to decode cached custom emojis: {error}"))?
+            .as_deref()
+            .unwrap_or("[]"),
+    )
+    .map_err(|error| format!("Failed to parse cached custom emojis: {error}"))?;
+
+    Ok(MatrixChatMessage {
+        event_id: row
+            .get::<_, Option<String>>(0)
+            .map_err(|error| format!("Failed to decode cached event id: {error}"))?,
+        in_reply_to_event_id: row
+            .get::<_, Option<String>>(1)
+            .map_err(|error| format!("Failed to decode cached in-reply-to event id: {error}"))?,
+        sender: row
+            .get::<_, String>(2)
+            .map_err(|error| format!("Failed to decode cached sender: {error}"))?,
+        timestamp: timestamp_raw.map(|value| value.max(0) as u64),
+        body: row
+            .get::<_, String>(4)
+            .map_err(|error| format!("Failed to decode cached body: {error}"))?,
+        formatted_body: row
+            .get::<_, Option<String>>(5)
+            .map_err(|error| format!("Failed to decode cached formatted body: {error}"))?,
+        message_type: row
+            .get::<_, Option<String>>(6)
+            .map_err(|error| format!("Failed to decode cached message type: {error}"))?,
+        image_url: row
+            .get::<_, Option<String>>(7)
+            .map_err(|error| format!("Failed to decode cached image url: {error}"))?,
+        thumbnail_url: row
+            .get::<_, Option<String>>(8)
+            .map_err(|error| format!("Failed to decode cached thumbnail url: {error}"))?,
+        custom_emojis,
+        reactions,
+        encrypted: encrypted_flag != 0,
+        decryption_status: decryption_status_from_db(&decryption_status_raw)?,
+        verification_status: verification_status_from_db(&verification_status_raw)?,
+    })
 }
 
 fn decryption_status_from_db(status: &str) -> Result<MatrixMessageDecryptionStatus, String> {
@@ -901,14 +785,24 @@ fn verification_status_from_db(status: &str) -> Result<MatrixMessageVerification
 mod tests {
     use super::*;
 
+    /// A unique scratch directory for one test.
+    ///
+    /// The uniqueness must not depend on the clock alone: several tests run
+    /// concurrently, and `SystemTime::now()` can return the same nanosecond
+    /// for two of them, which makes them share a directory and corrupt each
+    /// other. The process id separates test binaries, the nanosecond timestamp
+    /// separates runs, and the atomic counter makes any remaining collision
+    /// impossible.
     fn temp_db_path() -> std::path::PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "singularity-db-test-{}-{}",
+            "singularity-db-test-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("app.db")
@@ -936,6 +830,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn round_trips_reactions_thumbnails_and_custom_emojis() {
+        let path = temp_db_path();
+        let app_db = AppDb::initialize(&path, "test-secret").unwrap();
+
+        let mut message = sample_message();
+        message.thumbnail_url = Some(String::from("asset://localhost/poster.png"));
+        message.custom_emojis = vec![MatrixCustomEmoji {
+            shortcode: String::from("wave"),
+            url: String::from("asset://localhost/wave.png"),
+        }];
+        message.reactions = vec![MatrixReactionSummary {
+            key: String::from("\u{1F44B}"),
+            count: 2,
+            senders: vec![
+                String::from("@alice:example.org"),
+                String::from("@bob:example.org"),
+            ],
+        }];
+
+        let response = MatrixGetChatMessagesResponse {
+            room_id: String::from("!room:example.org"),
+            next_from: Some(String::from("tok")),
+            messages: vec![message],
+        };
+        app_db.store_initial_room_messages(&response).await.unwrap();
+
+        let loaded = app_db
+            .load_initial_room_messages("!room:example.org")
+            .await
+            .unwrap()
+            .expect("expected a cache hit");
+        let cached = &loaded.messages[0];
+
+        assert_eq!(
+            cached.thumbnail_url.as_deref(),
+            Some("asset://localhost/poster.png")
+        );
+        assert_eq!(cached.custom_emojis.len(), 1);
+        assert_eq!(cached.custom_emojis[0].shortcode, "wave");
+        assert_eq!(cached.reactions.len(), 1);
+        assert_eq!(cached.reactions[0].key, "\u{1F44B}");
+        assert_eq!(cached.reactions[0].count, 2);
+        assert_eq!(cached.reactions[0].senders.len(), 2);
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
     async fn round_trips_message_with_null_image_url() {
         let path = temp_db_path();
         let app_db = AppDb::initialize(&path, "test-secret").unwrap();
@@ -946,10 +888,11 @@ mod tests {
             messages: vec![sample_message()],
         };
 
-        app_db.store_initial_room_messages(&response).unwrap();
+        app_db.store_initial_room_messages(&response).await.unwrap();
 
         let loaded = app_db
             .load_initial_room_messages("!room:example.org")
+            .await
             .unwrap();
         assert!(loaded.is_some());
 
@@ -987,12 +930,156 @@ mod tests {
             next_from: Some(String::from("next-token")),
             messages: Vec::new(),
         };
-        app_db.store_initial_room_messages(&response).unwrap();
+        app_db.store_initial_room_messages(&response).await.unwrap();
 
         let loaded = app_db
             .load_initial_room_messages("!room:example.org")
+            .await
             .unwrap();
         assert!(loaded.is_none());
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_row_without_the_newer_columns_still_loads() {
+        let path = temp_db_path();
+        let app_db = AppDb::initialize(&path, "test-secret").unwrap();
+
+        // A row written before the reactions, custom_emojis and thumbnail_url
+        // columns existed, inserted the way the old schema would have left it.
+        {
+            let connection = app_db.lock_for_test().unwrap();
+            connection
+                .execute(
+                    "INSERT INTO message_cache (room_id, sequence, event_id, sender, body, encrypted, decryption_status, verification_status, updated_at)
+                     VALUES (?1, 0, '$legacy', 'sender', 'from an older schema', 0, 'plaintext', 'unknown', 0)",
+                    ["!room:example.org"],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO message_cache_state (room_id, next_from, updated_at) VALUES (?1, 'next', 0)",
+                    ["!room:example.org"],
+                )
+                .unwrap();
+        }
+
+        let response = app_db
+            .load_initial_room_messages("!room:example.org")
+            .await
+            .unwrap()
+            .expect("legacy row should load");
+
+        assert_eq!(response.messages.len(), 1);
+        assert_eq!(response.messages[0].event_id.as_deref(), Some("$legacy"));
+        assert!(response.messages[0].reactions.is_empty());
+        assert!(response.messages[0].custom_emojis.is_empty());
+        assert!(response.messages[0].thumbnail_url.is_none());
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn one_unreadable_row_does_not_cost_the_whole_room() {
+        let path = temp_db_path();
+        let app_db = AppDb::initialize(&path, "test-secret").unwrap();
+
+        let response = MatrixGetChatMessagesResponse {
+            room_id: String::from("!room:example.org"),
+            next_from: Some(String::from("next-token")),
+            messages: vec![sample_message()],
+        };
+        app_db.store_initial_room_messages(&response).await.unwrap();
+
+        {
+            let connection = app_db.lock_for_test().unwrap();
+            // Malformed JSON, which is what a partial write or a truncated
+            // column looks like at read time.
+            connection
+                .execute(
+                    "INSERT INTO message_cache (room_id, sequence, event_id, sender, body, reactions, custom_emojis, encrypted, decryption_status, verification_status, updated_at)
+                     VALUES (?1, 1, '$broken', 'sender', 'corrupt', '{not json', '[]', 0, 'plaintext', 'unknown', 0)",
+                    ["!room:example.org"],
+                )
+                .unwrap();
+        }
+
+        let loaded = app_db
+            .load_initial_room_messages("!room:example.org")
+            .await
+            .unwrap()
+            .expect("a partial cache is still a cache hit");
+
+        assert_eq!(loaded.messages.len(), 1);
+        assert_eq!(loaded.messages[0].body, sample_message().body);
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    fn sample_chat(room_id: &str) -> MatrixChatSummary {
+        MatrixChatSummary {
+            room_id: String::from(room_id),
+            display_name: String::from(room_id),
+            image_url: None,
+            encrypted: false,
+            joined_members: 2,
+            kind: MatrixRoomKind::Room,
+            joined: true,
+            is_direct: false,
+            children_room_ids: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn cached_chats_keep_the_stored_order() {
+        let path = temp_db_path();
+        let app_db = AppDb::initialize(&path, "test-secret").unwrap();
+
+        let rooms = [
+            "!zulu:example.org",
+            "!alpha:example.org",
+            "!mike:example.org",
+        ];
+        let chats = rooms.iter().map(|id| sample_chat(id)).collect::<Vec<_>>();
+        app_db.store_chats(&chats).await.unwrap();
+
+        let loaded = app_db
+            .load_cached_chats()
+            .await
+            .unwrap()
+            .expect("expected a cache hit");
+        let loaded_ids = loaded
+            .iter()
+            .map(|chat| chat.room_id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(loaded_ids, rooms);
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn image_source_cache_does_not_survive_a_cache_clear() {
+        let path = temp_db_path();
+        let app_db = AppDb::initialize(&path, "test-secret").unwrap();
+
+        app_db
+            .set_chat_image_source("!room:example.org", Some("mxc://example.org/avatar"))
+            .await
+            .unwrap();
+        assert_eq!(
+            app_db.load_cached_chat_image_sources().await.unwrap().len(),
+            1
+        );
+
+        app_db.clear_non_auth_cache().await.unwrap();
+
+        assert!(app_db
+            .load_cached_chat_image_sources()
+            .await
+            .unwrap()
+            .is_empty());
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }

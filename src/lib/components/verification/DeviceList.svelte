@@ -6,10 +6,11 @@
     devices: MatrixDeviceInfo[];
     loading: boolean;
     requestingDeviceId: string | null;
+    actionPending?: boolean;
     onVerify?: (device: MatrixDeviceInfo) => void;
   }
 
-  let { devices, loading, requestingDeviceId, onVerify }: Props = $props();
+  let { devices, loading, requestingDeviceId, actionPending = false, onVerify }: Props = $props();
 </script>
 
 {#if loading}
@@ -22,6 +23,7 @@
       <DeviceItem
         {device}
         isRequesting={requestingDeviceId === device.deviceId}
+        actionPending={actionPending}
         onVerify={onVerify}
       />
     {/each}

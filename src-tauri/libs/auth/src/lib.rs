@@ -16,5 +16,5 @@ pub use commands::{
     clear_cache_except_auth, complete_oauth, logout, password_login, recover_with_key,
     recovery_status, session_status, start_oauth,
 };
-pub use state::{wait_for_e2ee_initialization, AuthState, MatrixSession};
+pub use state::{wait_for_e2ee_initialization, AuthState, ClientCancelled, MatrixSession};
 pub use workers::{handle_unknown_token_error, start_session_persistence_watcher};

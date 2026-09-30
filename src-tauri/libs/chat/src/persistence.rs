@@ -3,7 +3,7 @@ use std::sync::Arc;
 use storage::AppDb;
 use types::chat::MatrixGetChatMessagesResponse;
 
-pub fn load_initial_room_messages(
+pub async fn load_initial_room_messages(
     app_db: &Arc<AppDb>,
     room_id: &str,
     from: Option<&str>,
@@ -13,14 +13,14 @@ pub fn load_initial_room_messages(
         return Ok(None);
     }
 
-    app_db.load_initial_room_messages(room_id)
+    app_db.load_initial_room_messages(room_id).await
 }
 
-pub fn store_initial_room_messages(
+pub async fn store_initial_room_messages(
     app_db: &Arc<AppDb>,
     response: &MatrixGetChatMessagesResponse,
 ) -> Result<(), String> {
-    app_db.store_initial_room_messages(response)
+    app_db.store_initial_room_messages(response).await
 }
 
 pub fn is_cacheable_initial_request(from: Option<&str>, limit: Option<u32>) -> bool {

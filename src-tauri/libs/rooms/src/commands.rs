@@ -20,7 +20,7 @@ pub async fn get_chats(
     auth_state: &Arc<AuthState>,
     trigger_state: &RoomUpdateTriggerState,
 ) -> Result<MatrixGetChatsResponse, String> {
-    let mut chats = load_cached_chats(app_db)?;
+    let mut chats = load_cached_chats(app_db).await?;
 
     if let Some(cached_chats) = chats.as_deref() {
         if has_stale_cached_chat_media(&MatrixGetChatsResponse {
@@ -47,13 +47,13 @@ pub async fn get_chats(
     })
 }
 
-pub fn get_chat_navigation(
+pub async fn get_chat_navigation(
     request: Option<MatrixGetChatNavigationRequest>,
     app_db: &Arc<AppDb>,
 ) -> Result<MatrixGetChatNavigationResponse, String> {
     let payload = request.unwrap_or_default();
-    let chats = load_cached_chats(app_db)?.unwrap_or_default();
-    let saved_root_space_ids = app_db.load_root_space_order()?;
+    let chats = load_cached_chats(app_db).await?.unwrap_or_default();
+    let saved_root_space_ids = app_db.load_root_space_order().await?;
     let saved_root_space_ids =
         (!saved_root_space_ids.is_empty()).then_some(saved_root_space_ids.as_slice());
 
@@ -65,11 +65,11 @@ pub fn get_chat_navigation(
     ))
 }
 
-pub fn set_root_space_order(
+pub async fn set_root_space_order(
     request: MatrixSetRootSpaceOrderRequest,
     app_db: &Arc<AppDb>,
 ) -> Result<MatrixSetRootSpaceOrderResponse, String> {
-    let chats = app_db.load_cached_chats()?.unwrap_or_default();
+    let chats = app_db.load_cached_chats().await?.unwrap_or_default();
     let orderable_root_space_ids = orderable_root_space_ids(&chats);
 
     let mut seen = std::collections::HashSet::new();
@@ -87,7 +87,9 @@ pub fn set_root_space_order(
         requested_root_space_ids.push(root_space_id);
     }
 
-    app_db.store_root_space_order(&requested_root_space_ids)?;
+    app_db
+        .store_root_space_order(&requested_root_space_ids)
+        .await?;
 
     Ok(MatrixSetRootSpaceOrderResponse {
         root_space_ids: requested_root_space_ids,
