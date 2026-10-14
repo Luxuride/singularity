@@ -138,7 +138,19 @@ pub fn persist_normalized_media(request: &NormalizedMediaLoad) -> Option<String>
 pub fn to_asset_storage_url(path: &Path) -> String {
     let absolute = path.to_string_lossy();
     let encoded = percent_encode_asset_path(absolute.as_ref());
-    format!("asset://localhost/{encoded}")
+    // WebKitGTK (and Android/Windows WebView runtimes) reject loads of the
+    // `asset://` custom scheme from an http(s) origin, so Tauri serves the
+    // asset protocol over `http://asset.localhost` there; macOS/iOS WKWebView
+    // only accepts the `asset://localhost` form.
+    format!("{}/{}", asset_protocol_origin(), encoded)
+}
+
+pub fn asset_protocol_origin() -> &'static str {
+    if cfg!(any(target_os = "macos", target_os = "ios")) {
+        "asset://localhost"
+    } else {
+        "http://asset.localhost"
+    }
 }
 
 fn percent_encode_asset_path(path: &str) -> String {
@@ -172,10 +184,11 @@ pub fn media_url_is_available(raw_url: &str) -> bool {
     resolved_media_file_path(raw_url).is_some_and(|path| path.exists())
 }
 
-/// Resolve a media URL (`asset://`, `file://`, or absolute path) to its
-/// filesystem path. Returns `None` for empty or unrecognized URLs.
+/// Resolve a media URL (`asset://`, `http://asset.localhost`, `file://`, or
+/// absolute path) to its filesystem path. Returns `None` for empty or
+/// unrecognized URLs.
 pub fn resolved_media_file_path(raw_url: &str) -> Option<PathBuf> {
-    if raw_url.starts_with("asset://") {
+    if raw_url.starts_with("asset://") || raw_url.starts_with("http://asset.localhost/") {
         let parsed = url::Url::parse(raw_url).ok()?;
         let path = percent_decode_str(parsed.path()).decode_utf8().ok()?;
         if path.is_empty() || path == "/" {
@@ -280,7 +293,10 @@ mod tests {
         fs::write(&file, [1, 2, 3]).expect("write temp media file");
 
         let url = to_asset_storage_url(&file);
-        assert!(url.starts_with("asset://localhost/"));
+        assert_eq!(
+            url.strip_prefix("http://asset.localhost/"),
+            Some(file.to_string_lossy().replace("/", "%2F").as_str())
+        );
 
         assert!(media_url_is_available(&url));
         assert_eq!(
