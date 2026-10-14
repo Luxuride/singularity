@@ -1,5 +1,5 @@
-//! Command core functions for the settings domain. Each function restores the
-//! Matrix client when needed and delegates to the domain modules.
+//! Settings domain core functions: client restore and the domain-module
+//! delegates used by the binder's command adapters.
 
 use std::sync::Arc;
 
@@ -16,9 +16,7 @@ use types::Paths;
 
 use crate::profile;
 
-/// Restore the Matrix client from disk when needed, then hand it back. Every
-/// settings function authenticates against the account, so a missing session
-/// is an error rather than a silent no-op.
+/// Restore the Matrix client from disk when needed, then hand it back.
 pub async fn require_client(
     paths: &Paths,
     app_db: &Arc<AppDb>,
@@ -73,8 +71,7 @@ pub async fn change_password(
 
     let client = require_client(paths, app_db, auth_state).await?;
 
-    // The first request always needs interactive auth; `Dummy` satisfies
-    // homeservers that do not require a second factor for password changes.
+    // `Dummy` satisfies UIAa on homeservers that need no second factor.
     client
         .account()
         .change_password(

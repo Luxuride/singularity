@@ -1,6 +1,6 @@
-//! User settings domain: the signed-in user's profile (display name, avatar)
-//! and account management (password change). Tauri-free: command adapters live
-//! in the binder, and domain functions take `&Paths` + `&Arc<AppDb>` +
+//! Settings domain: the signed-in user's profile (display name, avatar) and
+//! account management (password change). Tauri-free: command adapters live in
+//! the binder, and domain functions take `&Paths` + `&Arc<AppDb>` +
 //! `&AuthState` instead of Tauri state.
 
 pub mod commands;

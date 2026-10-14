@@ -95,7 +95,7 @@ function enumVariantToLiteral(name) {
 // Parse a single `pub struct` or `pub enum` block from source text.
 function parseTypeBlock(source) {
   const blocks = [];
-  const regex = /pub\s+(?:struct|enum)\s+(\w+)\s*\{([\s\S]*?)\n\}/g;
+  const regex = /pub\s+(?:struct|enum)\s+(\w+)\s*\{([\s\S]*?)\}/g;
   let match;
   while ((match = regex.exec(source)) !== null) {
     // Look backwards from the `pub` keyword for the derive attribute line.

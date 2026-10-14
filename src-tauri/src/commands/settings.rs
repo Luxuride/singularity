@@ -1,5 +1,5 @@
-//! Settings command adapters: profile (display name, avatar) and account
-//! (password change). Delegates to the `settings` crate.
+//! Settings command adapters: profile (display name, avatar) and password
+//! change. Delegates to the `settings` crate.
 
 use std::sync::Arc;
 

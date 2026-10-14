@@ -1,4 +1,4 @@
-//! Profile read/write against the Matrix account.
+//! Profile read/write against the signed-in Matrix account.
 
 use std::fs;
 use std::path::Path;
@@ -37,8 +37,7 @@ pub async fn get_profile(
         .map_err(|error| format!("Failed to get avatar URL: {error}"))?
         .map(|mxc| mxc.to_string());
 
-    // Media is rendered from disk-backed `asset://` URLs, so resolve the
-    // avatar's mxc through the media cache like every other image.
+    // The frontend renders media from disk-backed `asset://` URLs.
     let avatar_url = match avatar_mxc.as_deref() {
         Some(mxc) => chat::cache_mxc_media_to_local_path(&client, mxc).await,
         None => None,
