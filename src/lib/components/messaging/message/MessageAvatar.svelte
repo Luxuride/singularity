@@ -1,8 +1,6 @@
 <script lang="ts">
-  import { matrixGetUserAvatar } from "$lib/chats/api";
-  import { ImageCache } from "$lib/components/navigation/shared/image-cache";
-
-  const avatarCache = new ImageCache();
+import { matrixGetUserAvatar } from "$lib/chats/api";
+import { senderAvatarCache } from "$lib/components/navigation/shared/image-cache";
 
   interface Props {
     roomId: string;
@@ -23,11 +21,14 @@
     lazyImageUrl = null;
 
     const senderId = sender;
-    void avatarCache.getOrLoad(senderId, () => matrixGetUserAvatar(roomId, senderId)).then((imageUrl) => {
-      if (sender === senderId) {
-        lazyImageUrl = imageUrl;
-      }
-    });
+    const cacheKey = `${roomId}\u0000${senderId}`;
+    void senderAvatarCache
+      .getOrLoad(cacheKey, () => matrixGetUserAvatar(roomId, senderId))
+      .then((imageUrl) => {
+        if (sender === senderId) {
+          lazyImageUrl = imageUrl;
+        }
+      });
   });
 </script>
 

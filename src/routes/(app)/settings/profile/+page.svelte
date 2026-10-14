@@ -4,6 +4,7 @@
 	import { open } from "@tauri-apps/plugin-dialog";
 
 	import { matrixGetProfile, matrixRemoveAvatar, matrixSetAvatar, matrixSetDisplayName } from "$lib/settings/api";
+import { invalidateSenderAvatar } from "$lib/components/navigation/shared/image-cache";
 
 	let loading = $state(true);
 	let savingName = $state(false);
@@ -76,6 +77,9 @@
 		try {
 			await matrixSetAvatar({ filePath: selected });
 			await loadProfile();
+			if (userId) {
+				invalidateSenderAvatar(userId);
+			}
 			profileMessage = "Avatar updated.";
 		} catch (error) {
 			profileError = error instanceof Error ? error.message : "Failed to update avatar";
@@ -92,6 +96,9 @@
 		try {
 			await matrixRemoveAvatar();
 			avatarUrl = null;
+			if (userId) {
+				invalidateSenderAvatar(userId);
+			}
 			profileMessage = "Avatar removed.";
 		} catch (error) {
 			profileError = error instanceof Error ? error.message : "Failed to remove avatar";

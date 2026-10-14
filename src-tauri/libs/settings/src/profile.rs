@@ -27,13 +27,11 @@ pub async fn get_profile(
         .ok_or_else(|| String::from("Not authenticated"))?;
 
     let account = client.account();
-    let display_name = account
-        .get_display_name()
-        .await
-        .map_err(|error| format!("Failed to get display name: {error}"))?;
-    let avatar_mxc = account
-        .get_avatar_url()
-        .await
+    let (display_name, avatar_mxc) =
+        tokio::join!(account.get_display_name(), account.get_avatar_url());
+    let display_name =
+        display_name.map_err(|error| format!("Failed to get display name: {error}"))?;
+    let avatar_mxc = avatar_mxc
         .map_err(|error| format!("Failed to get avatar URL: {error}"))?
         .map(|mxc| mxc.to_string());
 
