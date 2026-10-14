@@ -35,9 +35,8 @@
   } from "$lib/chats/types";
   import {
     normalizeReactionKey,
-    normalizeShortcodesToEmoji,
   } from "$lib/emoji/picker";
-  import { RoomList } from "$lib/components/navigation";
+  import { RoomList, RoomSettingsDialog } from "$lib/components/navigation";
   import { MessageComposer } from "$lib/components/messaging/composer";
   import { MessageTimeline } from "$lib/components/messaging/timeline";
   import type { TimelineMessage } from "$lib/components/messaging/shared";
@@ -49,6 +48,7 @@
   let sendingMessage = $state(false);
   let replyToMessage = $state<TimelineMessage | null>(null);
   let composerFocusNonce = $state(0);
+  let roomSettingsDialogRoomId = $state<string | null>(null);
   let pendingMedia = $state<{
     filePath: string;
     fileName: string;
@@ -1051,6 +1051,19 @@
   }
 </script>
 
+{#if roomSettingsDialogRoomId}
+  {@const dialogRoom = $shellChats.find((chat) => chat.roomId === roomSettingsDialogRoomId)}
+  {#if dialogRoom}
+    <RoomSettingsDialog
+      open={true}
+      roomId={dialogRoom.roomId}
+      roomName={dialogRoom.displayName}
+      isSpace={dialogRoom.kind === "space"}
+      onClose={() => (roomSettingsDialogRoomId = null)}
+    />
+  {/if}
+{/if}
+
 {#if !$shellSelectedRoomId}
   <section class="card p-6 preset-outlined-surface-200-800 bg-surface-100-900 h-full overflow-y-auto space-y-5">
     <header>
@@ -1099,6 +1112,7 @@
       onScroll={handleTimelineScroll}
       onProgrammaticScroll={beginProgrammaticScroll}
       onLoadOlder={loadOlder}
+      onOpenRoomSettings={(roomIdToOpen) => (roomSettingsDialogRoomId = roomIdToOpen)}
       onRetryMessage={retryMessage}
       onToggleReaction={handleToggleReaction}
       onReplyToMessage={handleReplyToMessage}

@@ -87,3 +87,16 @@ pub async fn change_password(
 
     Ok(MatrixChangePasswordResponse { changed: true })
 }
+
+pub use crate::keywords::{add_keyword, get_keywords, remove_keyword};
+pub use crate::notification_defaults::delegates::{
+    get_notification_defaults, set_notification_default,
+};
+pub use crate::room_keywords::delegates::{
+    add_room_keyword, get_room_keywords, remove_room_keyword,
+};
+pub use crate::room_settings::delegates::{
+    get_room_settings as room_get_settings, leave_room as room_leave,
+    remove_room_tag as room_remove_tag, set_room_flags as room_set_flags,
+    set_room_notification_mode as room_set_notification_mode, set_room_tag as room_set_tag,
+};

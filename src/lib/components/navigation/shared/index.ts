@@ -1,4 +1,5 @@
 export { default as RoomAvatar } from "./RoomAvatar.svelte";
+export { default as RoomSettingsDialog } from "./RoomSettingsDialog.svelte";
 export {
   roomImageCache,
   senderAvatarCache,
