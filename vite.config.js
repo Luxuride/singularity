@@ -5,6 +5,9 @@ import tailwindcss from "@tailwindcss/vite";
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
+// @ts-expect-error process is a nodejs global
+const mediaCacheDir = process.env.APPCACHE;
+
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
   plugins: [tailwindcss(), sveltekit()],
@@ -28,6 +31,11 @@ export default defineConfig(async () => ({
     watch: {
       // 3. tell vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
+    },
+    fs: {
+      // WebKitGTK 2.54 blocks asset:// loads from this http origin, so dev
+      // media is served from the media cache through the /@fs route.
+      allow: mediaCacheDir ? [".", mediaCacheDir] : ["."],
     },
   },
 }));
