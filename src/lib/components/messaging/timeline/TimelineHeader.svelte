@@ -9,6 +9,8 @@
     streamMessageCount: number;
     nextFrom: string | null;
     onLoadOlder?: () => void;
+    roomId?: string | null;
+    onOpenSettings?: (roomId: string) => void;
   }
 
   let {
@@ -19,6 +21,8 @@
     streamMessageCount,
     nextFrom,
     onLoadOlder,
+    roomId,
+    onOpenSettings,
   }: Props = $props();
 </script>
 
@@ -33,12 +37,26 @@
     {/if}
   </div>
 
-  <button
-    type="button"
-    class="btn preset-tonal"
-    onclick={onLoadOlder}
-    disabled={!nextFrom || loadingMessages}
-  >
-    {#if loadingMessages}Loading...{:else}Load Older{/if}
-  </button>
+  <div class="flex items-center gap-2">
+    {#if roomId && onOpenSettings}
+      <button
+        type="button"
+        class="btn preset-tonal px-2"
+        title="Room settings"
+        aria-label="Open room settings"
+        onclick={() => onOpenSettings?.(roomId)}
+      >
+        ⚙
+      </button>
+    {/if}
+
+    <button
+      type="button"
+      class="btn preset-tonal"
+      onclick={onLoadOlder}
+      disabled={!nextFrom || loadingMessages}
+    >
+      {#if loadingMessages}Loading...{:else}Load Older{/if}
+    </button>
+  </div>
 </header>
