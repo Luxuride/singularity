@@ -18,6 +18,7 @@ use std::sync::Arc;
 use tauri::Manager;
 
 mod commands;
+mod webview_media;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -128,6 +129,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
+        .plugin(webview_media::allow_asset_on_http())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![

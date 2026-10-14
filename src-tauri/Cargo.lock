@@ -5912,6 +5912,7 @@ dependencies = [
  "tokio",
  "types",
  "verification",
+ "webkit2gtk",
 ]
 
 [[package]]
