@@ -69,7 +69,6 @@ mod tests {
     use std::fs;
 
     use super::has_stale_cached_media_urls;
-    use assets::asset_protocol_origin;
     use types::chat::{
         MatrixChatMessage, MatrixCustomEmoji, MatrixMessageDecryptionStatus,
         MatrixMessageVerificationStatus,
@@ -144,8 +143,7 @@ mod tests {
         fs::write(&emoji, [1, 2, 3]).expect("write temp emoji");
         let encode = |path: &std::path::Path| {
             format!(
-                "{}/{}",
-                asset_protocol_origin(),
+                "asset://localhost/{}",
                 path.to_string_lossy().replace("/", "%2F")
             )
         };

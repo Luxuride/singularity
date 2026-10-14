@@ -51,7 +51,7 @@ mod tests {
             .expect("complete key parts");
 
         let url = cache_video(&[1, 2, 3], key_parts).expect("cache video");
-        assert!(url.starts_with("http://asset.localhost/"));
+        assert!(url.starts_with("asset://localhost/"));
         assert_eq!(
             crate::image::persistence::load_media_bytes_from_resolved_url(&url),
             Some(vec![1, 2, 3]),
