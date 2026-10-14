@@ -73,7 +73,12 @@ fn read_mp4_box(bytes: &[u8], pos: usize) -> Option<Mp4Box> {
     if size < data_start - pos || pos.checked_add(size)? > bytes.len() {
         return None;
     }
-    Some(Mp4Box { kind, start: pos, size, data_start })
+    Some(Mp4Box {
+        kind,
+        start: pos,
+        size,
+        data_start,
+    })
 }
 
 fn mp4_children(bytes: &[u8], range: std::ops::Range<usize>) -> Vec<Mp4Box> {
@@ -94,7 +99,11 @@ fn mp4_children(bytes: &[u8], range: std::ops::Range<usize>) -> Vec<Mp4Box> {
 /// Add `delta` to every chunk offset in the `stco`/`co64` tables inside
 /// `range`. Chunk offsets are absolute file offsets, so moving `mdat` by
 /// `delta` moves every chunk by `delta` with it.
-fn shift_mp4_chunk_offsets(bytes: &mut [u8], range: std::ops::Range<usize>, delta: i64) -> Option<()> {
+fn shift_mp4_chunk_offsets(
+    bytes: &mut [u8],
+    range: std::ops::Range<usize>,
+    shift: &dyn Fn(i64) -> Option<i64>,
+) -> Option<()> {
     for box_ in mp4_children(bytes, range) {
         match &box_.kind {
             b"stco" | b"co64" => {
@@ -102,7 +111,10 @@ fn shift_mp4_chunk_offsets(bytes: &mut [u8], range: std::ops::Range<usize>, delt
                 // `stco` payload is version+flags (4) then entry_count (4).
                 let table_start = box_.data_start + 8;
                 let count = u32::from_be_bytes(
-                    bytes.get(box_.data_start + 4..box_.data_start + 8)?.try_into().ok()?,
+                    bytes
+                        .get(box_.data_start + 4..box_.data_start + 8)?
+                        .try_into()
+                        .ok()?,
                 ) as usize;
                 let table_end = table_start.checked_add(count.checked_mul(entry_size)?)?;
                 if table_end > box_.start + box_.size {
@@ -114,16 +126,17 @@ fn shift_mp4_chunk_offsets(bytes: &mut [u8], range: std::ops::Range<usize>, delt
                     } else {
                         u64::from_be_bytes(bytes[at..at + 8].try_into().ok()?) as i64
                     };
-                    let shifted = current.checked_add(delta)?;
+                    let shifted = shift(current)?;
                     if entry_size == 4 {
-                        bytes[at..at + 4].copy_from_slice(&u32::try_from(shifted).ok()?.to_be_bytes());
+                        bytes[at..at + 4]
+                            .copy_from_slice(&u32::try_from(shifted).ok()?.to_be_bytes());
                     } else {
                         bytes[at..at + 8].copy_from_slice(&(shifted as u64).to_be_bytes());
                     }
                 }
             }
             kind if MP4_CONTAINERS.contains(&kind) => {
-                shift_mp4_chunk_offsets(bytes, box_.data_start..box_.start + box_.size, delta)?;
+                shift_mp4_chunk_offsets(bytes, box_.data_start..box_.start + box_.size, &shift)?;
             }
             _ => {}
         }
@@ -144,43 +157,40 @@ fn front_load_mp4_moov(bytes: &[u8]) -> Option<Vec<u8>> {
         .iter()
         .position(|b| &b.kind != b"ftyp")
         .unwrap_or(boxes.len());
+    // Everything before the insert point stays put; everything from there to
+    // the moov's old position moves later by the moov's size.
+    let insert_offset: usize = boxes[..insert_at].iter().map(|b| b.size).sum();
 
     let mut out = Vec::with_capacity(bytes.len());
-    for (index, box_) in boxes.iter().filter(|b| b.start != moov.start).enumerate() {
+    for (index, box_) in boxes.iter().enumerate() {
         if index == insert_at {
             out.extend_from_slice(&bytes[moov.start..moov.start + moov.size]);
         }
+        if box_.start == moov.start {
+            continue;
+        }
         out.extend_from_slice(&bytes[box_.start..box_.start + box_.size]);
     }
-    if insert_at >= boxes.len() {
-        out.extend_from_slice(&bytes[moov.start..moov.start + moov.size]);
-    }
 
-    let moov_at = out
-        .windows(moov.size)
-        .position(|window| window == &bytes[moov.start..moov.start + moov.size])
-        .unwrap_or(insert_at_prefix_len(&boxes, moov.size));
-    let delta = moov_at as i64 - moov.start as i64;
-    if delta == 0 {
-        return None;
-    }
-    shift_mp4_chunk_offsets(&mut out, moov_at..moov_at + moov.size, delta)?;
+    // Chunk offsets are absolute file offsets, so each one shifts by the
+    // moov's size only if it pointed into the displaced region. An offset
+    // that lands inside the moov itself was never valid.
+    let moov_end = moov.start + moov.size;
+    shift_mp4_chunk_offsets(
+        &mut out,
+        insert_offset..insert_offset + moov.size,
+        &|offset| {
+            if (insert_offset as i64..moov.start as i64).contains(&offset) {
+                offset.checked_add(moov.size as i64)
+            } else if (moov.start as i64..moov_end as i64).contains(&offset) {
+                None
+            } else {
+                Some(offset)
+            }
+        },
+    )?;
 
     Some(out)
-}
-
-/// Fallback for locating the hoisted `moov` in the assembled file by length
-/// arithmetic rather than a byte search, which would match sample data.
-fn insert_at_prefix_len(boxes: &[Mp4Box], moov_size: usize) -> usize {
-    let mut cursor = 0;
-    for (index, box_) in boxes.iter().enumerate() {
-        if box_.size == moov_size {
-            return cursor;
-        }
-        cursor += box_.size;
-        let _ = index;
-    }
-    cursor
 }
 
 // ---------------------------------------------------------------------------
@@ -193,9 +203,12 @@ const CUES_ID: u64 = 0x1c53_bb6b;
 const CLUSTER_ID: u64 = 0x1f43_b675;
 const SEEK_ID: u64 = 0x4dbb;
 const SEEK_POSITION_ID: u64 = 0x53ac;
-const CUE_POINT_ID: u64 = 0xbbc0;
-const CUE_TRACK_POSITIONS_ID: u64 = 0xb700;
-const CUE_CLUSTER_POSITION_ID: u64 = 0xf100;
+// Element IDs are stored with their length-marker bit kept, so the registered
+// values decode as themselves: the 1-byte CuePoint ID is 0xBB, the 1-byte
+// CueTrackPositions ID is 0xB7, and the 1-byte CueClusterPosition ID is 0xF1.
+const CUE_POINT_ID: u64 = 0xbb;
+const CUE_TRACK_POSITIONS_ID: u64 = 0xb7;
+const CUE_CLUSTER_POSITION_ID: u64 = 0xf1;
 
 /// The width the rewritten Segment size field is written at. Fixing it means a
 /// changed segment length can never change a vint width, so nothing shifts
@@ -234,9 +247,12 @@ fn write_vint(value: u64, width: usize, keep_marker: bool) -> Option<Vec<u8>> {
     if !(1..=8).contains(&width) {
         return None;
     }
-    let marker = 1u64 << (7 * width - 1);
+    // The marker bit for a `width`-byte vint sits at bit 7*width: 0x80 for
+    // one byte, 0x4000 for two, and so on.
+    let marker = 1u64 << (7 * width);
     if keep_marker {
-        if value < marker {
+        // An ID carries its marker bit, so it must sit in [marker, 2*marker).
+        if value < marker || value >= 2 * marker {
             return None;
         }
     } else if value >= marker {
@@ -321,7 +337,10 @@ fn shift_cue_cluster_positions(
             let shifted = value.checked_add_signed(delta)?;
             let encoded = write_vint(shifted, width, false)?;
             bytes[element.data_start..element.data_start + width].copy_from_slice(&encoded);
-        } else if element.id == CUE_POINT_ID || element.id == CUE_TRACK_POSITIONS_ID {
+        } else if element.id == CUES_ID
+            || element.id == CUE_POINT_ID
+            || element.id == CUE_TRACK_POSITIONS_ID
+        {
             shift_cue_cluster_positions(bytes, element.data_start..element.end, delta)?;
         }
     }
@@ -375,10 +394,7 @@ fn front_load_matroska_cues(bytes: &[u8]) -> Option<Vec<u8>> {
 
     let children = ebml_children(bytes, segment.data_start..segment.end);
     let cues = children.iter().find(|c| c.id == CUES_ID)?.clone();
-    let first_cluster = children
-        .iter()
-        .find(|c| c.id == CLUSTER_ID)?
-        .clone();
+    let first_cluster = children.iter().find(|c| c.id == CLUSTER_ID)?.clone();
     if cues.start < first_cluster.start {
         return None;
     }
@@ -432,7 +448,7 @@ fn front_load_matroska_cues(bytes: &[u8]) -> Option<Vec<u8>> {
     }
 
     let mut result = prefix;
-    result.extend_from_slice(&segment.id[..segment.id_width]);
+    result.extend_from_slice(&write_vint(segment.id, segment.id_width, true)?);
     result.extend_from_slice(&write_vint(
         (out.len() + trailing.len()) as u64,
         SEGMENT_SIZE_WIDTH,
@@ -473,9 +489,15 @@ mod tests {
         let mdat = mp4_box(b"mdat", &[0u8; 8]);
         // moov payload is exactly the stco box, so the table sits at
         // moov.start + 8 + 8.
-        let moov_size = 8 + stco(&[0]).len();
-        let first_chunk = ftyp.len() + mdat.len() + 8 + 8;
-        let moov = mp4_box(b"moov", &stco(&[first_chunk as u32, (first_chunk + 4) as u32]));
+        let chunk_offsets: [u32; 2] = [0, 0];
+        let moov_size = 8 + stco(&chunk_offsets).len();
+        // In the pre-hoist layout mdat's payload starts after ftyp and the
+        // mdat header; the hoist is expected to shift the offsets by mdat's
+        // move to its new home behind ftyp and moov.
+        let first_chunk = ftyp.len() + 8;
+        let offsets = [first_chunk as u32, (first_chunk + 4) as u32];
+        let moov = mp4_box(b"moov", &stco(&offsets));
+        debug_assert_eq!(stco(&chunk_offsets).len(), stco(&offsets).len());
         debug_assert_eq!(moov.len(), moov_size);
 
         let mut out = Vec::new();
@@ -561,8 +583,9 @@ mod tests {
 
     fn id_width(id: u64) -> usize {
         match id {
-            SEEK_ID | SEEK_POSITION_ID | CUE_POINT_ID | CUE_TRACK_POSITIONS_ID
-            | CUE_CLUSTER_POSITION_ID => 2,
+            SEEK_ID | SEEK_POSITION_ID => 2,
+            // TrackNumber sits alongside the Cue fields at 1 byte.
+            CUE_POINT_ID | CUE_TRACK_POSITIONS_ID | CUE_CLUSTER_POSITION_ID | 0xd7 => 1,
             _ => 4,
         }
     }
@@ -634,18 +657,20 @@ mod tests {
         ebml_children(bytes, segment.data_start..segment.end)
             .into_iter()
             .filter(|c| c.id == CLUSTER_ID)
-            .map(|c| c.data_start - segment.data_start)
+            .map(|c| c.start - segment.data_start)
             .collect()
     }
 
     #[test]
     fn matroska_with_trailing_cues_gets_them_hoisted() {
         let rewritten = front_load_seek_index(&build_matroska(false)).expect("rewrite");
-        let ids: Vec<u64> = ebml_children(&rewritten, segment_of(&rewritten).data_start
-            ..segment_of(&rewritten).end)
-            .iter()
-            .map(|c| c.id)
-            .collect();
+        let ids: Vec<u64> = ebml_children(
+            &rewritten,
+            segment_of(&rewritten).data_start..segment_of(&rewritten).end,
+        )
+        .iter()
+        .map(|c| c.id)
+        .collect();
         assert_eq!(ids, vec![CUES_ID, CLUSTER_ID, CLUSTER_ID]);
     }
 
@@ -653,19 +678,21 @@ mod tests {
     fn matroska_hoist_preserves_cluster_payloads() {
         let original = build_matroska(false);
         let original_segment = segment_of(&original);
-        let payloads: Vec<Vec<u8>> = ebml_children(&original, original_segment.data_start..original_segment.end)
-            .into_iter()
-            .filter(|c| c.id == CLUSTER_ID)
-            .map(|c| original[c.data_start..c.end].to_vec())
-            .collect();
+        let payloads: Vec<Vec<u8>> =
+            ebml_children(&original, original_segment.data_start..original_segment.end)
+                .into_iter()
+                .filter(|c| c.id == CLUSTER_ID)
+                .map(|c| original[c.data_start..c.end].to_vec())
+                .collect();
 
         let rewritten = front_load_seek_index(&original).expect("rewrite");
         let segment = segment_of(&rewritten);
-        let rewritten_payloads: Vec<Vec<u8>> = ebml_children(&rewritten, segment.data_start..segment.end)
-            .into_iter()
-            .filter(|c| c.id == CLUSTER_ID)
-            .map(|c| rewritten[c.data_start..c.end].to_vec())
-            .collect();
+        let rewritten_payloads: Vec<Vec<u8>> =
+            ebml_children(&rewritten, segment.data_start..segment.end)
+                .into_iter()
+                .filter(|c| c.id == CLUSTER_ID)
+                .map(|c| rewritten[c.data_start..c.end].to_vec())
+                .collect();
         assert_eq!(rewritten_payloads, payloads);
     }
 
