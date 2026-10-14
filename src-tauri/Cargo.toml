@@ -47,6 +47,7 @@ auth = { path = "libs/auth" }
 verification = { path = "libs/verification" }
 chat = { path = "libs/chat" }
 rooms = { path = "libs/rooms" }
+settings = { path = "libs/settings" }
 
 [package]
 name = "singularity"
@@ -89,10 +90,16 @@ auth = { workspace = true }
 verification = { workspace = true }
 chat = { workspace = true }
 rooms = { workspace = true }
+settings = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 rusqlite = { workspace = true, features = ["bundled-sqlcipher-vendored-openssl"] }
 
 [target.'cfg(not(windows))'.dependencies]
 rusqlite = { workspace = true, features = ["bundled-sqlcipher"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Already in the tree through wry; enables WebViewExt::set_cors_allowlist so
+# the dev build (Vite on http) can display asset:// media under WebKitGTK.
+webkit2gtk = { version = "2.0", features = ["v2_34"] }
 

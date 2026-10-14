@@ -18,6 +18,7 @@ use std::sync::Arc;
 use tauri::Manager;
 
 mod commands;
+mod webview_media;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -94,8 +95,20 @@ pub fn run() {
             // watcher whenever a Matrix client becomes ready.
             {
                 let sink = event_sink.clone();
+                let app_db_for_avatars = app_db.clone();
                 auth_state.set_on_client_ready(Arc::new(move |client, cancelled| {
-                    verification::start_verification_state_watcher(sink.clone(), client, cancelled);
+                    verification::start_verification_state_watcher(
+                        sink.clone(),
+                        client.clone(),
+                        cancelled,
+                    );
+                    rooms::watch_avatar_changes(
+                        &client,
+                        rooms::avatars::AvatarChangeDeps {
+                            app_db: app_db_for_avatars.clone(),
+                            event_sink: sink.clone(),
+                        },
+                    );
                 }));
             }
 
@@ -128,6 +141,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
+        .plugin(webview_media::allow_asset_on_http())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -165,6 +179,11 @@ pub fn run() {
             commands::verification::matrix_start_sas_verification,
             commands::verification::matrix_accept_sas_verification,
             commands::verification::matrix_confirm_sas_verification,
+            commands::settings::matrix_get_profile,
+            commands::settings::matrix_set_display_name,
+            commands::settings::matrix_set_avatar,
+            commands::settings::matrix_remove_avatar,
+            commands::settings::matrix_change_password,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

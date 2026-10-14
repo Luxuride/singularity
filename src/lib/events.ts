@@ -7,3 +7,4 @@ export const EVENT_SELECTED_ROOM_MESSAGES = "matrix://rooms/selected/messages";
 export const EVENT_CHAT_MESSAGES_STREAM = "matrix://rooms/messages/stream";
 export const EVENT_VERIFICATION_STATE_CHANGED = "matrix://verification/state";
 export const EVENT_MEDIA_TRANSCODE_PROGRESS = "matrix://media/transcode/progress";
+export const EVENT_PROFILE_AVATAR_UPDATED = "matrix://profile/avatar-updated";

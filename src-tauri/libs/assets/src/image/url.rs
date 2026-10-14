@@ -41,7 +41,11 @@ pub async fn cache_mxc_media_to_local_path(
     };
 
     let file_stem = mxc_image_cache_key(raw_url, &bytes);
-    let extension = image_extension_from_raw_url(raw_url);
+    // Avatar mxc URLs have no file-name extension, so derive the type from the
+    // bytes; a served `application/octet-stream` never renders in an `<img>`.
+    let extension = sniffed_image_extension(&bytes)
+        .or_else(|| sniffed_extension_from_raw_url(raw_url))
+        .unwrap_or("bin");
     let mime_type = mime_type_from_extension(extension);
 
     let request = NormalizedMediaLoad::builder()
@@ -89,14 +93,19 @@ pub fn canonical_pack_source_url(raw_url: &str) -> String {
 }
 
 pub fn cache_event_image(bytes: &[u8], key_parts: ImageCacheKeyParts) -> Option<String> {
-    let extension = image_extension_from_mime(&key_parts.mime_type);
+    // Events may omit `content.info.mimetype`, which maps to the `bin`
+    // fallback; sniff the actual bytes before giving up on a renderable type.
+    let extension = match image_extension_from_mime(&key_parts.mime_type) {
+        "bin" => sniffed_image_extension(bytes).unwrap_or("bin"),
+        extension => extension,
+    };
     let file_stem = image_cache_key(&key_parts);
 
     let request = NormalizedMediaLoad::builder()
         .bytes(bytes)
         .file_stem(file_stem)
         .extension(extension)
-        .mime_type(key_parts.mime_type)
+        .mime_type(mime_type_from_extension(extension))
         .build()?;
 
     persist_normalized_media(&request)
@@ -165,5 +174,63 @@ mod tests {
 
         let resolved = resolve_pack_media_url(&client, "https://example.org/image.png").await;
         assert!(resolved.is_none());
+    }
+}
+
+/// Image file extension sniffed from magic bytes, for media whose URL carries
+/// no usable extension (avatar mxc URLs never do).
+fn sniffed_image_extension(bytes: &[u8]) -> Option<&'static str> {
+    let format = image::guess_format(bytes).ok()?;
+    let extension = match format {
+        image::ImageFormat::Jpeg => "jpg",
+        image::ImageFormat::Png => "png",
+        image::ImageFormat::Gif => "gif",
+        image::ImageFormat::WebP => "webp",
+        image::ImageFormat::Bmp => "bmp",
+        _ => return None,
+    };
+    Some(extension)
+}
+
+fn sniffed_extension_from_raw_url(raw_url: &str) -> Option<&'static str> {
+    match image_extension_from_raw_url(raw_url) {
+        "bin" => None,
+        extension => Some(extension),
+    }
+}
+
+#[cfg(test)]
+mod sniff_tests {
+    use super::{
+        image_extension_from_raw_url, sniffed_extension_from_raw_url, sniffed_image_extension,
+    };
+
+    fn png_bytes() -> Vec<u8> {
+        vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3]
+    }
+
+    fn jpeg_bytes() -> Vec<u8> {
+        vec![0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]
+    }
+
+    #[test]
+    fn sniffed_image_extension_detects_magic_bytes() {
+        assert_eq!(sniffed_image_extension(&png_bytes()), Some("png"));
+        assert_eq!(sniffed_image_extension(&jpeg_bytes()), Some("jpg"));
+        assert_eq!(sniffed_image_extension(b"plain text"), None);
+        assert_eq!(sniffed_image_extension(&[]), None);
+    }
+
+    #[test]
+    fn sniffed_extension_from_raw_url_rejects_bin() {
+        assert_eq!(sniffed_extension_from_raw_url("mxc://server/AbC123"), None);
+        assert_eq!(
+            sniffed_extension_from_raw_url("mxc://server/photo.png"),
+            Some("png")
+        );
+        assert_eq!(
+            image_extension_from_raw_url("mxc://server/photo.png"),
+            "png"
+        );
     }
 }

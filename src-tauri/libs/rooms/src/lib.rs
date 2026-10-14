@@ -6,6 +6,7 @@
 //! room-update worker takes an `Arc<dyn EventSink>` so it can emit events
 //! without depending on Tauri.
 
+pub mod avatars;
 pub mod commands;
 pub mod direct;
 pub mod image;
@@ -14,6 +15,7 @@ pub mod navigation;
 pub mod persistence;
 pub mod workers;
 
+pub use avatars::watch_avatar_changes;
 pub use workers::{
     collect_chat_summaries, start_room_update_worker, RoomSnapshot, RoomUpdateWorker,
 };

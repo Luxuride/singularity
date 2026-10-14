@@ -354,6 +354,84 @@ impl AppDb {
         .await
     }
 
+    /// The latest avatar source observed per user, from m.room.member events.
+    /// Written by the avatar-change watcher; `chat::get_user_avatar` prefers it
+    /// over the SDK member profile, which can lag a sync behind.
+    pub async fn set_user_avatar_source(
+        &self,
+        user_id: &str,
+        source_url: Option<&str>,
+    ) -> Result<(), String> {
+        let user_id = user_id.to_owned();
+        let source_url = source_url.map(str::to_owned);
+        self.run_blocking(move |connection| {
+            if let Some(source_url) = source_url.as_deref() {
+                connection
+                    .execute(
+                        "
+                        INSERT INTO user_avatar_source_cache (user_id, source_url, updated_at)
+                        VALUES (?1, ?2, unixepoch())
+                        ON CONFLICT(user_id) DO UPDATE SET
+                            source_url = excluded.source_url,
+                            updated_at = unixepoch()
+                        ",
+                        params![user_id, source_url],
+                    )
+                    .map_err(|error| {
+                        format!("Failed to upsert user avatar source cache row: {error}")
+                    })?;
+            } else {
+                connection
+                    .execute(
+                        "DELETE FROM user_avatar_source_cache WHERE user_id = ?1",
+                        [user_id],
+                    )
+                    .map_err(|error| {
+                        format!("Failed to delete user avatar source cache row: {error}")
+                    })?;
+            }
+
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn load_cached_user_avatar_sources(&self) -> Result<HashMap<String, String>, String> {
+        self.run_blocking(move |connection| {
+            let mut statement = connection
+                .prepare(
+                    "
+                    SELECT user_id, source_url
+                    FROM user_avatar_source_cache
+                    ",
+                )
+                .map_err(|error| {
+                    format!("Failed to prepare user avatar source cache query: {error}")
+                })?;
+
+            let mut rows = statement
+                .query([])
+                .map_err(|error| format!("Failed to query user avatar source cache: {error}"))?;
+
+            let mut avatar_sources_by_user = HashMap::new();
+            while let Some(row) = rows
+                .next()
+                .map_err(|error| format!("Failed to read user avatar source cache row: {error}"))?
+            {
+                let user_id = row.get::<_, String>(0).map_err(|error| {
+                    format!("Failed to decode user avatar source user id: {error}")
+                })?;
+                let source_url = row
+                    .get::<_, String>(1)
+                    .map_err(|error| format!("Failed to decode user avatar source url: {error}"))?;
+                avatar_sources_by_user.insert(user_id, source_url);
+            }
+
+            Ok(avatar_sources_by_user)
+        })
+        .await
+    }
+
     pub async fn load_cached_chat_image_sources(&self) -> Result<HashMap<String, String>, String> {
         self.run_blocking(move |connection| {
             let mut statement = connection
@@ -670,6 +748,11 @@ fn clear_cache_tables(connection: &Connection) -> Result<(), String> {
     connection
         .execute("DELETE FROM chat_image_source_cache", [])
         .map_err(|error| format!("Failed to clear chat image source cache: {error}"))?;
+    // Same for user ids: a stale source here would pin a previous account's
+    // avatar onto a same-localpart user on another homeserver.
+    connection
+        .execute("DELETE FROM user_avatar_source_cache", [])
+        .map_err(|error| format!("Failed to clear user avatar source cache: {error}"))?;
     Ok(())
 }
 

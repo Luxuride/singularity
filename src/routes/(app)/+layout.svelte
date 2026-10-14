@@ -1,8 +1,8 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
-  import { onMount } from "svelte";
   import { get } from "svelte/store";
+  import { onMount } from "svelte";
   import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 
   import { matrixSessionStatus } from "$lib/auth/api";
@@ -36,6 +36,7 @@
     MatrixSelectedRoomMessagesEvent,
   } from "$lib/chats/types";
   import { AppHeader, RootSpaceList, RoomList } from "$lib/components/navigation";
+  import { invalidateSenderAvatar, roomImageCache, senderAvatarCache } from "$lib/components/navigation/shared";
 
   let { children } = $props();
 
@@ -53,6 +54,12 @@
         onRoomRemoved: applyRoomRemoval,
         onSelectedRoomMessages: (_payload: MatrixSelectedRoomMessagesEvent) => {},
         onChatMessagesStream: () => {},
+        onProfileAvatarUpdated: (payload) => {
+          // Matrix pushed an avatar change for this user; drop every cached
+          // avatar so message headers re-resolve the new image.
+          invalidateSenderAvatar(payload.userId);
+          void requestRefresh();
+        },
       });
 
       try {
@@ -294,6 +301,8 @@
       if (error) {
         shellErrorMessage.set(error);
       } else {
+        senderAvatarCache.clear();
+        roomImageCache.clear();
         await goto("/");
       }
     } finally {

@@ -203,7 +203,13 @@ pub async fn matrix_get_user_avatar(
 ) -> Result<MatrixGetUserAvatarResponse, String> {
     log::info!("matrix_get_user_avatar requested");
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
-    chat::get_user_avatar(&client, request.room_id.as_str(), request.user_id.as_str()).await
+    chat::get_user_avatar(
+        &client,
+        &app_db,
+        request.room_id.as_str(),
+        request.user_id.as_str(),
+    )
+    .await
 }
 
 #[tauri::command]

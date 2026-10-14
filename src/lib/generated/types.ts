@@ -293,10 +293,51 @@ export interface MatrixRoomRemovedEvent {
   roomId: string;
 }
 
+export interface MatrixProfileAvatarUpdatedEvent {
+  userId: string;
+}
+
 export interface MatrixSelectedRoomMessagesEvent {
   roomId: string;
   nextFrom?: string | null;
   messages: MatrixChatMessage[];
+}
+
+export interface MatrixProfileResponse {
+  userId: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+}
+
+export interface MatrixSetDisplayNameRequest {
+  displayName?: string | null;
+}
+
+export interface MatrixSetDisplayNameResponse {
+  set: boolean;
+}
+
+export interface MatrixSetAvatarRequest {
+  filePath: string;
+}
+
+export interface MatrixSetAvatarResponse {
+  mxcUrl: string;
+}
+
+export interface MatrixRemoveAvatarRequest {
+}
+
+export interface MatrixRemoveAvatarResponse {
+  removed: boolean;
+}
+
+export interface MatrixChangePasswordRequest {
+  newPassword: string;
+}
+
+export interface MatrixChangePasswordResponse {
+  changed: boolean;
 }
 
 export interface RoomRefreshTrigger {

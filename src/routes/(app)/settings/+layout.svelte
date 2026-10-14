@@ -5,6 +5,8 @@
 
         const settingsNavItems = [
             { href: "/settings", label: "General" },
+            { href: "/settings/profile", label: "Profile" },
+            { href: "/settings/account", label: "Account" },
             { href: "/settings/security", label: "Security" },
         ] as const;
 
