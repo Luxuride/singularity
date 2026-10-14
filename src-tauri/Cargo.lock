@@ -192,6 +192,7 @@ dependencies = [
  "axum",
  "http",
  "http-body-util",
+ "image",
  "log",
  "matrix-sdk",
  "percent-encoding",
