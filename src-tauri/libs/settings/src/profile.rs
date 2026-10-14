@@ -5,12 +5,16 @@ use std::path::Path;
 use std::sync::Arc;
 
 use auth::AuthState;
+use protocol;
+use rooms;
 use storage::AppDb;
+use types::event_paths;
+use types::rooms::MatrixProfileAvatarUpdatedEvent;
 use types::settings::{
     MatrixProfileResponse, MatrixRemoveAvatarResponse, MatrixSetAvatarRequest,
     MatrixSetAvatarResponse, MatrixSetDisplayNameRequest, MatrixSetDisplayNameResponse,
 };
-use types::Paths;
+use types::{EventSink, Paths};
 
 use crate::commands::require_client;
 
@@ -81,6 +85,7 @@ pub async fn set_avatar(
     paths: &Paths,
     app_db: &Arc<AppDb>,
     auth_state: &AuthState,
+    event_sink: &Arc<dyn EventSink>,
     request: &MatrixSetAvatarRequest,
 ) -> Result<MatrixSetAvatarResponse, String> {
     let path = Path::new(&request.file_path);
@@ -105,15 +110,17 @@ pub async fn set_avatar(
         .await
         .map_err(|error| format!("Failed to upload avatar: {error}"))?;
 
-    Ok(MatrixSetAvatarResponse {
-        mxc_url: mxc_url.to_string(),
-    })
+    let mxc = mxc_url.to_string();
+    apply_own_avatar_change(app_db, event_sink, &client, Some(&mxc)).await;
+
+    Ok(MatrixSetAvatarResponse { mxc_url: mxc })
 }
 
 pub async fn remove_avatar(
     paths: &Paths,
     app_db: &Arc<AppDb>,
     auth_state: &AuthState,
+    event_sink: &Arc<dyn EventSink>,
 ) -> Result<MatrixRemoveAvatarResponse, String> {
     let client = require_client(paths, app_db, auth_state).await?;
 
@@ -123,7 +130,62 @@ pub async fn remove_avatar(
         .await
         .map_err(|error| format!("Failed to remove avatar: {error}"))?;
 
+    apply_own_avatar_change(app_db, event_sink, &client, None).await;
+
     Ok(MatrixRemoveAvatarResponse { removed: true })
+}
+
+/// Apply the just-made profile change locally instead of waiting for the sync
+/// echo: record the new source, recache the media, refresh direct-room images
+/// and tell the frontend whose avatars went stale. Mirrors what the
+/// `rooms::avatars` watcher does when the change arrives over a later sync.
+async fn apply_own_avatar_change(
+    app_db: &Arc<AppDb>,
+    event_sink: &Arc<dyn EventSink>,
+    client: &matrix_sdk::Client,
+    avatar_mxc: Option<&str>,
+) {
+    let Some(user_id) = client.user_id().map(|id| id.to_string()) else {
+        return;
+    };
+
+    if let Err(error) = app_db.set_user_avatar_source(&user_id, avatar_mxc).await {
+        log::warn!("Failed to record avatar source for {user_id}: {error}");
+    }
+
+    if let Some(mxc) = avatar_mxc {
+        if chat::cache_mxc_media_to_local_path(client, mxc)
+            .await
+            .is_none()
+        {
+            log::warn!("Failed to cache avatar media for {mxc}");
+        }
+    }
+
+    let deps = rooms::avatars::AvatarChangeDeps {
+        app_db: app_db.clone(),
+        event_sink: event_sink.clone(),
+    };
+    for (mapped_user_id, room_ids) in rooms::direct::direct_room_mapping(client).await {
+        if mapped_user_id != user_id {
+            continue;
+        }
+        for room_id in room_ids {
+            let Ok(parsed_room_id) = protocol::parse_room_id(&room_id) else {
+                continue;
+            };
+            let Some(room) = client.get_room(&parsed_room_id) else {
+                continue;
+            };
+            rooms::avatars::refresh_room_image(&deps, &room, avatar_mxc.map(ToString::to_string))
+                .await;
+        }
+    }
+
+    let event = MatrixProfileAvatarUpdatedEvent { user_id };
+    if let Ok(payload) = serde_json::to_value(&event) {
+        let _ = event_sink.emit(event_paths::PROFILE_AVATAR_UPDATED, &payload);
+    }
 }
 
 fn guess_image_mime(path: &Path) -> Result<mime::Mime, String> {

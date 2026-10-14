@@ -112,6 +112,17 @@ async fn handle_member_event(
     };
 
     if changed {
+        // Record the event's avatar source before any re-render can read the
+        // (one-sync-late) member profile, so get_user_avatar resolves the
+        // current change, not the previous one.
+        if let Err(error) = deps
+            .app_db
+            .set_user_avatar_source(&user_id, avatar_mxc.as_deref())
+            .await
+        {
+            log::warn!("Failed to record avatar source for {user_id}: {error}");
+        }
+
         apply_user_avatar_change(deps, &room.client(), &user_id, avatar_mxc).await;
     }
 }
@@ -173,8 +184,9 @@ async fn apply_user_avatar_change(
 /// Recompute one room's image from `source_mxc`, persist the source, and emit
 /// `ROOM_UPDATED` with the refreshed summary when the rendered image changed.
 /// A no-op when the stored source already matches, so replayed events from a
-/// sync do no work.
-async fn refresh_room_image(deps: &AvatarChangeDeps, room: &Room, source_mxc: Option<String>) {
+/// sync do no work. Also used by `settings` to apply own-profile changes
+/// immediately, without waiting for the sync echo.
+pub async fn refresh_room_image(deps: &AvatarChangeDeps, room: &Room, source_mxc: Option<String>) {
     let room_id = room.room_id().to_string();
 
     let stored_source = load_cached_chat_image_sources(&deps.app_db)

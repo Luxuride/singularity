@@ -46,17 +46,19 @@ pub async fn set_avatar(
     paths: &Paths,
     app_db: &Arc<AppDb>,
     auth_state: &AuthState,
+    event_sink: &Arc<dyn types::EventSink>,
     request: &MatrixSetAvatarRequest,
 ) -> Result<MatrixSetAvatarResponse, String> {
-    profile::set_avatar(paths, app_db, auth_state, request).await
+    profile::set_avatar(paths, app_db, auth_state, event_sink, request).await
 }
 
 pub async fn remove_avatar(
     paths: &Paths,
     app_db: &Arc<AppDb>,
     auth_state: &AuthState,
+    event_sink: &Arc<dyn types::EventSink>,
 ) -> Result<MatrixRemoveAvatarResponse, String> {
-    profile::remove_avatar(paths, app_db, auth_state).await
+    profile::remove_avatar(paths, app_db, auth_state, event_sink).await
 }
 
 pub async fn change_password(

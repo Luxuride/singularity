@@ -1,8 +1,11 @@
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use arboard::{Clipboard, ImageData};
 use matrix_sdk::Client;
 use serde_json::Value;
+
+use storage::AppDb;
 
 use crate::emoji::load_picker_assets_from_client;
 use crate::media::{DefaultMediaResolver, MediaResolver};
@@ -118,6 +121,7 @@ pub async fn get_emoji_packs(client: &Client) -> Result<MatrixGetEmojiPacksRespo
 
 pub async fn get_user_avatar(
     client: &Client,
+    app_db: &Arc<AppDb>,
     room_id: &str,
     user_id: &str,
 ) -> Result<MatrixGetUserAvatarResponse, String> {
@@ -134,21 +138,39 @@ pub async fn get_user_avatar(
         }
     };
 
-    let image_url = match room.get_member(user_id.as_ref()).await {
-        Ok(Some(member)) => match member.avatar_url() {
-            Some(avatar_url) => {
-                crate::media::cache_mxc_media_to_local_path(client, avatar_url.as_str()).await
-            }
-            None => None,
-        },
-        Ok(None) => None,
-        Err(_) => None,
+    // The SDK member profile is applied to the store around a sync, so right
+    // after a change it still holds the previous avatar. The source cache is
+    // written the moment an m.room.member event arrives, so prefer it and
+    // fall back to the member profile for users not seen by the watcher.
+    let member_avatar = match room.get_member(user_id.as_ref()).await {
+        Ok(Some(member)) => member.avatar_url().map(ToString::to_string),
+        _ => None,
+    };
+    let avatar_url = latest_user_avatar_source(app_db, user_id.as_str(), member_avatar).await;
+
+    let image_url = match avatar_url.as_deref() {
+        Some(avatar_url) => crate::media::cache_mxc_media_to_local_path(client, avatar_url).await,
+        None => None,
     };
 
     Ok(MatrixGetUserAvatarResponse {
         user_id: user_id.to_string(),
         image_url,
     })
+}
+
+/// The freshest known avatar mxc for a user: the event-fed source cache when
+/// it has seen the user, otherwise the member profile.
+async fn latest_user_avatar_source(
+    app_db: &Arc<AppDb>,
+    user_id: &str,
+    member_avatar: Option<String>,
+) -> Option<String> {
+    match app_db.load_cached_user_avatar_sources().await {
+        Ok(sources) if sources.contains_key(user_id) => sources.get(user_id).cloned(),
+        Ok(_) => member_avatar,
+        Err(_) => member_avatar,
+    }
 }
 
 pub async fn copy_image_to_clipboard(image_url: &str) -> Result<(), String> {

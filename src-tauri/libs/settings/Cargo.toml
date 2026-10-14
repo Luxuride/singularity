@@ -9,6 +9,7 @@ storage = { workspace = true }
 protocol = { workspace = true }
 auth = { workspace = true }
 chat = { workspace = true }
+rooms = { workspace = true }
 
 matrix-sdk = { workspace = true }
 tokio = { workspace = true }

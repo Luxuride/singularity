@@ -1,6 +1,6 @@
 <script lang="ts">
 import { matrixGetUserAvatar } from "$lib/chats/api";
-import { senderAvatarCache } from "$lib/components/navigation/shared/image-cache";
+import { avatarChangeEpoch, senderAvatarCache } from "$lib/components/navigation/shared/image-cache";
 
   interface Props {
     roomId: string;
@@ -17,7 +17,12 @@ import { senderAvatarCache } from "$lib/components/navigation/shared/image-cache
     return normalized.charAt(0).toUpperCase() || "#";
   });
 
+  const avatarEpoch = $derived(avatarChangeEpoch.current);
+
   $effect(() => {
+    // Re-run when an avatar change lands: the epoch bumps on
+    // PROFILE_AVATAR_UPDATED after the cache has been invalidated.
+    void avatarEpoch;
     lazyImageUrl = null;
 
     const senderId = sender;

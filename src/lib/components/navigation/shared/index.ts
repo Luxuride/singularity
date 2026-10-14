@@ -2,6 +2,7 @@ export { default as RoomAvatar } from "./RoomAvatar.svelte";
 export {
   roomImageCache,
   senderAvatarCache,
+  avatarChangeEpoch,
   invalidateSenderAvatar,
 } from "./image-cache";
 export {

@@ -5812,6 +5812,7 @@ dependencies = [
  "matrix-sdk",
  "mime",
  "protocol",
+ "rooms",
  "serde",
  "serde_json",
  "storage",

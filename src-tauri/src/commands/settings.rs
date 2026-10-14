@@ -7,6 +7,7 @@ use tauri::State;
 
 use auth::AuthState;
 use storage::AppDb;
+use types::event_sink::EventSink;
 use types::settings::{
     MatrixChangePasswordRequest, MatrixChangePasswordResponse, MatrixProfileResponse,
     MatrixRemoveAvatarRequest, MatrixRemoveAvatarResponse, MatrixSetAvatarRequest,
@@ -39,8 +40,9 @@ pub async fn matrix_set_avatar(
     auth_state: State<'_, Arc<AuthState>>,
     paths: State<'_, Paths>,
     app_db: State<'_, Arc<AppDb>>,
+    event_sink: State<'_, Arc<dyn EventSink>>,
 ) -> Result<MatrixSetAvatarResponse, String> {
-    settings::set_avatar(&paths, &app_db, auth_state.as_ref(), &request).await
+    settings::set_avatar(&paths, &app_db, auth_state.as_ref(), &event_sink, &request).await
 }
 
 #[tauri::command]
@@ -49,8 +51,9 @@ pub async fn matrix_remove_avatar(
     auth_state: State<'_, Arc<AuthState>>,
     paths: State<'_, Paths>,
     app_db: State<'_, Arc<AppDb>>,
+    event_sink: State<'_, Arc<dyn EventSink>>,
 ) -> Result<MatrixRemoveAvatarResponse, String> {
-    settings::remove_avatar(&paths, &app_db, auth_state.as_ref()).await
+    settings::remove_avatar(&paths, &app_db, auth_state.as_ref(), &event_sink).await
 }
 
 #[tauri::command]

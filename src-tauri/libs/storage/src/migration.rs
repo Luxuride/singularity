@@ -9,11 +9,17 @@ use rusqlite::{Connection, OptionalExtension};
 
 /// The version this build expects. Bump it and append a migration to
 /// [`MIGRATIONS`] whenever the schema changes.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// Applied in ascending order. Each entry is `(version, sql)`: a database at
 /// version *n* runs every entry whose version is greater than *n*.
-const MIGRATIONS: &[(i64, &str)] = &[(1, include_str!("migrations/001_initial.sql"))];
+const MIGRATIONS: &[(i64, &str)] = &[
+    (1, include_str!("migrations/001_initial.sql")),
+    (
+        2,
+        include_str!("migrations/002_user_avatar_source_cache.sql"),
+    ),
+];
 
 /// Brings `connection` up to [`SCHEMA_VERSION`].
 ///
