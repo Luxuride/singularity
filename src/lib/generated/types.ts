@@ -293,6 +293,10 @@ export interface MatrixRoomRemovedEvent {
   roomId: string;
 }
 
+export interface MatrixProfileAvatarUpdatedEvent {
+  userId: string;
+}
+
 export interface MatrixSelectedRoomMessagesEvent {
   roomId: string;
   nextFrom?: string | null;

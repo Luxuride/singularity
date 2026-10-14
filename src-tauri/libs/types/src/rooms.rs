@@ -104,6 +104,12 @@ pub struct MatrixRoomRemovedEvent {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MatrixProfileAvatarUpdatedEvent {
+    pub user_id: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MatrixSelectedRoomMessagesEvent {
     pub room_id: String,
     pub next_from: Option<String>,

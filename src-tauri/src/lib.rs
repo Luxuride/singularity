@@ -95,8 +95,20 @@ pub fn run() {
             // watcher whenever a Matrix client becomes ready.
             {
                 let sink = event_sink.clone();
+                let app_db_for_avatars = app_db.clone();
                 auth_state.set_on_client_ready(Arc::new(move |client, cancelled| {
-                    verification::start_verification_state_watcher(sink.clone(), client, cancelled);
+                    verification::start_verification_state_watcher(
+                        sink.clone(),
+                        client.clone(),
+                        cancelled,
+                    );
+                    rooms::watch_avatar_changes(
+                        &client,
+                        rooms::avatars::AvatarChangeDeps {
+                            app_db: app_db_for_avatars.clone(),
+                            event_sink: sink.clone(),
+                        },
+                    );
                 }));
             }
 

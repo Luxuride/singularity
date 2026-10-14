@@ -5,10 +5,10 @@ import {
   EVENT_ROOM_ADDED,
   EVENT_ROOM_REMOVED,
   EVENT_ROOM_UPDATED,
+  EVENT_PROFILE_AVATAR_UPDATED,
   EVENT_SELECTED_ROOM_MESSAGES,
   EVENT_VERIFICATION_STATE_CHANGED,
-} from "$lib/events";
-import {
+} from "$lib/events";import {
   normalizeChatSummaryImageUrl,
   normalizeChatMessageStreamEvent,
   normalizeSelectedRoomMessagesEvent,
@@ -16,6 +16,7 @@ import {
 import type {
   MatrixChatSummary,
   MatrixChatMessageStreamEvent,
+  MatrixProfileAvatarUpdatedEvent,
   MatrixRoomRemovedEvent,
   MatrixSelectedRoomMessagesEvent,
   MatrixVerificationStateChangedEvent,
@@ -28,6 +29,7 @@ export interface RoomUpdateHandlers {
   onSelectedRoomMessages: (payload: MatrixSelectedRoomMessagesEvent) => void;
   onChatMessagesStream: (payload: MatrixChatMessageStreamEvent) => void;
   onVerificationStateChanged?: (payload: MatrixVerificationStateChangedEvent) => void;
+  onProfileAvatarUpdated?: (payload: MatrixProfileAvatarUpdatedEvent) => void;
 }
 
 export async function subscribeToRoomUpdates(handlers: RoomUpdateHandlers): Promise<() => void> {
@@ -47,6 +49,9 @@ export async function subscribeToRoomUpdates(handlers: RoomUpdateHandlers): Prom
     ),
     listen<MatrixVerificationStateChangedEvent>(EVENT_VERIFICATION_STATE_CHANGED, (event) => {
       handlers.onVerificationStateChanged?.(event.payload);
+    }),
+    listen<MatrixProfileAvatarUpdatedEvent>(EVENT_PROFILE_AVATAR_UPDATED, (event) => {
+      handlers.onProfileAvatarUpdated?.(event.payload);
     }),
   ]);
 
