@@ -36,8 +36,7 @@ pub struct MatrixSetAvatarResponse {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MatrixRemoveAvatarRequest {
-}
+pub struct MatrixRemoveAvatarRequest {}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -6,6 +6,4 @@
 pub mod commands;
 pub mod profile;
 
-pub use commands::{
-    change_password, get_profile, remove_avatar, set_avatar, set_display_name,
-};
+pub use commands::{change_password, get_profile, remove_avatar, set_avatar, set_display_name};

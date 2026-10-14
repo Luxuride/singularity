@@ -77,9 +77,12 @@ pub async fn change_password(
     // homeservers that do not require a second factor for password changes.
     client
         .account()
-        .change_password(&request.new_password, Some(AuthData::Dummy(
-            matrix_sdk::ruma::api::client::uiaa::Dummy::new(),
-        )))
+        .change_password(
+            &request.new_password,
+            Some(AuthData::Dummy(
+                matrix_sdk::ruma::api::client::uiaa::Dummy::new(),
+            )),
+        )
         .await
         .map_err(|error| format!("Failed to change password: {error}"))?;
 

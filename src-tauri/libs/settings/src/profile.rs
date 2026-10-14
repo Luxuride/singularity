@@ -57,7 +57,11 @@ pub async fn set_display_name(
     auth_state: &AuthState,
     request: &MatrixSetDisplayNameRequest,
 ) -> Result<MatrixSetDisplayNameResponse, String> {
-    if request.display_name.as_deref().is_some_and(|name| name.trim().is_empty()) {
+    if request
+        .display_name
+        .as_deref()
+        .is_some_and(|name| name.trim().is_empty())
+    {
         return Err(String::from("Display name cannot be empty"));
     }
 
@@ -83,8 +87,7 @@ pub async fn set_avatar(
     request: &MatrixSetAvatarRequest,
 ) -> Result<MatrixSetAvatarResponse, String> {
     let path = Path::new(&request.file_path);
-    let bytes = fs::read(path)
-        .map_err(|error| format!("Failed to read avatar file: {error}"))?;
+    let bytes = fs::read(path).map_err(|error| format!("Failed to read avatar file: {error}"))?;
 
     if bytes.is_empty() {
         return Err(String::from("Avatar file is empty"));
