@@ -93,14 +93,19 @@ pub fn canonical_pack_source_url(raw_url: &str) -> String {
 }
 
 pub fn cache_event_image(bytes: &[u8], key_parts: ImageCacheKeyParts) -> Option<String> {
-    let extension = image_extension_from_mime(&key_parts.mime_type);
+    // Events may omit `content.info.mimetype`, which maps to the `bin`
+    // fallback; sniff the actual bytes before giving up on a renderable type.
+    let extension = match image_extension_from_mime(&key_parts.mime_type) {
+        "bin" => sniffed_image_extension(bytes).unwrap_or("bin"),
+        extension => extension,
+    };
     let file_stem = image_cache_key(&key_parts);
 
     let request = NormalizedMediaLoad::builder()
         .bytes(bytes)
         .file_stem(file_stem)
         .extension(extension)
-        .mime_type(key_parts.mime_type)
+        .mime_type(mime_type_from_extension(extension))
         .build()?;
 
     persist_normalized_media(&request)
