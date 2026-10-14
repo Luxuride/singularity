@@ -7,12 +7,14 @@
 //! - `rooms`        — chat list, navigation, room image, join, update triggers
 //! - `chat`         — messages, media, reactions, emoji, avatars, clipboard
 //! - `verification` — device verification / SAS flows
+//! - `settings`    — profile (display name, avatar) and password change
 //!
 //! Shared binder infrastructure (paths, event sink) lives here.
 
 pub mod auth;
 pub mod chat;
 pub mod rooms;
+pub mod settings;
 pub mod verification;
 
 use tauri::{AppHandle, Emitter, Manager};
