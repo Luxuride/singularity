@@ -6,15 +6,18 @@
 //!
 //! - `cache_key` — cache key parts used to derive stable file names.
 //! - `mime` — MIME type <-> extension mapping.
+//! - `index` — relocating a trailing seek index to the front of a container.
 //! - `cache` — persisting video bytes to the media cache directory.
 //! - `server` — secure loopback HTTP server for serving cached videos.
 
 pub mod cache;
 pub mod cache_key;
+pub mod index;
 pub mod mime;
 pub mod server;
 
 pub use cache::cache_video;
 pub use cache_key::{VideoCacheKeyParts, VideoCacheKeyPartsBuilder};
+pub use index::front_load_seek_index;
 pub use mime::video_extension_from_mime;
 pub use server::VideoServer;
