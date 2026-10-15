@@ -35,13 +35,14 @@
     MatrixRoomRemovedEvent,
     MatrixSelectedRoomMessagesEvent,
   } from "$lib/chats/types";
-  import { AppHeader, RootSpaceList, RoomList } from "$lib/components/navigation";
+  import { AppHeader, RootSpaceList, RoomList, RoomSettingsDialog } from "$lib/components/navigation";
   import { invalidateSenderAvatar, roomImageCache, senderAvatarCache } from "$lib/components/navigation/shared";
 
   let { children } = $props();
 
   let checkingAuth = $state(true);
   let loggingOut = $state(false);
+  let spaceSettingsDialogRoomId = $state<string | null>(null);
 
   onMount(() => {
     let unlisten = () => {};
@@ -333,6 +334,15 @@
           emptyMessage={$shellSelectedRootSpaceId
             ? "No rooms or subspaces in this root space yet."
             : "Select a root space to browse rooms."}
+          showSpaceSettings={Boolean($shellSelectedRootSpaceId && !$shellSelectedRootSpaceId.startsWith("virtual:"))}
+          onOpenSpaceSettings={() => {
+            const space = get(shellRootSpaces).find(
+              (candidate) => candidate.roomId === get(shellSelectedRootSpaceId),
+            );
+            if (space && !space.roomId.startsWith("virtual:")) {
+              spaceSettingsDialogRoomId = space.roomId;
+            }
+          }}
         />
       </div>
 
@@ -341,3 +351,16 @@
       </section>
     </div>
   </main>
+
+{#if spaceSettingsDialogRoomId}
+  {@const dialogSpace = $shellChats.find((chat) => chat.roomId === spaceSettingsDialogRoomId)}
+  {#if dialogSpace}
+    <RoomSettingsDialog
+      open={true}
+      roomId={dialogSpace.roomId}
+      roomName={dialogSpace.displayName}
+      isSpace={dialogSpace.kind === "space"}
+      onClose={() => (spaceSettingsDialogRoomId = null)}
+    />
+  {/if}
+{/if}

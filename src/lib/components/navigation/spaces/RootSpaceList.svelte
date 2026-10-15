@@ -6,6 +6,7 @@
   import FixedRootSpaceItem from "./FixedRootSpaceItem.svelte";
   import SortableRootSpaceItem from "./SortableRootSpaceItem.svelte";
   import JoinRoomDialog from "./JoinRoomDialog.svelte";
+  import { RoomSettingsDialog } from "../shared";
 
   interface Props {
     spaces: MatrixChatSummary[];
@@ -27,6 +28,11 @@
   let lazyImageUrlsByRoomId = $state<Record<string, string | null>>({});
   let joinRoomDialogOpen = $state(false);
   let isDragging = $state(false);
+  let settingsDialogRoom = $state<MatrixChatSummary | null>(null);
+  let isContextMenuOpen = $state(false);
+  let contextMenuPosition = $state<{ x: number; y: number } | null>(null);
+  let contextMenuRoomId = $state<string | null>(null);
+  let contextMenuElement: HTMLDivElement | undefined = $state();
   let persistQueue: Promise<void> = Promise.resolve();
 
   $effect(() => {
@@ -168,6 +174,68 @@
 
     void persistRootSpaceOrder(nextIds, previousIds);
   }
+
+  $effect(() => {
+    if (!isContextMenuOpen) {
+      return;
+    }
+
+    const onWindowPointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+
+      if (contextMenuElement?.contains(event.target)) {
+        return;
+      }
+
+      closeContextMenu();
+    };
+
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      closeContextMenu();
+    };
+
+    window.addEventListener("pointerdown", onWindowPointerDown, true);
+    window.addEventListener("keydown", onWindowKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", onWindowPointerDown, true);
+      window.removeEventListener("keydown", onWindowKeyDown);
+    };
+  });
+
+  function openContextMenu(spaceId: string, event: MouseEvent) {
+    if (isVirtualRoomId(spaceId)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    contextMenuRoomId = spaceId;
+    contextMenuPosition = { x: event.clientX, y: event.clientY };
+    isContextMenuOpen = true;
+  }
+
+  function closeContextMenu() {
+    isContextMenuOpen = false;
+    contextMenuPosition = null;
+    contextMenuRoomId = null;
+  }
+
+  function openSettingsFromContextMenu() {
+    const roomId = contextMenuRoomId;
+    closeContextMenu();
+    if (!roomId) {
+      return;
+    }
+
+    settingsDialogRoom = draggableItems.find((candidate) => candidate.id === roomId)?.space ?? null;
+  }
 </script>
 
 <aside class="card p-2 preset-outlined-surface-200-800 bg-surface-100-900 flex flex-col flex-1 min-h-0 gap-3">
@@ -182,6 +250,7 @@
             selected={space.roomId === selectedRootSpaceId}
             onSelectRootSpace={onSelectRootSpace}
             imageUrl={lazyImageUrlsByRoomId[space.roomId] ?? null}
+            onOpenContextMenu={openContextMenu}
           />
         {/each}
       </ul>
@@ -205,6 +274,7 @@
               selected={item.space.roomId === selectedRootSpaceId}
               onSelectRootSpace={onSelectRootSpace}
               imageUrl={lazyImageUrlsByRoomId[item.space.roomId] ?? null}
+              onOpenContextMenu={openContextMenu}
             />
           {/if}
         {/each}
@@ -226,3 +296,31 @@
   open={joinRoomDialogOpen}
   onClose={() => (joinRoomDialogOpen = false)}
 />
+
+{#if isContextMenuOpen && contextMenuPosition}
+  <div
+    class="fixed z-30 min-w-28 overflow-hidden rounded border border-surface-300-700 bg-surface-50-950 shadow"
+    style={`left: ${contextMenuPosition.x}px; top: ${contextMenuPosition.y}px;`}
+    role="menu"
+    bind:this={contextMenuElement}
+  >
+    <button
+      type="button"
+      class="block w-full px-3 py-2 text-left text-sm hover:bg-surface-200-800"
+      role="menuitem"
+      onclick={openSettingsFromContextMenu}
+    >
+      Settings
+    </button>
+  </div>
+{/if}
+
+{#if settingsDialogRoom && !isVirtualRoomId(settingsDialogRoom.roomId)}
+  <RoomSettingsDialog
+    open={true}
+    roomId={settingsDialogRoom.roomId}
+    roomName={settingsDialogRoom.displayName}
+    isSpace={settingsDialogRoom.kind === "space"}
+    onClose={() => (settingsDialogRoom = null)}
+  />
+{/if}

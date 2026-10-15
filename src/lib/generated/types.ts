@@ -340,6 +340,143 @@ export interface MatrixChangePasswordResponse {
   changed: boolean;
 }
 
+export interface MatrixGetRoomSettingsRequest {
+  roomId: string;
+}
+
+export interface MatrixRoomSettingsResponse {
+  roomId: string;
+  kind: MatrixRoomKind;
+  notificationMode?: MatrixRoomNotificationMode | null;
+  notificationModeUserDefined: boolean;
+  isFavourite: boolean;
+  isLowPriority: boolean;
+  tags: MatrixRoomTag[];
+  joined: boolean;
+}
+
+export type MatrixRoomNotificationMode = "allMessages" | "mentionsAndKeywordsOnly" | "mute";
+
+export interface MatrixRoomTag {
+  name: string;
+  order?: number | null;
+}
+
+export interface MatrixSetRoomNotificationModeRequest {
+  roomId: string;
+  mode?: MatrixRoomNotificationMode | null;
+}
+
+export interface MatrixSetRoomNotificationModeResponse {
+  set: boolean;
+}
+
+export interface MatrixSetRoomTagRequest {
+  roomId: string;
+  name: string;
+  order?: number | null;
+}
+
+export interface MatrixSetRoomTagResponse {
+  set: boolean;
+}
+
+export interface MatrixRemoveRoomTagRequest {
+  roomId: string;
+  name: string;
+}
+
+export interface MatrixRemoveRoomTagResponse {
+  removed: boolean;
+}
+
+export interface MatrixSetRoomFlagsRequest {
+  roomId: string;
+  isFavourite: boolean;
+  isLowPriority: boolean;
+}
+
+export interface MatrixSetRoomFlagsResponse {
+  isFavourite: boolean;
+  isLowPriority: boolean;
+}
+
+export interface MatrixLeaveRoomRequest {
+  roomId: string;
+  forget: boolean;
+}
+
+export interface MatrixLeaveRoomResponse {
+  left: boolean;
+  forgotten: boolean;
+}
+
+export interface MatrixKeywordsResponse {
+  keywords: string[];
+}
+
+export interface MatrixAddKeywordRequest {
+  keyword: string;
+}
+
+export interface MatrixAddKeywordResponse {
+  keywords: string[];
+}
+
+export interface MatrixRemoveKeywordRequest {
+  keyword: string;
+}
+
+export interface MatrixRemoveKeywordResponse {
+  keywords: string[];
+}
+
+export interface MatrixGetRoomKeywordsRequest {
+  roomId: string;
+}
+
+export interface MatrixRoomKeywordsResponse {
+  roomId: string;
+  keywords: string[];
+}
+
+export interface MatrixAddRoomKeywordRequest {
+  roomId: string;
+  keyword: string;
+}
+
+export interface MatrixAddRoomKeywordResponse {
+  roomId: string;
+  keywords: string[];
+}
+
+export interface MatrixRemoveRoomKeywordRequest {
+  roomId: string;
+  keyword: string;
+}
+
+export interface MatrixRemoveRoomKeywordResponse {
+  roomId: string;
+  keywords: string[];
+}
+
+export interface MatrixNotificationDefaultsResponse {
+  encrypted: MatrixRoomNotificationMode;
+  encryptedOneToOne: MatrixRoomNotificationMode;
+  unencrypted: MatrixRoomNotificationMode;
+  unencryptedOneToOne: MatrixRoomNotificationMode;
+}
+
+export interface MatrixSetNotificationDefaultRequest {
+  encrypted: boolean;
+  oneToOne: boolean;
+  mode: MatrixRoomNotificationMode;
+}
+
+export interface MatrixSetNotificationDefaultResponse {
+  set: boolean;
+}
+
 export interface RoomRefreshTrigger {
   selectedRoomId?: string | null;
   includeSelectedMessages: boolean;

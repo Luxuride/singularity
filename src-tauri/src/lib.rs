@@ -183,7 +183,21 @@ pub fn run() {
             commands::settings::matrix_set_display_name,
             commands::settings::matrix_set_avatar,
             commands::settings::matrix_remove_avatar,
+            commands::settings::matrix_add_keyword,
             commands::settings::matrix_change_password,
+            commands::settings::matrix_get_keywords,
+            commands::settings::matrix_remove_keyword,
+            commands::settings::matrix_room_get_keywords,
+            commands::settings::matrix_room_add_keyword,
+            commands::settings::matrix_room_remove_keyword,
+            commands::settings::matrix_get_notification_defaults,
+            commands::settings::matrix_set_notification_default,
+            commands::settings::matrix_room_get_settings,
+            commands::settings::matrix_room_set_notification_mode,
+            commands::settings::matrix_room_set_tag,
+            commands::settings::matrix_room_remove_tag,
+            commands::settings::matrix_room_set_flags,
+            commands::settings::matrix_room_leave,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
