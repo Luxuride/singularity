@@ -17,6 +17,8 @@
 		"--ipc=host"
 	],
 
+	"initializeCommand": "touch ~/.devcontainer-xauth && ( [ -n \"$XAUTHORITY\" ] && [ -f \"$XAUTHORITY\" ] && cp -f \"$XAUTHORITY\" ~/.devcontainer-xauth || true )",
+
 	// Use 'mounts' to make the cargo cache persistent in a Docker Volume.
 	"mounts": [
 		{
@@ -30,7 +32,7 @@
 			"type": "bind"
 		},
 		{
-			"source": "${localEnv:XAUTHORITY}",
+			"source": "${localEnv:HOME}/.devcontainer-xauth",
 			"target": "/tmp/.devcontainer-xauth",
 			"type": "bind"
 		},
