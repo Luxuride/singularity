@@ -85,6 +85,8 @@ async fn set_notification_default(
         .await
         .map_err(|error| format!("Failed to set notification default: {error}"))?;
 
+    let _ = protocol::sync::sync_once_brief(&client).await;
+
     Ok(MatrixSetNotificationDefaultResponse { set: true })
 }
 

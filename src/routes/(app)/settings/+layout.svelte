@@ -9,7 +9,6 @@
             { href: "/settings/profile", label: "Profile" },
             { href: "/settings/account", label: "Account" },
             { href: "/settings/security", label: "Security" },
-            { href: "/settings/keywords", label: "Keywords" },
         ] as const;
 
         function isActivePath(href: string): boolean {

@@ -37,6 +37,9 @@ pub async fn join_room(
         .await
         .map_err(|e| format!("Failed to join room: {e}"))?;
 
+    let _ = protocol::sync::sync_once_brief(&client).await;
+    let _ = crate::persistence::collect_and_store_chats(app_db, &client).await;
+
     Ok(MatrixJoinRoomResponse {
         room_id: response.room_id().to_string(),
     })

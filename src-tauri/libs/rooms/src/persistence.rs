@@ -30,13 +30,13 @@ pub async fn collect_and_store_chats(
     app_db: &Arc<AppDb>,
     client: &matrix_sdk::Client,
 ) -> Vec<MatrixChatSummary> {
-    let cached_images_by_room = load_cached_chats(app_db)
+    let cached_chats_by_room = load_cached_chats(app_db)
         .await
         .ok()
         .flatten()
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|chat| chat.image_url.map(|image_url| (chat.room_id, image_url)))
+        .map(|chat| (chat.room_id.clone(), chat))
         .collect::<HashMap<_, _>>();
 
     let cached_image_sources_by_room = load_cached_chat_image_sources(app_db)
@@ -45,15 +45,28 @@ pub async fn collect_and_store_chats(
 
     let mut chats = collect_chat_summaries(client).await;
     for chat in &mut chats {
+        if let Some(cached) = cached_chats_by_room.get(chat.room_id.as_str()) {
+            if chat.display_name == chat.room_id && !cached.display_name.is_empty() {
+                chat.display_name = cached.display_name.clone();
+            }
+        }
+
         if let Some(source_url) = cached_image_sources_by_room.get(chat.room_id.as_str()) {
             chat.image_url = cache_mxc_media_to_local_path(client, source_url)
                 .await
-                .or_else(|| cached_images_by_room.get(chat.room_id.as_str()).cloned());
+                .or_else(|| {
+                    cached_chats_by_room
+                        .get(chat.room_id.as_str())
+                        .and_then(|c| c.image_url.clone())
+                });
             continue;
         }
 
-        if let Some(image_url) = cached_images_by_room.get(chat.room_id.as_str()) {
-            chat.image_url = Some(image_url.clone());
+        if let Some(image_url) = cached_chats_by_room
+            .get(chat.room_id.as_str())
+            .and_then(|c| c.image_url.clone())
+        {
+            chat.image_url = Some(image_url);
         }
     }
 

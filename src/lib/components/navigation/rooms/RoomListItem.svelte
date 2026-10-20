@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { matrixGetRoomImage } from "$lib/chats/api";
+  import { matrixGetRoomImage, matrixJoinRoom, matrixTriggerRoomUpdate } from "$lib/chats/api";
   import type { MatrixChatSummary } from "$lib/chats/types";
+  import { shellErrorMessage } from "$lib/chats/shell";
   import { RoomAvatar, RoomSettingsDialog, isVirtualRoomId, roomImageCache } from "../shared";
 
   interface Props {
@@ -29,8 +30,10 @@
   let isContextMenuOpen = $state(false);
   let contextMenuPosition = $state<{ x: number; y: number } | null>(null);
   let contextMenuElement: HTMLDivElement | undefined = $state();
+  let isJoining = $state(false);
 
-  const settingsAvailable = $derived(!isVirtualRoomId(room.roomId));
+  const contextMenuAvailable = $derived(!isVirtualRoomId(room.roomId));
+  const settingsAvailable = $derived(!isVirtualRoomId(room.roomId) && room.joined);
 
   const indentation = $derived(`${Math.max(0, depth) * 0.9}rem`);
 
@@ -63,11 +66,38 @@
       });
   });
 
+  async function handleJoin(event?: MouseEvent) {
+    if (event) {
+      event.stopPropagation();
+    }
+    if (isJoining || room.joined) {
+      return;
+    }
+
+    isJoining = true;
+    shellErrorMessage.set("");
+
+    try {
+      const res = await matrixJoinRoom(room.roomId);
+      await matrixTriggerRoomUpdate();
+      onSelect?.(res.roomId || room.roomId);
+    } catch (error) {
+      shellErrorMessage.set(error instanceof Error ? error.message : "Failed to join room");
+    } finally {
+      isJoining = false;
+    }
+  }
+
   function handleClick() {
     if (isSpace) {
       if (hasChildren) {
         onToggleSpace?.(room.roomId);
       }
+      return;
+    }
+
+    if (!room.joined) {
+      void handleJoin();
       return;
     }
 
@@ -109,7 +139,7 @@
   });
 
   function openContextMenu(event: MouseEvent) {
-    if (!settingsAvailable) {
+    if (!contextMenuAvailable) {
       return;
     }
 
@@ -131,19 +161,21 @@
 </script>
 
 <li oncontextmenu={openContextMenu}>
-  <button
-    type="button"
-    class="w-full text-left p-2 rounded transition-colors"
-    class:hover:bg-surface-200-800={!isSpace}
+  <div
+    class="flex items-center justify-between w-full p-2 rounded transition-colors"
+    class:hover:bg-surface-200-800={!isSpace || hasChildren}
     class:opacity-90={isSpace}
-    class:cursor-pointer={!isSpace || hasChildren}
-    class:cursor-default={isSpace && !hasChildren}
     class:bg-primary-100-900={isSelected}
     style={`padding-left: calc(0.5rem + ${indentation});`}
-    onclick={handleClick}
   >
-    <div class="flex items-start justify-between gap-2">
-      <div class="flex items-start gap-2 min-w-0">
+    <button
+      type="button"
+      class="flex-1 text-left min-w-0"
+      class:cursor-pointer={!isSpace || hasChildren}
+      class:cursor-default={isSpace && !hasChildren}
+      onclick={handleClick}
+    >
+      <div class="flex items-center gap-2 min-w-0">
         <RoomAvatar imageUrl={lazyImageUrl} displayName={room.displayName} />
 
         <p class="font-medium truncate">
@@ -155,20 +187,40 @@
       </div>
 
       {#if room.kind === "space"}
+        <p class="text-xs text-surface-700-300">
+          {#if !room.joined}
+            <span class="text-warning-500 font-medium">Not joined</span> • {hasChildren ? "Contains rooms" : "No child rooms"}
+          {:else}
+            {hasChildren ? "Contains rooms" : "No child rooms"}
+          {/if}
+        </p>
+      {:else}
+        <p class="text-xs text-surface-700-300">
+          {#if !room.joined}
+            <span class="text-warning-500 font-medium">Not joined</span> • {room.joinedMembers} members
+          {:else}
+            {room.encrypted ? "Encrypted" : "Unencrypted"} • {room.joinedMembers} members
+          {/if}
+        </p>
+      {/if}
+    </button>
+
+    <div class="flex items-center gap-1.5 shrink-0 ml-2">
+      {#if room.kind === "space"}
         <span class="text-[10px] uppercase tracking-wide text-surface-700-300">Space</span>
       {/if}
+      {#if !room.joined}
+        <button
+          type="button"
+          class="btn preset-filled-primary-500 text-xs px-2.5 py-1"
+          disabled={isJoining}
+          onclick={handleJoin}
+        >
+          {isJoining ? "Joining..." : "Join"}
+        </button>
+      {/if}
     </div>
-
-    {#if room.kind === "space"}
-      <p class="text-xs text-surface-700-300">
-        {hasChildren ? "Contains rooms" : "No child rooms"}
-      </p>
-    {:else}
-      <p class="text-xs text-surface-700-300">
-        {room.encrypted ? "Encrypted" : "Unencrypted"} • {room.joinedMembers} members
-      </p>
-    {/if}
-  </button>
+  </div>
 
   {#if isContextMenuOpen && contextMenuPosition}
     <div
@@ -177,14 +229,29 @@
       role="menu"
       bind:this={contextMenuElement}
     >
-      <button
-        type="button"
-        class="block w-full px-3 py-2 text-left text-sm hover:bg-surface-200-800"
-        role="menuitem"
-        onclick={openSettingsFromContextMenu}
-      >
-        Settings
-      </button>
+      {#if !room.joined}
+        <button
+          type="button"
+          class="block w-full px-3 py-2 text-left text-sm hover:bg-surface-200-800 text-primary-500 font-medium"
+          role="menuitem"
+          disabled={isJoining}
+          onclick={() => {
+            closeContextMenu();
+            void handleJoin();
+          }}
+        >
+          {isJoining ? "Joining..." : "Join"}
+        </button>
+      {:else if settingsAvailable}
+        <button
+          type="button"
+          class="block w-full px-3 py-2 text-left text-sm hover:bg-surface-200-800"
+          role="menuitem"
+          onclick={openSettingsFromContextMenu}
+        >
+          Settings
+        </button>
+      {/if}
     </div>
   {/if}
 

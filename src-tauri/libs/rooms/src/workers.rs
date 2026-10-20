@@ -29,8 +29,12 @@ pub async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixCh
     let children_by_parent = children_room_ids_by_parent_room(&joined_rooms).await;
     let direct_room_ids = direct_room_ids(client).await;
     let mut chats = Vec::with_capacity(joined_rooms.len());
+    let mut seen_room_ids = HashSet::new();
 
-    for room in joined_rooms {
+    for room in &joined_rooms {
+        let room_id_str = room.room_id().to_string();
+        seen_room_ids.insert(room_id_str.clone());
+
         let display_name = room
             .display_name()
             .await
@@ -55,7 +59,7 @@ pub async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixCh
             .unwrap_or_default();
 
         chats.push(MatrixChatSummary {
-            room_id: room.room_id().to_string(),
+            room_id: room_id_str,
             display_name,
             image_url: None,
             encrypted,
@@ -65,6 +69,60 @@ pub async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixCh
             is_direct,
             children_room_ids,
         });
+    }
+
+    for child_ids in children_by_parent.values() {
+        for child_id in child_ids {
+            if seen_room_ids.contains(child_id) {
+                continue;
+            }
+            seen_room_ids.insert(child_id.clone());
+
+            let (display_name, encrypted, joined_members, kind, joined) =
+                if let Ok(parsed_id) = <&matrix_sdk::ruma::RoomId>::try_from(child_id.as_str()) {
+                    if let Some(room) = client.get_room(parsed_id) {
+                        let display_name = room
+                            .display_name()
+                            .await
+                            .map(|name| name.to_string())
+                            .unwrap_or_else(|_| child_id.clone());
+                        let encrypted = room
+                            .latest_encryption_state()
+                            .await
+                            .map(|state| state.is_encrypted())
+                            .unwrap_or(false);
+                        let joined_members = room.joined_members_count();
+                        let kind = if room.is_space() {
+                            MatrixRoomKind::Space
+                        } else {
+                            MatrixRoomKind::Room
+                        };
+                        let joined = room.state() == matrix_sdk::RoomState::Joined;
+                        (display_name, encrypted, joined_members, kind, joined)
+                    } else {
+                        (child_id.clone(), false, 0, MatrixRoomKind::Room, false)
+                    }
+                } else {
+                    (child_id.clone(), false, 0, MatrixRoomKind::Room, false)
+                };
+
+            let children_room_ids = children_by_parent
+                .get(child_id.as_str())
+                .cloned()
+                .unwrap_or_default();
+
+            chats.push(MatrixChatSummary {
+                room_id: child_id.clone(),
+                display_name,
+                image_url: None,
+                encrypted,
+                joined_members,
+                kind,
+                joined,
+                is_direct: direct_room_ids.contains(child_id.as_str()),
+                children_room_ids,
+            });
+        }
     }
 
     chats.sort_by(|a, b| {
@@ -106,6 +164,16 @@ async fn children_room_ids_by_parent_room(
             };
 
             if child_room_id.is_empty() {
+                continue;
+            }
+
+            let is_active_child = event
+                .get("content")
+                .and_then(|v| v.as_object())
+                .map(|content| !content.is_empty())
+                .unwrap_or(false);
+
+            if !is_active_child {
                 continue;
             }
 
