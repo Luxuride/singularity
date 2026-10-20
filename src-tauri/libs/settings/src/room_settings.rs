@@ -181,6 +181,8 @@ async fn set_room_notification_mode(
         recreate_room_keywords(&settings, &room_id, &keywords).await?;
     }
 
+    let _ = protocol::sync::sync_once_brief(&client).await;
+
     Ok(MatrixSetRoomNotificationModeResponse { set: true })
 }
 
@@ -318,6 +320,8 @@ async fn leave_room(
             Err(error) => return Err(format!("Failed to forget room: {error}")),
         }
     }
+
+    let _ = protocol::sync::sync_once_brief(&client).await;
 
     Ok(MatrixLeaveRoomResponse {
         left: true,

@@ -18,6 +18,8 @@ import type {
 		MatrixRoomTag,
 } from "$lib/settings/types";
 	import { shellErrorMessage, shellSelectedRoomId } from "$lib/chats/shell";
+	import { matrixTriggerRoomUpdate } from "$lib/chats/api";
+	import { KeywordEditor, NotificationModeSelector } from "$lib/components/settings";
 
 	interface Props {
 		open: boolean;
@@ -36,16 +38,10 @@ import type {
 	let errorMessage = $state("");
 	let newTagName = $state("");
 	let confirmingLeave = $state(false);
-	let activeTab = $state<"notifications" | "keywords" | "tags" | "danger">("notifications");
+	let activeTab = $state<"notifications" | "tags" | "danger">("notifications");
 	let roomKeywords = $state<string[]>([]);
 
 	const subjectLabel = $derived(isSpace ? "space" : "room");
-
-	const notificationModeOptions: { value: MatrixRoomNotificationMode; label: string }[] = [
-		{ value: "allMessages", label: "All messages" },
-		{ value: "mentionsAndKeywordsOnly", label: "Mentions and keywords only" },
-		{ value: "mute", label: "Mute" },
-	];
 
 	$effect(() => {
 		if (open && dialogElement) {
@@ -91,7 +87,7 @@ import type {
 		onClose();
 	}
 
-	async function applyChange(action: () => Promise<unknown>) {
+	async function applyChange(action: () => Promise<unknown>, rollback?: () => void) {
 		saving = true;
 		errorMessage = "";
 
@@ -99,17 +95,43 @@ import type {
 			await action();
 			settings = await matrixRoomGetSettings({ roomId });
 		} catch (error) {
+			rollback?.();
 			errorMessage = error instanceof Error ? error.message : "Failed to update settings";
 		} finally {
 			saving = false;
 		}
 	}
 
-	function setNotificationMode(mode: MatrixRoomNotificationMode | null) {
-		if (!settings || mode === settings.notificationMode) {
+	async function setNotificationMode(mode: MatrixRoomNotificationMode | null) {
+		if (!settings || saving) {
 			return;
 		}
-		void applyChange(() => matrixRoomSetNotificationMode({ roomId, mode }));
+		if (mode === null && !settings.notificationModeUserDefined) {
+			return;
+		}
+		if (mode !== null && settings.notificationModeUserDefined && mode === settings.notificationMode) {
+			return;
+		}
+
+		const previousMode = settings.notificationMode;
+		const previousUserDefined = settings.notificationModeUserDefined;
+		settings.notificationMode = mode;
+		settings.notificationModeUserDefined = mode !== null;
+
+		saving = true;
+		errorMessage = "";
+
+		try {
+			await matrixRoomSetNotificationMode({ roomId, mode });
+		} catch (error) {
+			if (settings) {
+				settings.notificationMode = previousMode;
+				settings.notificationModeUserDefined = previousUserDefined;
+			}
+			errorMessage = error instanceof Error ? error.message : "Failed to update settings";
+		} finally {
+			saving = false;
+		}
 	}
 
 	function setFlags(isFavourite: boolean, isLowPriority: boolean) {
@@ -120,20 +142,22 @@ import type {
 		void applyChange(() => matrixRoomRemoveTag({ roomId, name: tag.name }));
 	}
 
-	async function addRoomKeyword(event: SubmitEvent) {
-		event.preventDefault();
-		const keyword = newTagName.trim();
-		if (!keyword || saving) {
+	async function addRoomKeyword(keyword: string) {
+		if (saving) {
 			return;
 		}
-		await applyChange(() => matrixRoomAddKeyword({ roomId, keyword }).then((response) => {
-			roomKeywords = response.keywords;
-		}));
-		newTagName = "";
+		await applyChange(() =>
+			matrixRoomAddKeyword({ roomId, keyword }).then((response) => {
+				roomKeywords = response.keywords;
+			}),
+		);
 	}
 
-	function removeRoomKeyword(keyword: string) {
-		void applyChange(() =>
+	async function removeRoomKeyword(keyword: string) {
+		if (saving) {
+			return;
+		}
+		await applyChange(() =>
 			matrixRoomRemoveKeyword({ roomId, keyword }).then((response) => {
 				roomKeywords = response.keywords;
 			}),
@@ -160,7 +184,7 @@ import type {
 		errorMessage = "";
 
 		try {
-			await matrixRoomLeave({ roomId, forget: true });
+			await matrixRoomLeave({ roomId, forget: false });
 			confirmingLeave = false;
 			resetState();
 			onClose();
@@ -169,6 +193,8 @@ import type {
 				shellSelectedRoomId.set("");
 			}
 			shellErrorMessage.set("");
+
+			await matrixTriggerRoomUpdate();
 
 			const params = new URLSearchParams(page.url.searchParams);
 			params.delete("roomId");
@@ -225,17 +251,6 @@ import type {
 					<button
 						type="button"
 						class="btn text-sm"
-						class:preset-filled-primary-500={activeTab === "keywords"}
-						class:preset-tonal={activeTab !== "keywords"}
-						onclick={() => (activeTab = "keywords")}
-					>
-						Keywords
-					</button>
-				</li>
-				<li>
-					<button
-						type="button"
-						class="btn text-sm"
 						class:preset-filled-primary-500={activeTab === "tags"}
 						class:preset-tonal={activeTab !== "tags"}
 						onclick={() => (activeTab = "tags")}
@@ -265,84 +280,36 @@ import type {
 			{/if}
 
 			{#if activeTab === "notifications"}
-			<section class="card p-3 preset-outlined-surface-300-700 bg-surface-50-950 space-y-2">
-				<h3 class="h6">Notifications</h3>
-				<div class="flex flex-col gap-1">
-					{#each notificationModeOptions as option (option.value)}
-						<label
-							class="flex items-center gap-2 rounded p-1.5 text-sm cursor-pointer hover:bg-surface-200-800"
-						>
-							<input
-								type="radio"
-								name="notification-mode"
-								value={option.value}
-								checked={settings.notificationMode === option.value}
-								onchange={() => setNotificationMode(option.value)}
-								disabled={saving || !settings.joined}
-							/>
-							<span>{option.label}</span>
-						</label>
-					{/each}
-				</div>
-				{#if settings.joined}
-					<button
-						type="button"
-						class="text-xs text-surface-700-300 underline text-left hover:text-surface-900-100"
-						onclick={() => setNotificationMode(null)}
-						disabled={saving || !settings.notificationModeUserDefined}
-					>
-						Reset to default
-					</button>
-				{/if}
-			</section>
-			{/if}
-
-			{#if activeTab === "keywords"}
-			<section class="card p-3 preset-outlined-surface-300-700 bg-surface-50-950 space-y-2">
-				<h3 class="h6">Keywords</h3>
-				<p class="text-xs text-surface-700-300">
-					Notify for messages in this {subjectLabel} containing a keyword, even when the
-					notification mode is "Mentions and keywords only" or "Mute".
-				</p>
-				{#if roomKeywords.length > 0}
-					<ul class="flex flex-wrap gap-1">
-						{#each roomKeywords as keyword (keyword)}
-							<li class="flex items-center gap-1 rounded-full bg-surface-200-800 px-2 py-1 text-xs">
-								<span>{keyword}</span>
-								<button
-									type="button"
-									class="hover:text-error-500"
-									aria-label={`Remove keyword ${keyword}`}
-									onclick={() => removeRoomKeyword(keyword)}
-									disabled={saving}
-								>
-									✕
-								</button>
-							</li>
-						{/each}
-					</ul>
-				{:else}
-					<p class="text-sm text-surface-700-300">No keywords for this {subjectLabel} yet.</p>
-				{/if}
-
-				<form onsubmit={addRoomKeyword} class="flex gap-2">
-					<input
-						type="text"
-						placeholder="Add a keyword"
-						bind:value={newTagName}
-						class="input preset-outlined-surface-200-800 bg-surface-50-950 px-2 py-1 text-sm flex-1 min-w-0"
-						disabled={saving}
-						aria-label="New keyword"
+			<div class="flex flex-col gap-3">
+				<section class="card p-3 preset-outlined-surface-300-700 bg-surface-50-950 space-y-2">
+					<h3 class="h6">Mode</h3>
+					<NotificationModeSelector
+						name="room-notification-mode"
+						value={settings.notificationMode}
+						includeDefault={true}
+						isDefault={!settings.notificationModeUserDefined}
+						disabled={!settings.joined}
+						onchange={setNotificationMode}
 					/>
-					<button
-						type="submit"
-						class="btn preset-tonal px-3 py-1 text-sm"
-						disabled={saving || !newTagName.trim()}
-					>
-						Add
-					</button>
-				</form>
-			</section>
+				</section>
+
+				<section class="card p-3 preset-outlined-surface-300-700 bg-surface-50-950 space-y-2">
+					<div>
+						<h3 class="h6">Keywords</h3>
+						<p class="text-xs text-surface-700-300">
+							Notify for messages in this {subjectLabel} containing a keyword, even when the
+							notification mode is "Mentions and keywords only" or "Mute".
+						</p>
+					</div>
+					<KeywordEditor
+						keywords={roomKeywords}
+						disabled={saving}
+						emptyMessage={`No keywords for this ${subjectLabel} yet.`}
+						onadd={addRoomKeyword}
+						onremove={removeRoomKeyword}
+					/>
+				</section>
+			</div>
 			{/if}
 
 			{#if activeTab === "tags"}
@@ -416,7 +383,7 @@ import type {
 					<h3 class="h6 text-error-500">Danger zone</h3>
 					{#if confirmingLeave}
 						<p class="text-sm text-surface-700-300">
-							Leave and forget this {subjectLabel}? You will need a new invite to rejoin.
+							Leave this {subjectLabel}? You can rejoin later.
 						</p>
 						<div class="flex gap-2">
 							<button

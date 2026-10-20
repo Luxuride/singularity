@@ -57,16 +57,16 @@ pub async fn add_keyword(
     validate_keyword(&request.keyword)?;
 
     let client = require_client(paths, app_db, auth_state).await?;
-    client
-        .notification_settings()
-        .await
+    let settings = client.notification_settings().await;
+    settings
         .add_keyword(request.keyword.trim().to_owned())
         .await
         .map_err(|error| format!("Failed to add keyword: {error}"))?;
 
-    Ok(MatrixAddKeywordResponse {
-        keywords: enabled_keywords(paths, app_db, auth_state).await?,
-    })
+    let keywords: Vec<String> = settings.enabled_keywords().await.into_iter().collect();
+    let _ = protocol::sync::sync_once_brief(&client).await;
+
+    Ok(MatrixAddKeywordResponse { keywords })
 }
 
 pub async fn remove_keyword(
@@ -78,14 +78,14 @@ pub async fn remove_keyword(
     validate_keyword(&request.keyword)?;
 
     let client = require_client(paths, app_db, auth_state).await?;
-    client
-        .notification_settings()
-        .await
+    let settings = client.notification_settings().await;
+    settings
         .remove_keyword(request.keyword.trim())
         .await
         .map_err(|error| format!("Failed to remove keyword: {error}"))?;
 
-    Ok(MatrixRemoveKeywordResponse {
-        keywords: enabled_keywords(paths, app_db, auth_state).await?,
-    })
+    let keywords: Vec<String> = settings.enabled_keywords().await.into_iter().collect();
+    let _ = protocol::sync::sync_once_brief(&client).await;
+
+    Ok(MatrixRemoveKeywordResponse { keywords })
 }

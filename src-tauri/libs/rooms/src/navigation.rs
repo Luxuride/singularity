@@ -66,7 +66,7 @@ impl<'a> NavigationIndex<'a> {
     }
 
     fn is_unspaced_room(&self, room: &MatrixChatSummary) -> bool {
-        if room.kind != MatrixRoomKind::Room || room.is_direct {
+        if room.kind != MatrixRoomKind::Room || room.is_direct || !room.joined {
             return false;
         }
 
@@ -142,7 +142,7 @@ impl<'a> NavigationIndex<'a> {
     fn matrix_root_spaces(&self) -> Vec<MatrixChatSummary> {
         self.chats
             .iter()
-            .filter(|room| room.kind == MatrixRoomKind::Space)
+            .filter(|room| room.kind == MatrixRoomKind::Space && room.joined)
             .filter(|space| self.parent_ids(space.room_id.as_str()).is_empty())
             .cloned()
             .collect()
@@ -152,7 +152,7 @@ impl<'a> NavigationIndex<'a> {
         let direct_count = self
             .chats
             .iter()
-            .filter(|room| room.kind == MatrixRoomKind::Room && room.is_direct)
+            .filter(|room| room.kind == MatrixRoomKind::Room && room.is_direct && room.joined)
             .count() as u64;
         let unspaced_count = self
             .chats
@@ -199,7 +199,7 @@ impl<'a> NavigationIndex<'a> {
             let mut rooms = self
                 .chats
                 .iter()
-                .filter(|room| room.kind == MatrixRoomKind::Room && room.is_direct)
+                .filter(|room| room.kind == MatrixRoomKind::Room && room.is_direct && room.joined)
                 .cloned()
                 .collect::<Vec<_>>();
             sort_rooms_by_display_name(&mut rooms);
@@ -482,5 +482,32 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(descendants.len(), 2, "{descendants:?}");
+    }
+
+    #[test]
+    fn unjoined_child_room_is_listed_in_space_descendants_but_not_unspaced() {
+        let mut unjoined_child = chat("!child:example.org", MatrixRoomKind::Room, false, &[]);
+        unjoined_child.joined = false;
+
+        let mut unjoined_orphan = chat("!orphan:example.org", MatrixRoomKind::Room, false, &[]);
+        unjoined_orphan.joined = false;
+
+        let space = chat(
+            "!space:example.org",
+            MatrixRoomKind::Space,
+            false,
+            &["!child:example.org"],
+        );
+
+        let chats = vec![space, unjoined_child, unjoined_orphan];
+
+        let index = NavigationIndex::new(&chats);
+        let descendants = index.build_root_scoped_rooms("!space:example.org");
+        assert_eq!(descendants.len(), 1);
+        assert_eq!(descendants[0].room_id, "!child:example.org");
+        assert!(!descendants[0].joined);
+
+        let unspaced_rooms = index.build_root_scoped_rooms(VIRTUAL_UNSPACED_ROOT_ID);
+        assert!(unspaced_rooms.is_empty());
     }
 }
