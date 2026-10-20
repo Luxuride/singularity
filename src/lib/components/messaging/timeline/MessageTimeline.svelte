@@ -31,7 +31,6 @@
     onProgrammaticScroll?: () => void;
     onScroll?: (event: Event) => void;
     onLoadOlder?: () => void;
-    onOpenRoomSettings?: (roomId: string) => void;
     onRetryMessage?: RetryMessageHandler;
     onToggleReaction?: ToggleReactionHandler;
     onReplyToMessage?: ReplyToMessageHandler;
@@ -55,7 +54,6 @@
     onProgrammaticScroll,
     onScroll,
     onLoadOlder,
-    onOpenRoomSettings,
     onRetryMessage,
     onToggleReaction,
     onReplyToMessage,
@@ -78,8 +76,6 @@
       {activeLoadKind}
       {streamMessageCount}
       {nextFrom}
-      roomId={roomId}
-      onOpenSettings={onOpenRoomSettings}
       onLoadOlder={onLoadOlder}
     />
 

@@ -9,8 +9,6 @@
     selectedRoomId: string | null;
     onSelectRoom?: (roomId: string) => void;
     emptyMessage?: string;
-    showSpaceSettings?: boolean;
-    onOpenSpaceSettings?: () => void;
   }
 
   let {
@@ -18,8 +16,6 @@
     selectedRoomId,
     onSelectRoom,
     emptyMessage = "No rooms in this space yet.",
-    showSpaceSettings = true,
-    onOpenSpaceSettings,
   }: Props = $props();
 
   let expandedSpaceIds = $state<Record<string, boolean>>({});
@@ -72,14 +68,4 @@
       </ul>
     {/if}
   </div>
-
-  {#if showSpaceSettings && onOpenSpaceSettings}
-    <button
-      type="button"
-      class="btn preset-tonal w-full"
-      onclick={onOpenSpaceSettings}
-    >
-      Space settings
-    </button>
-  {/if}
 </aside>

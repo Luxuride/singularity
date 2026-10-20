@@ -7,10 +7,9 @@
     selected: boolean;
     imageUrl: string | null;
     onSelectRootSpace?: (spaceId: string) => void;
-    onOpenContextMenu?: (spaceId: string, event: MouseEvent) => void;
   }
 
-  let { space, selected, imageUrl, onSelectRootSpace, onOpenContextMenu }: Props = $props();
+  let { space, selected, imageUrl, onSelectRootSpace }: Props = $props();
 
   const buttonClasses = (isSelected: boolean) =>
     `w-full flex items-center gap-2 rounded p-2 text-left cursor-grab active:cursor-grabbing transition-all ${
@@ -18,7 +17,7 @@
     }`;
 </script>
 
-<li class="list-none" oncontextmenu={(event) => onOpenContextMenu?.(space.roomId, event)}>
+<li class="list-none">
   <button
     type="button"
     class={buttonClasses(selected)}

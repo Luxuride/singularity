@@ -7,13 +7,12 @@
     selected: boolean;
     imageUrl: string | null;
     onSelectRootSpace?: (spaceId: string) => void;
-    onOpenContextMenu?: (spaceId: string, event: MouseEvent) => void;
   }
 
-  let { space, selected, imageUrl, onSelectRootSpace, onOpenContextMenu }: Props = $props();
+  let { space, selected, imageUrl, onSelectRootSpace }: Props = $props();
 </script>
 
-<li class="list-none" oncontextmenu={(event) => onOpenContextMenu?.(space.roomId, event)}>
+<li class="list-none">
   <div
     class={`flex items-stretch gap-2 rounded transition-colors ${selected ? "bg-primary-100-900" : "hover:bg-surface-200-800"}`}
   >

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { matrixGetRoomImage } from "$lib/chats/api";
   import type { MatrixChatSummary } from "$lib/chats/types";
-  import { RoomAvatar, RoomSettingsDialog, isVirtualRoomId, roomImageCache } from "../shared";
+  import { RoomAvatar, isVirtualRoomId, roomImageCache } from "../shared";
 
   interface Props {
     room: MatrixChatSummary;
@@ -25,12 +25,6 @@
 
   const isSpace = $derived(room.kind === "space");
   let lazyImageUrl = $state<string | null | undefined>(null);
-  let settingsDialogOpen = $state(false);
-  let isContextMenuOpen = $state(false);
-  let contextMenuPosition = $state<{ x: number; y: number } | null>(null);
-  let contextMenuElement: HTMLDivElement | undefined = $state();
-
-  const settingsAvailable = $derived(!isVirtualRoomId(room.roomId));
 
   const indentation = $derived(`${Math.max(0, depth) * 0.9}rem`);
 
@@ -73,64 +67,9 @@
 
     onSelect?.(room.roomId);
   }
-
-  $effect(() => {
-    if (!isContextMenuOpen) {
-      return;
-    }
-
-    const onWindowPointerDown = (event: PointerEvent) => {
-      if (!(event.target instanceof Node)) {
-        return;
-      }
-
-      if (contextMenuElement?.contains(event.target)) {
-        return;
-      }
-
-      closeContextMenu();
-    };
-
-    const onWindowKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-
-      closeContextMenu();
-    };
-
-    window.addEventListener("pointerdown", onWindowPointerDown, true);
-    window.addEventListener("keydown", onWindowKeyDown);
-
-    return () => {
-      window.removeEventListener("pointerdown", onWindowPointerDown, true);
-      window.removeEventListener("keydown", onWindowKeyDown);
-    };
-  });
-
-  function openContextMenu(event: MouseEvent) {
-    if (!settingsAvailable) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    contextMenuPosition = { x: event.clientX, y: event.clientY };
-    isContextMenuOpen = true;
-  }
-
-  function closeContextMenu() {
-    isContextMenuOpen = false;
-    contextMenuPosition = null;
-  }
-
-  function openSettingsFromContextMenu() {
-    closeContextMenu();
-    settingsDialogOpen = true;
-  }
 </script>
 
-<li oncontextmenu={openContextMenu}>
+<li>
   <button
     type="button"
     class="w-full text-left p-2 rounded transition-colors"
@@ -169,32 +108,4 @@
       </p>
     {/if}
   </button>
-
-  {#if isContextMenuOpen && contextMenuPosition}
-    <div
-      class="fixed z-30 min-w-28 overflow-hidden rounded border border-surface-300-700 bg-surface-50-950 shadow"
-      style={`left: ${contextMenuPosition.x}px; top: ${contextMenuPosition.y}px;`}
-      role="menu"
-      bind:this={contextMenuElement}
-    >
-      <button
-        type="button"
-        class="block w-full px-3 py-2 text-left text-sm hover:bg-surface-200-800"
-        role="menuitem"
-        onclick={openSettingsFromContextMenu}
-      >
-        Settings
-      </button>
-    </div>
-  {/if}
-
-  {#if settingsAvailable}
-    <RoomSettingsDialog
-      open={settingsDialogOpen}
-      roomId={room.roomId}
-      roomName={room.displayName}
-      isSpace={isSpace}
-      onClose={() => (settingsDialogOpen = false)}
-    />
-  {/if}
 </li>
